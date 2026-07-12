@@ -17,7 +17,7 @@ export default config({
     blog: collection({
       label: 'Blog',
       slugField: 'title',
-      path: 'src/content/blog/*/',
+      path: 'src/content/blog/*',
       format: { contentField: 'content' },
       entryLayout: 'content',
       schema: {
@@ -30,14 +30,14 @@ export default config({
         }),
         category: fields.text({ label: 'Category', defaultValue: '未分类' }),
         draft: fields.checkbox({ label: 'Draft', defaultValue: false }),
-        content: fields.mdx({ label: 'Content' }),
+        content: fields.mdx({ label: 'Content', extension: 'md' }),
       },
     }),
 
     learning: collection({
       label: 'Learning',
       slugField: 'title',
-      path: 'src/content/learning/*/',
+      path: 'src/content/learning/*',
       format: { contentField: 'content' },
       entryLayout: 'content',
       schema: {
@@ -60,14 +60,14 @@ export default config({
           label: 'Next Steps',
           itemLabel: (p) => p.value,
         }),
-        content: fields.mdx({ label: 'Content' }),
+        content: fields.mdx({ label: 'Content', extension: 'md' }),
       },
     }),
 
     projects: collection({
       label: 'Projects',
       slugField: 'title',
-      path: 'src/content/projects/*/',
+      path: 'src/content/projects/*',
       format: { contentField: 'content' },
       entryLayout: 'content',
       schema: {
@@ -98,7 +98,7 @@ export default config({
           label: 'Lessons',
           itemLabel: (p) => p.value,
         }),
-        content: fields.mdx({ label: 'Content' }),
+        content: fields.mdx({ label: 'Content', extension: 'md' }),
       },
     }),
   },
