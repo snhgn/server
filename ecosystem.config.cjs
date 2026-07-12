@@ -6,7 +6,7 @@ module.exports = {
       cwd: '/home/a/snhgn.me',
       env: {
         NODE_ENV: 'production',
-        HOST: '127.0.0.1',
+        HOST: '0.0.0.0',
         PORT: 4321,
       },
       instances: 1,
