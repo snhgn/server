@@ -9,7 +9,7 @@ import remarkCallout from './src/plugins/remark-callout.mjs';
 
 export default defineConfig({
   site: 'https://snhgn.me',
-  trailingSlash: 'always',
+  trailingSlash: 'ignore',
   output: 'hybrid',
   adapter: node({ mode: 'standalone' }),
   integrations: [react(), mdx(), keystatic()],
