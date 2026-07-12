@@ -9,14 +9,22 @@
     "check": "astro check"
   },
   "dependencies": {
-    "astro": "^4.16.0",
     "@astrojs/mdx": "^3.1.0",
-    "@astrojs/sitemap": "^3.2.0",
+    "@astrojs/node": "^11.0.2",
+    "@astrojs/react": "^6.0.1",
     "@astrojs/rss": "^4.0.0",
-    "remark-math": "^6.0.0",
+    "@astrojs/sitemap": "^3.2.0",
+    "@keystatic/astro": "^5.2.0",
+    "@keystatic/core": "^0.5.51",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "astro": "^4.16.0",
+    "katex": "^0.16.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
     "rehype-katex": "^7.0.0",
     "rehype-mermaid": "^3.0.0",
-    "katex": "^0.16.0"
+    "remark-math": "^6.0.0"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.0",
