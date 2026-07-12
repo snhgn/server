@@ -1,0 +1,36 @@
+---
+import Base from '../../layouts/Base.astro';
+import BlogCard from '../../components/BlogCard.astro';
+import { getCollection } from 'astro:content';
+
+const posts = (await getCollection('blog'))
+  .filter(b => !b.data.draft)
+  .sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
+
+// 提取所有标签
+const allTags = [...new Set(posts.flatMap(p => p.data.tags))];
+---
+<Base title="Blog" description="Engineering notes, Linux internals, embedded hacks." activePath="/blog/">
+
+  <section class="intro">
+    <div class="container">
+      <span class="eyebrow intro__eyebrow">Blog</span>
+      <h1 class="intro__title">Notes &amp; essays.</h1>
+      <p class="intro__lead">Things I wish I'd read earlier.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="container">
+      {allTags.length > 0 && (
+        <div class="row" style="gap:8px;margin-bottom:24px;flex-wrap:wrap">
+          {allTags.map(t => <span class="pill">{t}</span>)}
+        </div>
+      )}
+      <div class="grid grid--2">
+        {posts.map(post => <BlogCard post={{ ...post.data, slug: post.slug }} />)}
+      </div>
+    </div>
+  </section>
+
+</Base>

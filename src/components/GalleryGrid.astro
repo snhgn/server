@@ -1,0 +1,27 @@
+---
+interface Photo {
+  src: string;
+  title: string;
+  location: string;
+  date: string;
+  description: string;
+}
+interface Props {
+  photos: Photo[];
+}
+const { photos } = Astro.props;
+---
+<div class="grid grid--3">
+  {photos.map(photo => (
+    <figure class="gallery__item reveal">
+      <div class="gallery__img-wrap">
+        <img src={photo.src} alt={photo.title} loading="lazy" />
+      </div>
+      <figcaption>
+        <h3 class="gallery__title">{photo.title}</h3>
+        <p class="muted small">{photo.location} · {photo.date}</p>
+        <p class="gallery__desc">{photo.description}</p>
+      </figcaption>
+    </figure>
+  ))}
+</div>

@@ -1,0 +1,90 @@
+---
+import Base from '../layouts/Base.astro';
+import { getProfile } from '../lib/content';
+
+const profile = await getProfile();
+---
+<Base title="About" description={`${profile.name} — ${profile.role}`} activePath="/about/">
+
+  <section class="intro">
+    <div class="container">
+      <span class="eyebrow intro__eyebrow">About</span>
+      <h1 class="intro__title">A forestry student, building things that move.</h1>
+      <p class="intro__lead">{profile.bio}</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="container container--narrow">
+      <span class="eyebrow" style="display:block;margin-bottom:24px">My philosophy</span>
+      <div class="philosophy">
+        {profile.philosophy.map(p => <p>{p}</p>)}
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="container">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Interests</span>
+          <h2 class="section-head__title h2">What I keep coming back to</h2>
+        </div>
+        <span class="section-head__count">{String(profile.interests.length).padStart(2, '0')} areas</span>
+      </div>
+      <div class="skill-group">
+        <ul class="skill-list" style="list-style:none;padding:0;margin:0">
+          {profile.interests.map(interest => (
+            <li class="skill">
+              <span class="skill__name">{interest}</span>
+              <span class="skill__level mono">███████████ active</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="container container--narrow">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Future direction</span>
+          <h2 class="section-head__title h2">Where I'm heading</h2>
+        </div>
+        <span class="section-head__count">next 2 years</span>
+      </div>
+      <div class="philosophy">
+        {profile.future_direction.split('\n\n').map(p => <p set:html={p} />)}
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="container container--narrow">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Get in touch</span>
+          <h2 class="section-head__title h2">Find me elsewhere</h2>
+        </div>
+      </div>
+      <ul style="list-style:none;padding:0;margin:0" class="stack">
+        {profile.social.map(s => (
+          <li class="row row--between" style="padding:16px 0;border-bottom:1px solid var(--border)">
+            <span class="ink">{s.label}</span>
+            <a class="link" href={s.href} target={s.icon === 'github' ? '_blank' : undefined} rel={s.icon === 'github' ? 'noopener' : undefined}>
+              {s.label === 'GitHub' ? '@snhgn →' : s.href.replace('mailto:', '') + ' →'}
+            </a>
+          </li>
+        ))}
+        {profile.education.map(edu => (
+          <li class="row row--between" style="padding:16px 0;border-bottom:1px solid var(--border)">
+            <span class="ink">University</span>
+            <span class="muted small">{edu.school} · {edu.major}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  </section>
+
+</Base>

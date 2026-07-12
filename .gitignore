@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+.astro/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
+npm-debug.log*
+
+# Uploads (user-generated content)
+public/uploads/
+
+# Legacy files (old WordPress/static site, not part of Astro project)
+/wp-theme/
+/wp.tar.gz
+/sqlite-db.zip
+/deploy-redesign.sh
+/verify-routes.sh
+/about/
+/assets/
+/contact/
+/gallery/
+/learning/
+/projects/
+/skills/
+/tech-stack/
+/timeline/
+/index.html

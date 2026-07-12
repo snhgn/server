@@ -1,0 +1,41 @@
+---
+import Pill from './Pill.astro';
+interface Project {
+  slug: string;
+  title: string;
+  description: string;
+  year: number;
+  status: string;
+  tech: string[];
+  cover?: string;
+  order: number;
+}
+interface Props {
+  project: Project;
+  index: number;
+}
+const { project, index } = Astro.props;
+const statusVariant = project.status === 'shipped' ? 'success' : 'default';
+---
+<a class="project reveal" href={`/projects/${project.slug}/`}>
+  <div class="project__head">
+    <div>
+      <div class="row" style="gap:10px;margin-bottom:6px">
+        <span class="project__index mono">#{String(index).padStart(2, '0')}</span>
+        <Pill variant={statusVariant}><span class="dot"></span> {project.status}</Pill>
+        <Pill>{project.year}</Pill>
+      </div>
+      <h2 class="project__title">
+        {project.title}
+        <span class="pill mono" style="font-size:10px">{project.tech.slice(0, 3).join(' · ')}</span>
+      </h2>
+      <p class="project__desc">{project.description}</p>
+    </div>
+  </div>
+  <div class="project__meta">
+    {project.tech.map(t => <span class="pill">{t}</span>)}
+    <span class="project__links" style="margin-left:auto">
+      <a href={`/projects/${project.slug}/`}>View details →</a>
+    </span>
+  </div>
+</a>

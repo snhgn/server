@@ -1,0 +1,36 @@
+events:
+  - date: "2026-07"
+    title: "Digital Garden v2 重构"
+    category: "milestone"
+    description: "迁移到 Astro Content Collections,内容与页面完全分离。"
+    tags: ["astro", "refactor"]
+  - date: "2026-07"
+    title: "理解 systemd 依赖图与启动顺序"
+    category: "learning"
+    description: "梳理 systemd 的 Wants/Requires/After/Before 语义。"
+    tags: ["linux", "systemd"]
+  - date: "2026-07"
+    title: "Beijing Engineering Training Competition"
+    category: "project"
+    description: "智能运输小车参赛,完成 PID + 超声波融合方案。"
+    tags: ["stm32", "competition"]
+  - date: "2026-06"
+    title: "woodscan 模型训练完成"
+    category: "project"
+    description: "木材识别 CNN,12 类 78% top-1 accuracy。"
+    tags: ["pytorch", "cnn"]
+  - date: "2026-06"
+    title: "FreeRTOS queues & tasks"
+    category: "learning"
+    description: "优先级反转踩坑,学会用优先级继承 mutex。"
+    tags: ["freertos", "rtos"]
+  - date: "2026-05"
+    title: "Nginx reverse proxy + PHP-FPM 部署本站"
+    category: "learning"
+    description: "理解反向代理、FastCGI、systemd 服务管理。"
+    tags: ["nginx", "devops"]
+  - date: "2026-05"
+    title: "用 strace 追踪系统调用"
+    category: "learning"
+    description: "理解用户态→内核态切换。"
+    tags: ["linux", "kernel"]

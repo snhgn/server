@@ -1,0 +1,127 @@
+---
+import Base from '../layouts/Base.astro';
+import ProjectCard from '../components/ProjectCard.astro';
+import CurrentlyCard from '../components/CurrentlyCard.astro';
+import { getCollection } from 'astro:content';
+import { getSiteConfig, getCurrently } from '../lib/content';
+
+const site = await getSiteConfig();
+const currently = await getCurrently();
+
+const allProjects = (await getCollection('projects'))
+  .sort((a, b) => a.data.order - b.data.order);
+const featured = allProjects.filter(p => p.data.featured).slice(0, 2);
+
+const learning = (await getCollection('learning'))
+  .sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
+const blog = (await getCollection('blog'))
+  .filter(b => !b.data.draft)
+  .sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
+
+const latest = [
+  ...learning.map(l => ({ type: 'Learning', date: l.data.date, slug: l.slug, title: l.data.title, href: `/learning/${l.slug}/` })),
+  ...blog.map(b => ({ type: 'Blog', date: b.data.date, slug: b.slug, title: b.data.title, href: `/blog/${b.slug}/` })),
+]
+  .sort((a, b) => b.date.getTime() - a.date.getTime())
+  .slice(0, 5);
+---
+<Base title={site.name} description={site.description}>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="container">
+      <div class="hero__inner">
+        <div>
+          <div class="hero__greeting">Hi, I'm <span class="ink">{site.name}</span>.</div>
+          <h1 class="hero__title">
+            Stay curious,<br>
+            <em>keep building.</em>
+          </h1>
+          <div class="hero__role mono">{site.slogan_zh}</div>
+          <p class="hero__lead">{site.description}</p>
+          <div class="hero__ctas">
+            <a class="btn btn--primary btn--lg" href="/projects/">
+              View Projects <span class="arrow">→</span>
+            </a>
+            <a class="btn btn--secondary btn--lg" href="/about/">About me</a>
+          </div>
+          <div class="hero__meta">
+            <span class="hero__meta-item"><span class="hero__meta-dot"></span> {currently.items[0]?.content || 'Currently building'}</span>
+            <span class="hero__meta-item mono">BJFU · 林学</span>
+          </div>
+        </div>
+        <div class="hero__avatar" aria-hidden="true">
+          <span class="hero__avatar-glyph">s/</span>
+          <span class="hero__avatar-tag">v.2026 · digital garden</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CURRENTLY -->
+  <section>
+    <div class="container container--narrow">
+      <CurrentlyCard items={currently.items} updated={currently.updated} />
+    </div>
+  </section>
+
+  <!-- FEATURED -->
+  <section>
+    <div class="container">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Featured</span>
+          <h2 class="section-head__title h2">Selected work</h2>
+        </div>
+        <a class="section-head__count" href="/projects/">All projects →</a>
+      </div>
+      <div class="featured">
+        {featured.map((p, i) => <ProjectCard project={{ ...p.data, slug: p.slug }} index={i + 1} />)}
+      </div>
+    </div>
+  </section>
+
+  <!-- LATEST -->
+  <section>
+    <div class="container container--narrow">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Latest</span>
+          <h2 class="section-head__title h2">Recent updates</h2>
+        </div>
+      </div>
+      <ul class="latest-list">
+        {latest.map(item => (
+          <li class="latest-item reveal">
+            <span class="latest-item__date">
+              {`${item.date.getFullYear()}.${String(item.date.getMonth() + 1).padStart(2, '0')}.${String(item.date.getDate()).padStart(2, '0')}`}
+            </span>
+            <span class="latest-item__tag">{item.type}</span>
+            <a href={item.href} class="latest-item__text">{item.title}</a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  </section>
+
+  <!-- PILLARS -->
+  <section>
+    <div class="container">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Explore</span>
+          <h2 class="section-head__title h2">Where to start</h2>
+        </div>
+        <span class="section-head__count">06 sections</span>
+      </div>
+      <div class="grid grid--3">
+        {site.nav.map(item => (
+          <a class="card reveal" href={item.href}>
+            <h3 class="card__title">{item.label} <span class="arrow">→</span></h3>
+          </a>
+        ))}
+      </div>
+    </div>
+  </section>
+
+</Base>

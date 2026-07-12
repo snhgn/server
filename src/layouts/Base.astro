@@ -1,0 +1,96 @@
+---
+import '../styles/main.css';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+
+interface Props {
+  title: string;
+  description?: string;
+  activePath?: string;
+}
+
+const { title, description, activePath } = Astro.props;
+
+// 从 site.yml 读取(避免每个页面重复传)
+import { getSiteConfig } from '../lib/content';
+const site = await getSiteConfig();
+const fullTitle = title === site.name ? `${site.name} · Digital Garden` : `${title} · ${site.name}`;
+const desc = description || site.description;
+const year = new Date().getFullYear();
+const copyright = site.footer.copyright.replace('{year}', String(year));
+---
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{fullTitle}</title>
+  <meta name="description" content={desc}>
+  <meta name="theme-color" content={site.seo.theme_color}>
+  <meta property="og:title" content={fullTitle}>
+  <meta property="og:description" content={desc}>
+  <meta property="og:type" content={site.seo.og_type}>
+  <meta name="keywords" content={site.seo.keywords.join(', ')}>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.0/dist/katex.min.css">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+</head>
+<body class="fade-in">
+
+  <div id="nprogress"></div>
+
+  <Nav site={site} activePath={activePath} />
+
+  <main>
+    <slot />
+  </main>
+
+  <Footer site={site} copyright={copyright} />
+
+  <script is:inline>
+  // theme toggle
+  (function(){
+    var saved = localStorage.getItem('theme');
+    var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (saved) document.documentElement.setAttribute('data-theme', saved);
+    else if (prefersDark) document.documentElement.setAttribute('data-theme', 'dark');
+    var btn = document.getElementById('themeToggle');
+    if (btn) btn.addEventListener('click', function(){
+      var cur = document.documentElement.getAttribute('data-theme');
+      var next = cur === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('theme', next);
+    });
+  })();
+  // progress bar
+  var bar = document.getElementById('nprogress');
+  if (bar) {
+    requestAnimationFrame(function(){ bar.classList.add('go'); });
+    window.addEventListener('load', function(){
+      bar.classList.remove('go');
+      bar.classList.add('done');
+      setTimeout(function(){ bar.remove(); }, 600);
+    });
+  }
+  // reveal on scroll
+  (function(){
+    var els = document.querySelectorAll('.reveal');
+    if (!('IntersectionObserver' in window)) { els.forEach(function(e){ e.classList.add('in'); }); return; }
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en, i){
+        if (en.isIntersecting) {
+          setTimeout(function(){ en.target.classList.add('in'); }, i * 60);
+          io.unobserve(en.target);
+        }
+      });
+    }, { rootMargin: '-10% 0px' });
+    els.forEach(function(e){ io.observe(e); });
+  })();
+  </script>
+
+</body>
+</html>

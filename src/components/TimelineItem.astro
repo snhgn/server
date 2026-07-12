@@ -1,0 +1,27 @@
+---
+interface TimelineEvent {
+  date: string;
+  title: string;
+  category: string;
+  description: string;
+  tags: string[];
+}
+interface Props {
+  event: TimelineEvent;
+}
+const { event } = Astro.props;
+---
+<li class="timeline__item reveal">
+  <div class="timeline__dot"></div>
+  <div class="timeline__content">
+    <span class="timeline__date mono">{event.date}</span>
+    <h3 class="timeline__title">{event.title}</h3>
+    <span class="pill">{event.category}</span>
+    <p class="timeline__desc">{event.description}</p>
+    {event.tags.length > 0 && (
+      <div class="timeline__tags">
+        {event.tags.map(t => <span class="pill">{t}</span>)}
+      </div>
+    )}
+  </div>
+</li>

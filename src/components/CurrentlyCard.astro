@@ -1,0 +1,26 @@
+---
+interface CurrentlyItem {
+  category: string;
+  content: string;
+}
+interface Props {
+  items: CurrentlyItem[];
+  updated: Date;
+}
+const { items, updated } = Astro.props;
+const dateStr = `${updated.getFullYear()}.${String(updated.getMonth() + 1).padStart(2, '0')}.${String(updated.getDate()).padStart(2, '0')}`;
+---
+<div class="currently reveal">
+  <div class="currently__head">
+    <span class="eyebrow">Currently</span>
+    <span class="muted small mono">updated {dateStr}</span>
+  </div>
+  <div class="currently__grid">
+    {items.map(item => (
+      <div class="currently__item">
+        <span class="currently__cat mono">{item.category}</span>
+        <span class="currently__content">{item.content}</span>
+      </div>
+    ))}
+  </div>
+</div>

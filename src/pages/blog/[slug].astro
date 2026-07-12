@@ -1,0 +1,49 @@
+---
+import Base from '../../layouts/Base.astro';
+import Pill from '../../components/Pill.astro';
+import TOC from '../../components/TOC.astro';
+import { getCollection } from 'astro:content';
+
+export async function getStaticPaths() {
+  const posts = await getCollection('blog');
+  return posts.map(p => ({
+    params: { slug: p.slug },
+    props: { post: p },
+  }));
+}
+
+const { post } = Astro.props;
+const { Content, headings } = await post.render();
+---
+<Base title={post.data.title} description={post.data.description} activePath="/blog/">
+
+  <section class="intro">
+    <div class="container">
+      <span class="eyebrow intro__eyebrow">Blog</span>
+      <h1 class="intro__title">{post.data.title}</h1>
+      <p class="intro__lead">{post.data.description}</p>
+      <div class="row" style="gap:10px;margin-top:16px">
+        <span class="mono muted small">
+          {`${post.data.date.getFullYear()}.${String(post.data.date.getMonth() + 1).padStart(2, '0')}.${String(post.data.date.getDate()).padStart(2, '0')}`}
+        </span>
+        {post.data.reading_time && <span class="mono muted small">{post.data.reading_time} min read</span>}
+        <Pill>{post.data.category}</Pill>
+        {post.data.tags.map(t => <Pill>{t}</Pill>)}
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="container">
+      <div class="row" style="gap:32px;align-items:flex-start">
+        <div class="prose" style="flex:1;min-width:0">
+          <Content />
+        </div>
+        <aside style="flex:0 0 200px;position:sticky;top:80px">
+          <TOC headings={headings} />
+        </aside>
+      </div>
+    </div>
+  </section>
+
+</Base>

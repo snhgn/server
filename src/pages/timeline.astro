@@ -1,0 +1,27 @@
+---
+import Base from '../layouts/Base.astro';
+import TimelineItem from '../components/TimelineItem.astro';
+import { getTimeline } from '../lib/content';
+
+const timeline = await getTimeline();
+const events = [...timeline.events].sort((a, b) => b.date.localeCompare(a.date));
+---
+<Base title="Timeline" description="A timeline of growth." activePath="/timeline/">
+
+  <section class="intro">
+    <div class="container">
+      <span class="eyebrow intro__eyebrow">Timeline</span>
+      <h1 class="intro__title">Years, not résumés.</h1>
+      <p class="intro__lead">How I'm becoming a better engineer.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="container container--narrow">
+      <ul class="timeline" style="list-style:none;padding:0;margin:0">
+        {events.map(event => <TimelineItem event={event} />)}
+      </ul>
+    </div>
+  </section>
+
+</Base>

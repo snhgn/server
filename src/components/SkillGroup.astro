@@ -1,0 +1,25 @@
+---
+interface Skill {
+  name: string;
+  level: number;
+  note?: string;
+}
+interface Props {
+  category: string;
+  items: Skill[];
+}
+const { category, items } = Astro.props;
+// level 1-5 → 进度条字符
+const levelBar = (lvl: number) => '█'.repeat(lvl) + '░'.repeat(5 - lvl);
+---
+<div class="skill-group">
+  <h3 class="skill-group__title">{category}</h3>
+  <ul class="skill-list" style="list-style:none;padding:0;margin:0">
+    {items.map(skill => (
+      <li class="skill">
+        <span class="skill__name">{skill.name}</span>
+        <span class="skill__level mono">{levelBar(skill.level)} {skill.note || ''}</span>
+      </li>
+    ))}
+  </ul>
+</div>

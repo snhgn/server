@@ -1,0 +1,40 @@
+name: "snhgn"
+role: "Aspiring Robotics & AI Engineer"
+role_zh: "保持好奇 · 持续创造"
+avatar: "/favicon.svg"
+bio: |
+  Aspiring Robotics & AI Engineer. I enjoy understanding how things work —
+  from embedded systems and Linux to robotics and artificial intelligence.
+  This is my digital garden: a living record of what I learn, build, and think.
+bio_zh: |
+  林学专业,业余写代码。主攻嵌入式和 Web,记录学习与折腾。
+interests:
+  - "Artificial Intelligence"
+  - "Embedded Systems"
+  - "Linux"
+  - "Robotics"
+  - "Computer Vision"
+  - "Networking"
+  - "Web Tooling"
+philosophy:
+  - '我相信真正的工程能力来源于持续学习与实践。我更喜欢理解事物背后的原理,而不仅仅是会使用工具。每一行代码、每一次调试,都是理解世界运作方式的机会。'
+  - '技术不仅是一份职业,也是探索世界的一种方式。 — 它能让我把模糊的想法变成可触碰的东西,把"好像可以"变成"真的可以"。'
+  - '我记录下来,不是因为我懂了,而是希望未来的自己(或其他正在学的人)不用再踩同样的坑。'
+social:
+  - label: "GitHub"
+    href: "https://github.com/snhgn"
+    icon: "github"
+  - label: "Email"
+    href: "mailto:hi@snhgn.me"
+    icon: "mail"
+education:
+  - period: "2022 — 2026"
+    school: "BJFU"
+    major: "林学"
+future_direction: |
+  短期(6-12 个月):把 Linux 内核与驱动吃透,完成一个能跑在真机上的机器人控制栈。
+
+  中期(1-2 年):向 Robotics & AI Engineer 收敛。深入 SLAM、强化学习与嵌入式实时系统。
+
+  长期:不预设。但有一个原则不会变 — Stay curious, keep building.
+contact_note: "Best reached via email. I read everything, reply to most."

@@ -1,0 +1,26 @@
+---
+import Base from '../layouts/Base.astro';
+import SkillGroup from '../components/SkillGroup.astro';
+import { getSkills } from '../lib/content';
+
+const skills = await getSkills();
+---
+<Base title="Skills" description="Current tech stack and tools." activePath="/skills/">
+
+  <section class="intro">
+    <div class="container">
+      <span class="eyebrow intro__eyebrow">Skills</span>
+      <h1 class="intro__title">Tech I use, and how deep.</h1>
+      <p class="intro__lead">Level 1-5. Honest self-assessment.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="container">
+      <div class="grid grid--2">
+        {skills.groups.map(g => <SkillGroup category={g.category} items={g.items} />)}
+      </div>
+    </div>
+  </section>
+
+</Base>

@@ -1,0 +1,19 @@
+---
+interface LearningEntry {
+  slug: string;
+  title: string;
+  date: Date;
+  tags: string[];
+  summary: string;
+}
+interface Props {
+  entry: LearningEntry;
+}
+const { entry } = Astro.props;
+const dateStr = `${entry.date.getFullYear()}.${String(entry.date.getMonth() + 1).padStart(2, '0')}.${String(entry.date.getDate()).padStart(2, '0')}`;
+---
+<article class="latest-item reveal">
+  <span class="latest-item__date">{dateStr}</span>
+  <span class="latest-item__tag">Learning</span>
+  <a href={`/learning/${entry.slug}/`} class="latest-item__text">{entry.title}</a>
+</article>

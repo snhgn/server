@@ -1,0 +1,53 @@
+groups:
+  - category: "Programming"
+    items:
+      - name: "C"
+        level: 4
+        note: "嵌入式主力语言"
+      - name: "Python"
+        level: 4
+        note: "AI/ML、脚本工具"
+      - name: "JavaScript / TypeScript"
+        level: 3
+        note: "前端工程"
+      - name: "Shell"
+        level: 3
+  - category: "Embedded"
+    items:
+      - name: "STM32 / HAL"
+        level: 4
+      - name: "FreeRTOS"
+        level: 3
+      - name: "Raspberry Pi"
+        level: 3
+  - category: "Linux"
+    items:
+      - name: "命令行 / Shell"
+        level: 4
+      - name: "systemd / 网络"
+        level: 3
+      - name: "Kernel modules"
+        level: 2
+        note: "学习中"
+  - category: "AI"
+    items:
+      - name: "PyTorch"
+        level: 3
+      - name: "OpenCV"
+        level: 3
+      - name: "EfficientNet / CNN"
+        level: 3
+  - category: "Tools"
+    items:
+      - name: "Git"
+        level: 4
+      - name: "Docker"
+        level: 2
+      - name: "Nginx"
+        level: 3
+  - category: "Cloud"
+    items:
+      - name: "1Panel"
+        level: 3
+      - name: "自建服务器"
+        level: 3

@@ -1,0 +1,32 @@
+---
+interface SiteConfig {
+  slogan: string;
+  slogan_zh: string;
+  footer: {
+    copyright: string;
+    links: { label: string; href: string; external?: boolean }[];
+  };
+}
+interface Props {
+  site: SiteConfig;
+  copyright: string;
+}
+const { site, copyright } = Astro.props;
+---
+<footer class="footer">
+  <div class="footer__inner">
+    <h2 class="footer__tag">Stay curious, <span>keep building.</span></h2>
+    <p class="footer__signoff">{site.slogan_zh} — Thanks for visiting.</p>
+    <div class="footer__row">
+      <span class="mono-text">{copyright}</span>
+      <div class="footer__links">
+        {site.footer.links.map(link => (
+          <a href={link.href} target={link.external ? '_blank' : undefined} rel={link.external ? 'noopener' : undefined}>
+            {link.label}
+          </a>
+        ))}
+        <a href={`mailto:${'hi@snhgn.me'}`}>hi@snhgn.me</a>
+      </div>
+    </div>
+  </div>
+</footer>

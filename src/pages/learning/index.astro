@@ -1,0 +1,37 @@
+---
+import Base from '../../layouts/Base.astro';
+import { getCollection } from 'astro:content';
+
+const entries = (await getCollection('learning'))
+  .sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
+---
+<Base title="Learning" description="Open learning notebook." activePath="/learning/">
+
+  <section class="intro">
+    <div class="container">
+      <span class="eyebrow intro__eyebrow">Learning</span>
+      <h1 class="intro__title">Open notebook.</h1>
+      <p class="intro__lead">What I learned, the pitfalls I hit, and what I want to understand next.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="container container--narrow">
+      <ul class="stack-lg" style="list-style:none;padding:0;margin:0">
+        {entries.map(entry => (
+          <li class="latest-item reveal" style="display:block;padding:20px 0;border-bottom:1px solid var(--border)">
+            <div class="row" style="gap:10px;margin-bottom:6px">
+              <span class="mono muted small">
+                {`${entry.data.date.getFullYear()}.${String(entry.data.date.getMonth() + 1).padStart(2, '0')}.${String(entry.data.date.getDate()).padStart(2, '0')}`}
+              </span>
+              {entry.data.tags.map(t => <span class="pill">{t}</span>)}
+            </div>
+            <h3><a href={`/learning/${entry.slug}/`}>{entry.data.title}</a></h3>
+            <p class="muted">{entry.data.summary}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  </section>
+
+</Base>

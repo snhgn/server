@@ -1,0 +1,31 @@
+---
+import Base from '../../layouts/Base.astro';
+import ProjectCard from '../../components/ProjectCard.astro';
+import { getCollection } from 'astro:content';
+
+const projects = (await getCollection('projects'))
+  .sort((a, b) => {
+    if (b.data.year !== a.data.year) return b.data.year - a.data.year;
+    return a.data.order - b.data.order;
+  });
+---
+<Base title="Projects" description="A small, curated list of projects." activePath="/projects/">
+
+  <section class="intro">
+    <div class="container">
+      <span class="eyebrow intro__eyebrow">Projects</span>
+      <h1 class="intro__title">{projects.length} projects, well documented.</h1>
+      <p class="intro__lead">
+        I prefer to build a few things deeply than a lot of things shallowly.
+        Each one below has a development log and a few things I learned the hard way.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <div class="container container--narrow">
+      {projects.map((p, i) => <ProjectCard project={{ ...p.data, slug: p.slug }} index={i + 1} />)}
+    </div>
+  </section>
+
+</Base>

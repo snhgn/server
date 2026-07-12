@@ -1,0 +1,9 @@
+---
+interface Props {
+  variant?: 'default' | 'success' | 'warning' | 'danger';
+  children: any;
+}
+const { variant = 'default', children } = Astro.props;
+const cls = variant === 'default' ? 'pill' : `pill pill--${variant}`;
+---
+<span class={cls}>{children}</span>

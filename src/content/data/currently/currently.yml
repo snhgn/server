@@ -1,0 +1,16 @@
+updated: 2026-07-12
+items:
+  - category: "Learning"
+    content: "Linux kernel modules & device drivers"
+  - category: "Building"
+    content: "Digital garden v2 — content-driven architecture"
+  - category: "Reading"
+    content: "《Linux Device Drivers》3rd edition"
+  - category: "Thinking"
+    content: "How to bridge embedded and AI workflows"
+  - category: "Next Goal"
+    content: "Ship a complete robotics project end-to-end"
+  - category: "Watching"
+    content: "Bilibili 嵌入式系统课程"
+  - category: "Playing"
+    content: "factorio"
