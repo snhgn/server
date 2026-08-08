@@ -7,7 +7,7 @@ import httpx
 import psutil
 from fastapi import APIRouter, Depends
 
-from ..auth import require_auth
+from ..auth import require_admin
 
 router = APIRouter(prefix="/api/status", tags=["status"])
 
@@ -48,7 +48,7 @@ async def _get_docker_containers() -> list[dict]:
 
 @router.get("")
 @router.get("/")
-async def system_status(_: dict = Depends(require_auth)) -> dict:
+async def system_status(_: dict = Depends(require_admin)) -> dict:
     """系统状态"""
     cpu_percent = psutil.cpu_percent(interval=1)
     mem = psutil.virtual_memory()

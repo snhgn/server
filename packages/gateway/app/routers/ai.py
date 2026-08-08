@@ -5,7 +5,7 @@ import httpx
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import StreamingResponse
 
-from ..auth import require_auth
+from ..auth import require_user
 from ..config import settings
 
 logger = logging.getLogger("gateway.ai")
@@ -21,9 +21,8 @@ _client = httpx.AsyncClient(
 @router.api_route(
     "/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE"],
-    dependencies=[Depends(require_auth)],
 )
-async def proxy_ai(path: str, request: Request) -> Response:
+async def proxy_ai(path: str, request: Request, user: dict = Depends(require_user)) -> Response:
     """转发请求到 ai-service"""
     url = f"/{path}"
     # 构造查询参数
@@ -32,8 +31,14 @@ async def proxy_ai(path: str, request: Request) -> Response:
     # 读取请求体
     body = await request.body() if request.method in ("POST", "PUT") else None
 
+    # 注入用户身份 Header（供 ai-service 读取）
+    headers = {
+        "X-User-Id": str(user["uid"]),
+        "X-Username": user["sub"],
+        "X-Role": user["role"],
+    }
+
     # 转发 form-data（文件上传）
-    headers = {}
     content_type = request.headers.get("content-type", "")
     if "multipart/form-data" in content_type:
         form = await request.form()
@@ -44,11 +49,11 @@ async def proxy_ai(path: str, request: Request) -> Response:
                 files.append((key, (value.filename, await value.read(), value.content_type)))
             else:
                 data[key] = value
-        resp = await _client.request(request.method, url, params=params, data=data, files=files)
+        resp = await _client.request(request.method, url, params=params, data=data, files=files, headers=headers)
     else:
         if body:
             headers["content-type"] = content_type
         resp = await _client.request(request.method, url, params=params, content=body, headers=headers)
 
-    logger.info("AI proxy %s %s -> %d", request.method, url, resp.status_code)
+    logger.info("AI proxy %s %s -> %d (user=%s)", request.method, url, resp.status_code, user["sub"])
     return Response(content=resp.content, status_code=resp.status_code, media_type=resp.headers.get("content-type"))

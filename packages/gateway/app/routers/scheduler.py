@@ -4,7 +4,7 @@ import logging
 import httpx
 from fastapi import APIRouter, Depends, Request, Response
 
-from ..auth import require_auth
+from ..auth import require_user
 from ..config import settings
 
 logger = logging.getLogger("gateway.scheduler")
@@ -19,15 +19,19 @@ _client = httpx.AsyncClient(
 @router.api_route(
     "/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE"],
-    dependencies=[Depends(require_auth)],
 )
-async def proxy_scheduler(path: str, request: Request) -> Response:
+async def proxy_scheduler(path: str, request: Request, user: dict = Depends(require_user)) -> Response:
     """转发请求到 scheduler 服务"""
     url = f"/{path}"
     params = dict(request.query_params)
     body = await request.body() if request.method in ("POST", "PUT") else None
 
-    headers = {}
+    # 注入用户身份 Header
+    headers = {
+        "X-User-Id": str(user["uid"]),
+        "X-Username": user["sub"],
+        "X-Role": user["role"],
+    }
     if body:
         headers["content-type"] = request.headers.get("content-type", "")
 
@@ -35,7 +39,7 @@ async def proxy_scheduler(path: str, request: Request) -> Response:
         request.method, url, params=params, content=body, headers=headers
     )
 
-    logger.info("Scheduler proxy %s %s -> %d", request.method, url, resp.status_code)
+    logger.info("Scheduler proxy %s %s -> %d (user=%s)", request.method, url, resp.status_code, user["sub"])
     return Response(
         content=resp.content,
         status_code=resp.status_code,
