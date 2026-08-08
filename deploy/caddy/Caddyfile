@@ -6,16 +6,20 @@
 http://snhgn.me {
     encode zstd gzip
     root * /srv/web
-    try_files {path} /index.html
-    file_server
     header {
         X-Content-Type-Options "nosniff"
         X-Frame-Options "DENY"
         Referrer-Policy "strict-origin-when-cross-origin"
     }
 
-    # API 反代到 gateway 容器
+    # API 反代到 gateway 容器（优先于静态文件）
     handle /api/* {
         reverse_proxy gateway:8001
+    }
+
+    # 静态文件 + SPA 回退
+    handle {
+        try_files {path} /index.html
+        file_server
     }
 }

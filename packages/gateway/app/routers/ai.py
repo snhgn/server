@@ -24,7 +24,7 @@ _client = httpx.AsyncClient(
 )
 async def proxy_ai(path: str, request: Request, user: dict = Depends(require_user)) -> Response:
     """转发请求到 ai-service"""
-    url = f"/{path}"
+    url = f"/api/{path}"
     # 构造查询参数
     params = dict(request.query_params)
 
