@@ -7,6 +7,7 @@ COPY wheels/ ./wheels/
 RUN pip install --no-cache-dir --no-index --find-links=/app/wheels -r requirements.txt
 
 COPY app ./app
+COPY scripts ./scripts
 
 EXPOSE 8000
 

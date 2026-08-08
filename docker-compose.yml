@@ -61,6 +61,7 @@ services:
     ports:
       - "127.0.0.1:8001:8001"
     volumes:
+      - /opt/snhgn/data/gateway:/data
       - /opt/snhgn/logs/gateway:/app/logs
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
