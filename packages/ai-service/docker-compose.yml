@@ -11,6 +11,7 @@ services:
       - /opt/snhgn/data:/data
       - /opt/snhgn/knowledge:/data/knowledge
       - /opt/snhgn/data/chroma-cache:/root/.cache/chroma
+      - /opt/snhgn/logs/ai-service:/app/logs
     environment:
       - HF_ENDPOINT=https://hf-mirror.com
     networks:
