@@ -1,0 +1,92 @@
+# ====================================================================
+# snhgn.me 服务统一编排
+# 包含 4 个核心服务: ai-service / gateway / scheduler / caddy
+# cloudflared 因使用 host 网络，单独管理（见 deploy/cloudflared/）
+# ====================================================================
+#
+# 使用方式:
+#   首次启动:  docker network create snhgn-network && docker compose up -d
+#   重新构建:  docker compose up -d --build
+#   查看日志:  docker compose logs -f [服务名]
+#   停止:      docker compose down
+#
+# 前置条件:
+#   1. 各服务目录下存在 .env 文件（从 .env.example 复制并填写）
+#   2. 已创建外部网络: docker network create snhgn-network
+#   3. 数据目录已创建: /opt/snhgn/{data,logs,knowledge}
+# ====================================================================
+
+services:
+  # ---- AI 服务（GLM / Gemini 多模型 + RAG 知识库）----
+  ai-service:
+    build: ./packages/ai-service
+    container_name: ai-service
+    restart: unless-stopped
+    env_file:
+      - ./packages/ai-service/.env
+    ports:
+      - "8000:8000"
+    volumes:
+      - /opt/snhgn/data:/data
+      - /opt/snhgn/knowledge:/data/knowledge
+      - /opt/snhgn/data/chroma-cache:/root/.cache/chroma
+    environment:
+      - HF_ENDPOINT=https://hf-mirror.com
+    networks:
+      - snhgn-network
+
+  # ---- 定时任务服务（APScheduler）----
+  scheduler:
+    build: ./packages/scheduler
+    container_name: scheduler
+    restart: unless-stopped
+    env_file:
+      - ./packages/scheduler/.env
+    ports:
+      - "127.0.0.1:8002:8002"
+    volumes:
+      - /opt/snhgn/data/sqlite:/data/sqlite
+      - /opt/snhgn/logs/scheduler:/app/logs
+    networks:
+      - snhgn-network
+
+  # ---- API 网关（JWT 认证 + 路由代理）----
+  gateway:
+    build: ./packages/gateway
+    container_name: gateway
+    restart: unless-stopped
+    env_file:
+      - ./packages/gateway/.env
+    ports:
+      - "127.0.0.1:8001:8001"
+    volumes:
+      - /opt/snhgn/logs/gateway:/app/logs
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - ai-service
+      - scheduler
+    networks:
+      - snhgn-network
+
+  # ---- Caddy 反向代理 + 静态网站 ----
+  caddy:
+    image: caddy:2.9-alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy/web:/srv/web:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - snhgn-network
+
+networks:
+  snhgn-network:
+    external: true
+
+volumes:
+  caddy_data:
+  caddy_config:
