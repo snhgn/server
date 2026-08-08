@@ -35,5 +35,9 @@ class VectorStore:
         self.collection.add(documents=texts, metadatas=metadatas, ids=ids)
         logger.info("Added %d chunks to vector store", len(texts))
 
-    def query(self, query_text: str, top_k: int = 3) -> dict:
-        return self.collection.query(query_texts=[query_text], n_results=top_k)
+    def query(self, query_text: str, top_k: int = 3, user_id: int | None = None) -> dict:
+        """按 user_id 过滤检索（None 表示不过滤，仅 admin 全局查询时使用）"""
+        where = {"user_id": user_id} if user_id is not None else None
+        return self.collection.query(
+            query_texts=[query_text], n_results=top_k, where=where
+        )
