@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#f4f8f4" id="themeColorMeta">
+<title>🌲 BJFU 课表</title>
+<script>
+  // 主题预置（防闪烁）：localStorage 优先，其次跟随系统
+  (function () {
+    var pref = localStorage.getItem('themePref') || 'auto';
+    var isDark = pref === 'dark' ||
+      (pref !== 'light' && window.matchMedia &&
+       window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+    var meta = document.getElementById('themeColorMeta');
+    if (meta) meta.setAttribute('content', isDark ? '#121212' : '#f4f8f4');
+  })();
+</script>
+<link rel="stylesheet" href="/static/css/course.css">
+</head>
+<body>
+<main class="wrap">
+  <header>
+    <div style="display: flex; align-items: baseline; gap: 8px;">
+      <h1>🌲 BJFU 课表</h1>
+      <span id="semLabel" class="muted" style="font-size: 13px;">加载中…</span>
+    </div>
+    <div class="controls">
+      <select id="weekSelect" aria-label="选择周次"></select>
+      <button id="prevWeek">上周</button>
+      <button id="nextWeek">下周</button>
+      <button id="todayBtn">今天</button>
+      <button id="themeBtn" aria-label="切换深浅色主题" title="切换深浅色主题">🌙</button>
+    </div>
+  </header>
+
+  <div id="grid" class="grid" aria-label="周课表"></div>
+</main>
+
+<!-- 课程详情弹窗 -->
+<div id="courseModal" class="modal-overlay">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2 class="modal-title" id="mTitle">课程详情</h2>
+      <button class="modal-close" id="mClose" aria-label="关闭">✕</button>
+    </div>
+    <div class="modal-body" id="mBody"></div>
+  </div>
+</div>
+
+<script src="/static/js/course.js"></script>
+</body>
+</html>

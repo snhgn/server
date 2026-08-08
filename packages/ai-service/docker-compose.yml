@@ -1,0 +1,24 @@
+services:
+  ai-service:
+    build: .
+    container_name: ai-service
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - /opt/snhgn/data:/data
+      - /opt/snhgn/knowledge:/data/knowledge
+      - /opt/snhgn/data/chroma-cache:/root/.cache/chroma
+    environment:
+      - HF_ENDPOINT=https://hf-mirror.com
+    networks:
+      - default
+      - snhgn-network
+
+networks:
+  default:
+    driver: bridge
+  snhgn-network:
+    external: true

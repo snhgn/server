@@ -1,0 +1,21 @@
+services:
+  scheduler:
+    build: .
+    container_name: scheduler
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:8002:8002"
+    volumes:
+      - /opt/snhgn/data/sqlite:/data/sqlite
+      - /opt/snhgn/logs/scheduler:/app/logs
+    networks:
+      - default
+      - snhgn-network
+
+networks:
+  default:
+    driver: bridge
+  snhgn-network:
+    external: true

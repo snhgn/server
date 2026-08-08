@@ -1,0 +1,86 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+*.egg
+dist/
+build/
+
+# ===== 敏感配置（绝不提交）=====
+.env
+*.env
+**/.env
+config/.env
+*.key
+*.pem
+*.p12
+
+# ===== 数据库与运行时数据 =====
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+notices.db
+courses.db
+
+# ===== 日志 =====
+*.log
+logs/
+**/logs/
+
+# ===== 模型文件（体积大，按需单独管理）=====
+*.pth
+*.onnx
+*.tar.gz
+onnx-model/
+**/onnx-model/
+
+# ===== 训练样本与缓存图片 =====
+samples/
+**/samples/
+cuts/
+**/cuts/
+eval_cuts/
+**/eval_cuts/
+
+# 验证码模板图片（程序运行时生成，不纳入版本控制）
+**/models/templates/
+**/models/templates/**
+
+# 调试图片
+debug_*.png
+contact_sheet*.png
+
+# ===== Docker 持久化卷 =====
+**/wheels/
+data/vector/
+data/chroma/
+data/chroma-cache/
+data/sqlite/
+
+# ===== IDE =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ===== 操作系统 =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== 构建产物 =====
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage

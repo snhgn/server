@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>snhgn.me - 测试主页</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+            background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+            color: #fff;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+        .card { max-width: 600px; padding: 40px; }
+        h1 { font-size: 2.5rem; margin-bottom: 16px; }
+        .status {
+            display: inline-block;
+            background: rgba(46, 213, 115, 0.2);
+            color: #2ed573;
+            border: 1px solid #2ed573;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            margin-bottom: 24px;
+        }
+        p { color: #a8c0d0; line-height: 1.8; }
+        .stack { margin-top: 32px; font-size: 0.85rem; color: #7f9cad; }
+        .stack code { background: rgba(255,255,255,0.08); padding: 2px 8px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <span class="status">● Server Online</span>
+        <h1>snhgn.me</h1>
+        <p>网站服务器部署成功！<br>当前页面为测试主页，后续将替换为个人主页。</p>
+        <div class="stack">
+            技术栈：Ubuntu Server · Docker · Caddy · Cloudflare Tunnel
+        </div>
+    </div>
+</body>
+</html>
