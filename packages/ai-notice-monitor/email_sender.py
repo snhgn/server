@@ -79,6 +79,10 @@ class EmailSender:
                     </a>
                   </h3>
                   <table style="font-size:13px;color:#444;">
+                    <tr><td style="padding:2px 8px 2px 0;">来源</td>
+                        <td><span style="background:#eef2f7;color:#555;padding:1px 8px;border-radius:3px;font-size:12px;">
+                          {html_lib.escape(notice.source or '-')}
+                        </span></td></tr>
                     <tr><td style="padding:2px 8px 2px 0;">重要程度</td><td>
                         <span style="background:{color};color:#fff;padding:1px 8px;border-radius:3px;font-size:12px;">
                           {importance_text}

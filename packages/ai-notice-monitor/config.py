@@ -11,16 +11,16 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# 尝试加载 .env；未安装 python-dotenv 时忽略（此时需手动设置环境变量）
+# 项目根目录（config.py 所在目录）
+BASE_DIR = Path(__file__).resolve().parent
+
+# 尝试加载 .env（优先加载脚本目录下的 .env，兼容容器内 CWD 非脚本目录的情况）
 try:
     from dotenv import load_dotenv
 
-    load_dotenv()
+    load_dotenv(BASE_DIR / ".env")
 except ImportError:  # pragma: no cover - 仅在依赖缺失时触发
     logging.getLogger(__name__).warning("python-dotenv 未安装，跳过 .env 加载")
-
-# 项目根目录（config.py 所在目录）
-BASE_DIR = Path(__file__).resolve().parent
 
 
 def _get_env(key: str, default: str = "") -> str:
@@ -71,14 +71,14 @@ class AISummaryConfig:
     三者切换只需修改 provider 与对应 api_base/api_key。
     """
 
-    provider: str = _get_env("AI_PROVIDER", "ollama")
-    """摘要提供方"""
+    provider: str = _get_env("AI_PROVIDER", "aiapi")
+    """摘要提供方：aiapi(本平台 ai-service) / ollama / deepseek / openai"""
 
-    model: str = _get_env("AI_MODEL", "qwen3-4b-8k:latest")
-    """模型名"""
+    model: str = _get_env("AI_MODEL", "")
+    """模型名（aiapi 由 ai-service 决定，可留空；其余提供方必填）"""
 
-    api_base: str = _get_env("AI_API_BASE", "http://localhost:11434/v1")
-    """OpenAI 兼容接口地址（ollama 默认 /v1；deepseek/openai 用各自官方地址）"""
+    api_base: str = _get_env("AI_API_BASE", "http://ai-service:8000")
+    """aiapi: ai-service 地址（容器内 http://ai-service:8000）；其余为 OpenAI 兼容地址"""
 
     api_key: str = _get_env("AI_API_KEY", "ollama")
     """API 密钥（ollama 本地可填任意值如 ollama）"""
@@ -118,6 +118,39 @@ class RunConfig:
     """首次运行是否发送历史通知（默认 false：只发新通知）"""
 
 
+@dataclass(frozen=True)
+class SiteItem:
+    """一个被监控的站点（列表页）。"""
+
+    name: str
+    """站点名（用于日志/邮件区分来源）"""
+
+    url: str
+    """列表页 URL"""
+
+
+def _load_sites() -> tuple[SiteItem, ...]:
+    """从 MONITOR_SITES 读取站点列表（JSON 数组），未配置时默认只监控理学院。"""
+    raw = os.getenv("MONITOR_SITES", "").strip()
+    if not raw:
+        return (SiteItem("理学院通知", "https://cos.bjfu.edu.cn/tzgg/index.html"),)
+    try:
+        import json
+
+        items = json.loads(raw)
+        if not isinstance(items, list) or not items:
+            raise ValueError("empty list")
+        return tuple(
+            SiteItem(name=str(it.get("name") or it.get("url")),
+                     url=str(it["url"]))
+            for it in items
+            if isinstance(it, dict) and it.get("url")
+        )
+    except Exception as e:  # 配置损坏时回退默认，不阻塞启动
+        logging.getLogger(__name__).warning("MONITOR_SITES 解析失败(%s)，使用默认站点", e)
+        return (SiteItem("理学院通知", "https://cos.bjfu.edu.cn/tzgg/index.html"),)
+
+
 @dataclass
 class AppConfig:
     """应用总配置。"""
@@ -127,6 +160,8 @@ class AppConfig:
     ai: AISummaryConfig = field(default_factory=AISummaryConfig)
     email: EmailConfig = field(default_factory=EmailConfig)
     run: RunConfig = field(default_factory=RunConfig)
+    sites: tuple[SiteItem, ...] = field(default_factory=_load_sites)
+    """监控站点列表（可多个来源）"""
 
 
 def load_config() -> AppConfig:

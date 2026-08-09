@@ -101,9 +101,13 @@ class AISummarizer:
 
     def _chat(self, messages: list[dict[str, str]]) -> str:
         """
-        调用 OpenAI 兼容 /chat/completions。
-        provider=ollama 时，若无 openai 兼容服务，回退到原生 /api/chat。
+        调用摘要提供方。
+        provider=aiapi   → 本平台 ai-service（统一 AI 网关，无需 api_key）
+        provider=ollama  → 本地 Ollama（兼容端点优先，失败回退原生 /api/chat）
+        provider=deepseek/openai → 各自官方 OpenAI 兼容端点
         """
+        if self.config.provider == "aiapi":
+            return self._chat_aiapi(messages)
         if self.config.provider == "ollama" and "/v1" in self.config.api_base:
             # 优先尝试 OpenAI 兼容端点（现代 Ollama 已内置）
             try:
@@ -114,6 +118,30 @@ class AISummarizer:
         if self.config.provider in ("ollama", "deepseek", "openai"):
             return self._chat_openai(messages)
         raise SummaryError(f"未知 AI_PROVIDER: {self.config.provider}")
+
+    def _chat_aiapi(self, messages: list[dict[str, str]]) -> str:
+        """调用本平台 ai-service 的 /api/chat 接口（system+user 合并为单条消息）。"""
+        system = messages[0]["content"] if messages and messages[0]["role"] == "system" else ""
+        user_msg = messages[-1]["content"] if messages else ""
+        full_prompt = f"{system}\n\n{user_msg}" if system else user_msg
+        url = self.config.api_base.rstrip("/") + "/api/chat"
+        headers = {
+            "Content-Type": "application/json",
+            "X-User-Id": "0",
+            "X-Username": "system",
+            "X-Role": "admin",
+        }
+        resp = requests.post(
+            url, json={"message": full_prompt}, headers=headers, timeout=self.config.timeout
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if not data.get("success"):
+            raise SummaryError(f"ai-service 返回错误: {data.get('error')}")
+        answer = data.get("answer") or ""
+        if not answer.strip():
+            raise SummaryError("ai-service 返回空 answer")
+        return answer
 
     def _chat_openai(self, messages: list[dict[str, str]]) -> str:
         """OpenAI 兼容 /chat/completions 接口。"""

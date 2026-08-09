@@ -1,12 +1,13 @@
 """
-scraper.py - 通知网页抓取模块
+scraper.py - 多站点通知抓取模块
 
 职责：
-1. 抓取通知列表页，解析出 标题 / 链接 / 发布时间
-2. 对单个通知抓取详情页，提取正文文本
+1. 抓取多个通知列表页，解析出 标题 / 链接 / 发布时间（来源站点名）
+2. 对单个通知抓取详情页，提取正文文本（多候选正文容器，失败降级取整页文本）
 3. 网络失败自动重试，结构变化时给出清晰错误
 
-与 ai_summary.py / database.py 完全解耦，只输出结构化数据。
+通用列表解析：遍历页面内所有 <li>，要求其文本包含 "20xx-xx-xx" 日期，
+标题取第一个指向 .html 的 <a>。兼容 cos/gxy/jwc/sports 的常见高校 CMS 结构。
 """
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 
-from config import ScraperConfig
+from config import ScraperConfig, SiteItem
 
 logger = logging.getLogger(__name__)
 
@@ -34,54 +35,90 @@ class Notice:
     title: str
     url: str
     publish_time: str  # 列表页展示的发布时间，如 2026-07-13
+    source: str = "理学院通知"  # 来源站点名
+
+
+# 详情页正文候选容器（不同站点结构不同，逐个尝试）
+_DETAIL_SELECTORS = (
+    ".post-content .content",  # cos 理学院
+    ".trbox",                  # jwc 教务处详情页模板
+    ".ctx-middle",             # gxy 国际学院
+    ".article-content",
+    ".v_news_content",
+    ".TRS_Editor",
+    ".newsContent",
+    "#content",
+    ".content",
+    "article",
+)
+
+# 日期正则：20xx-xx-xx
+_DATE_RE = re.compile(r"20\d{2}-\d{2}-\d{2}")
 
 
 class NoticeScraper:
-    """北林理学院通知公告抓取器。"""
+    """北林多站点通知抓取器。"""
 
-    def __init__(self, config: ScraperConfig) -> None:
+    def __init__(self, config: ScraperConfig, sites: tuple[SiteItem, ...]) -> None:
         self.config = config
+        self.sites = sites
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": config.user_agent})
-        # 解析列表页时的容器选择器（基于实测结构：.post-list > .news-last > ul > li）
-        self._list_container_selector = ".post-list .news-last ul"
-        self._detail_container_selector = ".post-content .content"
 
     # ---------- 公共入口 ----------
 
-    def fetch_latest(self) -> list[Notice]:
-        """抓取最新通知列表（按配置抓取前 N 页，已去重）。"""
+    def fetch_site(self, site: SiteItem) -> list[Notice]:
+        """抓取单个站点最新通知列表（新通知一般在首页，单页足够）。"""
+        try:
+            html = self._fetch_with_retry(site.url)
+        except ScraperError as e:
+            logger.error("抓取站点 %s(%s) 失败: %s", site.name, site.url, e)
+            return []
+        notices = self._parse_list(html, site.url, site.name)
+        logger.info("站点 %s 解析到 %d 条通知", site.name, len(notices))
+        return notices
+
+    def fetch_all(self) -> list[Notice]:
+        """抓取全部站点，返回合并后的通知列表（去重）。"""
         all_notices: dict[str, Notice] = {}
-        for page_index in range(self.config.max_pages):
-            page_url = self._page_url(page_index)
-            try:
-                html = self._fetch_with_retry(page_url)
-            except ScraperError as e:
-                logger.error("抓取分页 %s 失败: %s", page_url, e)
-                break  # 某页失败则停止后续页，避免放大故障
-            notices = self._parse_list(html, page_url)
-            if not notices:
-                logger.warning("分页 %s 未解析到任何通知，可能结构变化", page_url)
-                break
-            for n in notices:
+        for site in self.sites:
+            for n in self.fetch_site(site):
                 all_notices.setdefault(n.url, n)
-        logger.info("列表页共解析到 %d 条通知", len(all_notices))
+        logger.info("全部站点共解析到 %d 条去重通知", len(all_notices))
         return list(all_notices.values())
 
     def fetch_detail_text(self, url: str) -> str:
-        """抓取通知详情页并提取纯文本正文。失败时返回空串（不阻塞主流程）。"""
+        """抓取通知详情页并提取正文文本。失败时返回空串（不阻塞主流程）。"""
         try:
             html = self._fetch_with_retry(url)
         except ScraperError as e:
             logger.warning("抓取详情 %s 失败: %s", url, e)
             return ""
         soup = BeautifulSoup(html, "html.parser")
-        container = soup.select_one(self._detail_container_selector)
+        container = None
+        for sel in _DETAIL_SELECTORS:
+            cand = soup.select_one(sel)
+            if cand is None:
+                continue
+            if len(cand.get_text(" ", strip=True)) >= 50:
+                container = cand
+                break
+            # 命中但文本过短（可能正文为空壳容器），继续尝试下一个候选
+            logger.warning("详情页 %s 容器 %s 文本过短，尝试下一个", url, sel)
         if container is None:
-            logger.warning("详情页 %s 未找到正文容器，可能结构变化", url)
-            return ""
-        # 去掉脚本/样式，取纯文本并压缩空白
-        for tag in container.find_all(["script", "style"]):
+            # 无已知容器 → 选文本最长的容器（可避开导航菜单），再不行取整页
+            texts = []
+            for cand in soup.find_all(["div", "article", "section"]):
+                t = cand.get_text(" ", strip=True)
+                if len(t) > 50:
+                    texts.append((len(t), cand))
+            if texts:
+                container = max(texts, key=lambda x: x[0])[1]
+            else:
+                container = soup.body or soup
+            logger.warning("详情页 %s 未匹配已知正文容器，使用最长文本容器", url)
+        # 去掉脚本/样式/导航，取纯文本并压缩空白
+        for tag in container.find_all(["script", "style", "nav", "header", "footer"]):
             tag.decompose()
         text = container.get_text("\n", strip=True)
         text = re.sub(r"\n{2,}", "\n", text)
@@ -89,14 +126,6 @@ class NoticeScraper:
         return text
 
     # ---------- 内部方法 ----------
-
-    def _page_url(self, page_index: int) -> str:
-        """根据页码生成列表页 URL。第 0 页为首页，第 1 页起为 index1.html ..."""
-        base = self.config.base_url
-        if page_index == 0:
-            return base
-        # 首页形如 .../index.html，分页为 index1.html
-        return re.sub(r"index\.html$", f"index{page_index}.html", base)
 
     def _fetch_with_retry(self, url: str) -> str:
         """带重试的请求。按配置次数重试，全部失败抛 ScraperError。"""
@@ -123,24 +152,36 @@ class NoticeScraper:
         logger.info("等待 %d 秒后重试...", wait)
         time.sleep(wait)
 
-    def _parse_list(self, html: str, page_url: str) -> list[Notice]:
-        """解析列表页 HTML，提取通知条目。"""
+    @staticmethod
+    def _parse_list(html: str, page_url: str, source: str) -> list[Notice]:
+        """
+        通用列表解析：遍历 li，要求含 "20xx-xx-xx" 日期，标题取第一个指向 .html 的 a。
+        日期在 li 内任意位置（span/p/div 均可），天然过滤无日期的导航菜单项。
+        """
         soup = BeautifulSoup(html, "html.parser")
-        container = soup.select_one(self._list_container_selector)
-        if container is None:
-            logger.error("列表页 %s 未找到容器 %s，页面结构可能变化", page_url, self._list_container_selector)
-            return []
         notices: list[Notice] = []
-        for li in container.find_all("li"):
-            a = li.find("a", href=True)
+        for li in soup.find_all("li"):
+            # 1. 日期：li 文本中匹配 20xx-xx-xx
+            date_m = _DATE_RE.search(li.get_text(" ", strip=True))
+            if not date_m:
+                continue
+            # 2. 标题：第一个 href 含 .html 的链接
+            a = None
+            for cand in li.find_all("a", href=True):
+                if ".html" in cand["href"] or cand["href"].endswith("/"):
+                    a = cand
+                    break
             if a is None:
                 continue
             title = a.get("title") or a.get_text(strip=True)
             if not title:
                 continue
-            title = title.replace("\xa0", " ").strip()  # 清理不间断空格
+            title = title.replace("\xa0", " ").strip()
+            if len(title) < 4:  # 跳过过短的导航/装饰链接
+                continue
             href = urljoin(page_url, a["href"])
-            time_span = li.find("span", class_=re.compile(r"time", re.I))
-            publish_time = time_span.get_text(strip=True) if time_span else ""
-            notices.append(Notice(title=title, url=href, publish_time=publish_time))
+            notices.append(Notice(
+                title=title, url=href,
+                publish_time=date_m.group(0), source=source,
+            ))
         return notices

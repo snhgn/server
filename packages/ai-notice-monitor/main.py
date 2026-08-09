@@ -17,19 +17,20 @@ import sys
 from datetime import datetime
 
 from ai_summary import AISummarizer, SummaryError
-from config import load_config
+from config import BASE_DIR, load_config
 from database import NoticeDatabase
 from email_sender import EmailSender, EmailSenderError
 from scraper import Notice, NoticeScraper
 
 # 日志格式：时间 级别 模块: 信息
+# 日志文件固定写到脚本目录，避免 CWD 变化导致日志丢失（容器内 CWD 为 /app）
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler("notice_monitor.log", encoding="utf-8"),
+        logging.FileHandler(str(BASE_DIR / "notice_monitor.log"), encoding="utf-8"),
     ],
 )
 logger = logging.getLogger("main")
@@ -47,14 +48,14 @@ def run(config=None, *, dry_run: bool = False, test_mode: bool = False) -> int:
         config = load_config()
 
     # ---- 1. 初始化组件 ----
-    scraper = NoticeScraper(config.scraper)
+    scraper = NoticeScraper(config.scraper, config.sites)
     db = NoticeDatabase(config.database)
     try:
         # 记录本次运行前的库大小，用于首次运行判断
         db_count_before = db.count()
 
-        # ---- 2. 抓取通知列表 ----
-        notices = scraper.fetch_latest()
+        # ---- 2. 抓取各站点通知列表（合并去重）----
+        notices = scraper.fetch_all()
         logger.info("列表解析完成，共 %d 条", len(notices))
 
         # ---- 3. 去重：找出本次新增 ----
@@ -63,7 +64,7 @@ def run(config=None, *, dry_run: bool = False, test_mode: bool = False) -> int:
             is_new = db.insert_new(n)
             if is_new:
                 new_notices.append(n)
-                logger.info("新增通知: %s (%s)", n.title, n.url)
+                logger.info("新增通知: [%s] %s (%s)", n.source, n.title, n.url)
 
         logger.info("本次新增 %d 条，库中总计 %d 条", len(new_notices), db.count())
 
