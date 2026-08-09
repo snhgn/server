@@ -28,6 +28,7 @@ services:
       - "8000:8000"
     volumes:
       - /opt/snhgn/data:/data
+      - /opt/snhgn/data/gateway/course-data:/data/course-data
       - /opt/snhgn/knowledge:/data/knowledge
       - /opt/snhgn/data/chroma-cache:/root/.cache/chroma
       - /opt/snhgn/logs/ai-service:/app/logs
@@ -48,6 +49,7 @@ services:
     volumes:
       - /opt/snhgn/data/sqlite:/data/sqlite
       - /opt/snhgn/logs/scheduler:/app/logs
+      - /opt/snhgn/scripts:/data/scripts
     networks:
       - snhgn-network
 

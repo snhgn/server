@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     UPLOAD_STORAGE_DIR: str = "/data/uploads"
     UPLOAD_MAX_SIZE_MB: int = 20
 
+    # ---- 课程数据（gateway 同步服务生成的 AI 数据目录）----
+    COURSE_DATA_DIR: str = "/data/course-data"
+
     # ---- 通用 ----
     REQUEST_TIMEOUT: float = 30.0
 

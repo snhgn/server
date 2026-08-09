@@ -1,6 +1,6 @@
 # snhgn.me 服务器与项目总览
 
-最近更新：2026-08-09
+最近更新：2026-08-10
 
 ---
 
@@ -197,7 +197,95 @@ docker exec gateway python /app/scripts/init_admin.py --username admin --passwor
 
 ---
 
-## 五、当前网站状态
+## 五、课表 AI 数据模块开发记录（2026-08-10）
+
+### 目标
+
+将课表模块升级为 AI 助手的数据来源：数据库作为唯一可信来源，网页课表 / AI 查询 / 空闲分析 / 学习规划均基于同一份数据，避免数据不一致；多用户课程数据完全隔离；AI 通过服务内部函数读取数据（不新增 HTTP API）。
+
+### 架构
+
+```
+教务系统 → 课程获取模块 → schedule_cache → courses 表(SQLite) → course_context 同步
+        → /data/course-data/users/user_{id}/（AI 共享目录）→ AI 内部函数读取
+```
+
+- gateway 与 ai-service 通过共享卷交换 AI 数据：`/opt/snhgn/data/gateway/course-data`
+- gateway 容器写入 `/data/course-data`，ai-service 读取同一路径
+- **安全约束**：不存储学号/密码 → 定时同步从 schedule_cache 拉取，而非每日重新登录教务系统
+
+### 新增文件
+
+| 文件 | 职责 |
+|------|------|
+| `packages/gateway/app/schedule/course_db.py` | `courses` + `course_sync_status` 表；`replace_courses`（先删后插，user_id 隔离）、`get_courses`、同步状态读写 |
+| `packages/gateway/app/schedule/course_context.py` | 官方节次时间表 `PERIOD_SLOTS`、周次解析、学期标签、sha256 hash 变化检测；生成 3 个 AI 文件 |
+| `packages/gateway/app/schedule/scheduler.py` | 每日定时同步（默认 03:00，`COURSE_SYNC_HOUR` 可配），`asyncio` 后台任务 |
+| `packages/ai-service/app/course_tools.py` | AI 内部函数 + 意图检测（见下） |
+
+### 数据表设计
+
+- `users` 表（已有）：id / username / password_hash / role
+- `courses` 表：id / user_id / course_name / teacher / location / weekday / start_section / end_section / start_week / end_week / semester / update_time
+- `course_sync_status` 表：user_id / semester / last_sync_time / sync_status(success|failed) / data_hash
+- 多用户隔离：所有查询强制 `WHERE user_id = ?`
+
+### AI 数据目录
+
+`/data/course-data/users/user_{id}/`：
+
+| 文件 | 用途 |
+|------|------|
+| `course.json` | 程序精确查询（user_id / semester / courses 列表） |
+| `course_context.txt` | 自然语言总结，供 LLM 上下文（按周几分组，含时间/地点/教师） |
+| `course_summary.json` | AI 内部函数精确查询（含节次时间区间、周次范围） |
+
+### 课程变化检测
+
+- 规范化课程字段后计算 sha256（`_courses_hash`）
+- 与 `course_sync_status.data_hash` 比较：相同 → `skipped`（不刷新 AI 文件）；不同 → 重新生成
+- 避免无条件刷新 AI 数据
+
+### AI 内部函数（packages/ai-service/app/course_tools.py）
+
+| 函数 | 说明 |
+|------|------|
+| `get_schedule_context(user_id)` | 读取 course_summary.json 生成上下文 |
+| `get_today_courses(user_id)` | 今日课程 |
+| `get_week_courses(user_id, week=None)` | 某周课程（自动计算当前周） |
+| `get_course_info(user_id, course_name)` | 课程详情（模糊匹配名称） |
+| `get_free_time(user_id)` | 每日空闲节次 + 全天无课日 |
+| `build_schedule_prompt(user_id, message)` | 意图检测，命中「今天/这周/某课/空闲/课表」时返回注入片段 |
+
+- chat 入口（流式/非流式）在组装 prompt 前调用 `build_schedule_prompt`，非空则注入"以下是用户的课表信息…"片段
+- 学期配置 `TERM_START='2026-09-07'` / `TERM_END='2027-01-15'`（与前端 ScheduleView 一致）
+
+### 已有代码的改动（最小侵入）
+
+- `packages/gateway/app/main.py`：lifespan 初始化 `schedule_db / course_db / course_scheduler`
+- `packages/gateway/app/schedule/service.py`：抓取写缓存后自动同步，异常不阻断
+- `packages/ai-service/app/main.py`：chat 两处注入课表上下文
+- `packages/gateway/app/config.py` / `packages/ai-service/app/config.py`：新增 `COURSE_DATA_DIR`
+- `packages/ai-service/docker-compose.yml`：新增共享卷 `- /opt/snhgn/data/gateway/course-data:/data/course-data`
+
+**未改动**：登录模块、验证码识别、教务系统爬取模块、课表网页核心显示逻辑。
+
+### 服务器部署验证
+
+- gateway / ai-service 均已重建容器并健康运行（`/health` 200）
+- 真实数据同步：user 1 → 47 门课写入 courses 表，sync_status=success，hash 已记录
+- AI 目录生成 3 文件（course.json / course_context.txt / course_summary.json），semester=2025-2026-2
+- AI 函数实测：`get_course_info("大学物理")` 匹配 8 门，首条「周一 09:50-11:25 二教303」；空闲日 [周六, 周日]；意图检测 3/3 命中
+- 本地回归测试 30/30 通过（表创建、同步、hash 检测、多用户隔离、AI 函数、意图检测）
+
+### 注意事项
+
+- 服务器课程缓存为 **2025-2026 第二学期**，而 `course_tools.py` 的 `TERM_START/TERM_END` 配置为 **2026 秋**（2026-09-07 起）——学期不匹配时 `current_week()` 返回 0，课程查询不受影响但周次过滤失效。需在网页端重新抓取新学期课表，或同步调整 TERM 配置。
+- 部署过程中修复过一处：`main.py` 中 `lifespan` 定义顺序问题（app 实例化先于函数定义导致 NameError），已调整。
+
+---
+
+## 六、当前网站状态
 
 ### 已上线功能
 
@@ -238,7 +326,7 @@ docker exec gateway python /app/scripts/init_admin.py --username admin --passwor
 
 ---
 
-## 六、后续发展方向
+## 七、后续发展方向
 
 ### 短期（下一步）
 
@@ -287,7 +375,7 @@ docker exec gateway python /app/scripts/init_admin.py --username admin --passwor
 
 ---
 
-## 七、常用命令
+## 八、常用命令
 
 ### 服务器管理（SSH）
 

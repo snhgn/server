@@ -16,6 +16,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from .config import settings
+from .course_tools import build_schedule_prompt
 from .memory.manager import (
     CODE_EXTS,
     IMAGE_EXTS,
@@ -564,6 +565,17 @@ async def chat(
                     f"以下是用户上传的文件内容，请结合这些内容回答用户问题：\n{file_text_ctx}"
                 )
 
+    # 课程数据（AI 数据目录，内部函数读取；仅课表相关问题注入）
+    try:
+        schedule_ctx = build_schedule_prompt(user_id, req.message)
+        if schedule_ctx:
+            prompt_parts.append(
+                "以下是用户的课表信息，请基于此回答（提及今天/本周的课请结合周次与星期）：\n"
+                f"{schedule_ctx}"
+            )
+    except Exception as exc:
+        logger.warning("schedule prompt failed: %s", str(exc)[:150])
+
     prompt_parts.append(req.message)
     full_prompt = "\n\n".join(prompt_parts)
 
@@ -705,6 +717,17 @@ async def _stream_chat_generator(
                 prompt_parts.append(
                     f"以下是用户上传的文件内容，请结合这些内容回答用户问题：\n{file_text_ctx}"
                 )
+
+    # 1.4 课程数据（内部函数读取，仅课表相关问题注入）
+    try:
+        schedule_ctx = build_schedule_prompt(user_id, req.message)
+        if schedule_ctx:
+            prompt_parts.append(
+                "以下是用户的课表信息，请基于此回答（提及今天/本周的课请结合周次与星期）：\n"
+                f"{schedule_ctx}"
+            )
+    except Exception as exc:
+        logger.warning("stream schedule prompt failed: %s", str(exc)[:150])
 
     prompt_parts.append(req.message)
     full_prompt = "\n\n".join(prompt_parts)
