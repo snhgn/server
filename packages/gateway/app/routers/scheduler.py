@@ -2,7 +2,7 @@
 import logging
 
 import httpx
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from ..auth import require_user
 from ..config import settings
@@ -21,7 +21,9 @@ _client = httpx.AsyncClient(
     methods=["GET", "POST", "PUT", "DELETE"],
 )
 async def proxy_scheduler(path: str, request: Request, user: dict = Depends(require_user)) -> Response:
-    """转发请求到 scheduler 服务"""
+    """转发请求到 scheduler 服务；写操作仅限 admin"""
+    if request.method in ("POST", "PUT", "DELETE") and user["role"] != "admin":
+        raise HTTPException(403, "Admin only")
     url = f"/{path}"
     params = dict(request.query_params)
     body = await request.body() if request.method in ("POST", "PUT") else None

@@ -14,6 +14,9 @@ from .config import settings
 
 logger = logging.getLogger("scheduler.executor")
 
+# 运行中子进程注册表（job_id -> Process），用于停止任务
+_running_procs: dict[str, "asyncio.subprocess.Process"] = {}
+
 # 历史记录 DB 初始化
 _HISTORY_DB = os.path.join(os.path.dirname(settings.SQLITE_DB_PATH), "scheduler_history.db")
 
@@ -90,14 +93,19 @@ def get_history(job_id: str | None = None, limit: int = 20) -> list[dict]:
         conn.close()
 
 
-async def execute_command(command: str, timeout: int) -> tuple[bool, str, str]:
+async def execute_command(
+    command: str, timeout: int, job_id: str | None = None
+) -> tuple[bool, str, str]:
     """执行 shell 命令，返回 (success, stdout, stderr)"""
+    proc = None
     try:
         proc = await asyncio.create_subprocess_shell(
             command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
+        if job_id:
+            _running_procs[job_id] = proc
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         out = stdout.decode("utf-8", errors="replace")
         err = stderr.decode("utf-8", errors="replace")
@@ -106,10 +114,26 @@ async def execute_command(command: str, timeout: int) -> tuple[bool, str, str]:
             err = f"exit code {proc.returncode}\n{err}"
         return success, out, err
     except asyncio.TimeoutError:
-        proc.kill()  # type: ignore
+        if proc is not None and proc.returncode is None:
+            proc.kill()
         return False, "", f"Timeout after {timeout}s"
     except Exception as e:
         return False, "", str(e)
+    finally:
+        if job_id:
+            _running_procs.pop(job_id, None)
+
+
+def kill_command(job_id: str) -> bool:
+    """终止正在运行的任务进程；无运行中进程时返回 False"""
+    proc = _running_procs.get(job_id)
+    if proc is not None and proc.returncode is None:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        return True
+    return False
 
 
 async def execute_http(

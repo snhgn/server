@@ -9,7 +9,9 @@ from fastapi import FastAPI
 
 from .config import settings
 from .core import init_scheduler
-from .routers import jobs
+from .routers import jobs, scripts
+from .scripts_core import sync_all_tasks
+from .scripts_db import init_db
 
 _LOG_DIR = Path(os.getenv("LOG_DIR", "/app/logs"))
 _LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -43,15 +45,18 @@ for uv_name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    init_db()
     sched = init_scheduler()
+    sync_all_tasks()
     logger.info("Scheduler started: %d jobs", len(sched.get_jobs()))
     yield
     sched.shutdown(wait=False)
     logger.info("Scheduler stopped")
 
 
-app = FastAPI(title="Scheduler Service", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Scheduler Service", version="1.0.0", lifespan=lifespan, redirect_slashes=False)
 app.include_router(jobs.router)
+app.include_router(scripts.router)
 
 
 @app.get("/")

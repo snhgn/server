@@ -28,6 +28,16 @@ def migrate() -> None:
             created_at TEXT DEFAULT (datetime('now', 'localtime'))
         )
     """)
+    # ---- schedule_cache 表（只存课表，不存登录凭证）----
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS schedule_cache (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id       INTEGER NOT NULL UNIQUE,
+            semester      TEXT NOT NULL DEFAULT '',
+            schedule_json TEXT NOT NULL,
+            updated_time  TEXT NOT NULL
+        )
+    """)
     conn.commit()
 
     count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]

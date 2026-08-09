@@ -6,3 +6,9 @@ PyJWT>=2.8
 bcrypt>=4.1
 psutil>=5.9
 python-multipart>=0.0.9
+# ---- Schedule 课表模块（教务系统登录/验证码识别/抓取）----
+requests>=2.28
+numpy>=1.21
+opencv-python-headless>=4.5
+Pillow>=9.0
+ddddocr>=1.4.7
