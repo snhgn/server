@@ -11,10 +11,10 @@ from ..config import settings
 logger = logging.getLogger("gateway.ai")
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
-# 复用连接
+# 复用连接：流式响应需要更长的 read timeout（None 表示无限等待）
 _client = httpx.AsyncClient(
     base_url=settings.AI_SERVICE_URL,
-    timeout=httpx.Timeout(settings.REQUEST_TIMEOUT),
+    timeout=httpx.Timeout(connect=10.0, read=None, write=30.0, pool=10.0),
 )
 
 
@@ -49,11 +49,47 @@ async def proxy_ai(path: str, request: Request, user: dict = Depends(require_use
                 files.append((key, (value.filename, await value.read(), value.content_type)))
             else:
                 data[key] = value
-        resp = await _client.request(request.method, url, params=params, data=data, files=files, headers=headers)
-    else:
-        if body:
-            headers["content-type"] = content_type
-        resp = await _client.request(request.method, url, params=params, content=body, headers=headers)
+        req_headers = {**headers, "content-type": content_type}
+        resp = await _client.request(
+            request.method, url, params=params, data=data, files=files, headers=req_headers
+        )
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            media_type=resp.headers.get("content-type"),
+        )
+
+    # SSE 流式：使用 client.stream()，逐块转发
+    is_sse = path.endswith("/chat/stream") or path == "chat/stream"
+    if is_sse and request.method == "POST":
+        req_headers = {**headers, "content-type": content_type} if body else headers
+
+        async def sse_iter():
+            async with _client.stream(
+                "POST", url, params=params, content=body, headers=req_headers
+            ) as resp:
+                async for chunk in resp.aiter_raw():
+                    yield chunk
+
+        logger.info("AI proxy SSE POST %s (user=%s)", url, user["sub"])
+        return StreamingResponse(
+            sse_iter(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    # 普通请求
+    if body:
+        headers["content-type"] = content_type
+    resp = await _client.request(request.method, url, params=params, content=body, headers=headers)
 
     logger.info("AI proxy %s %s -> %d (user=%s)", request.method, url, resp.status_code, user["sub"])
-    return Response(content=resp.content, status_code=resp.status_code, media_type=resp.headers.get("content-type"))
+    return Response(
+        content=resp.content,
+        status_code=resp.status_code,
+        media_type=resp.headers.get("content-type"),
+    )

@@ -32,6 +32,9 @@ class VectorStore:
         )
 
     def add(self, texts: list[str], metadatas: list[dict], ids: list[str]) -> None:
+        if not texts:
+            logger.info("No chunks to add, skip (empty text)")
+            return
         self.collection.add(documents=texts, metadatas=metadatas, ids=ids)
         logger.info("Added %d chunks to vector store", len(texts))
 

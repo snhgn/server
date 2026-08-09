@@ -1,0 +1,25 @@
+# Caddy 配置 - snhgn.me
+# Cloudflare Tunnel 将公网请求转发到本机 8080 端口（HTTP）
+# TLS 由 Cloudflare 边缘终结，Caddy 只做内部静态文件服务 + API 反向代理
+# 使用 http:// 前缀强制走 HTTP，避免 Caddy 尝试自动申请证书
+
+http://snhgn.me {
+    root * /srv/web
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+
+    # API 反向代理到 gateway 容器（不压缩，保持 SSE 流式响应）
+    handle /api/* {
+        reverse_proxy gateway:8001
+    }
+
+    # 静态文件 + SPA 回退（仅对静态资源启用压缩，避免缓冲 API 响应）
+    handle {
+        encode zstd gzip
+        try_files {path} /index.html
+        file_server
+    }
+}

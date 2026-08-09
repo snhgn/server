@@ -5,8 +5,20 @@ from ..config import settings
 
 
 def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(settings.SQLITE_DB_PATH)
+    """创建 SQLite 连接。
+
+    高并发注意：
+    - WAL 模式：读写并行，避免读阻塞写
+    - busy_timeout=10s：写锁竞争时排队等待而不是立即报 database is locked
+    - check_same_thread=False：允许后台任务（to_thread 线程）使用连接
+    """
+    conn = sqlite3.connect(
+        settings.SQLITE_DB_PATH,
+        timeout=10.0,
+        check_same_thread=False,
+    )
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout=10000")
     return conn
 
 
@@ -73,6 +85,21 @@ def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_conv_user ON conversations(user_id, session_id)"
         )
 
+    # ---- conversation_meta 表（会话维度的标题/摘要/关键词）----
+    if not _table_exists(conn, "conversation_meta"):
+        conn.execute("""
+            CREATE TABLE conversation_meta (
+                user_id INTEGER NOT NULL,
+                session_id TEXT NOT NULL,
+                title TEXT,
+                summary TEXT,
+                keywords TEXT,
+                created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+                PRIMARY KEY (user_id, session_id)
+            )
+        """)
+
     # ---- user_settings 表 ----
     if not _table_exists(conn, "user_settings"):
         conn.execute("""
@@ -83,5 +110,29 @@ def init_db() -> None:
             )
         """)
 
+    # ---- user_files 表（用户上传的临时/知识库文件）----
+    if not _table_exists(conn, "user_files"):
+        conn.execute("""
+            CREATE TABLE user_files (
+                id TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                filename TEXT NOT NULL,
+                file_type TEXT NOT NULL,
+                file_size INTEGER NOT NULL,
+                storage_path TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'temp',
+                created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_files_user ON user_files(user_id, status)"
+        )
+
     conn.commit()
+    # WAL 模式（持久化到库文件）：读写并行，降低高并发写锁竞争
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+    except Exception:
+        pass
     conn.close()

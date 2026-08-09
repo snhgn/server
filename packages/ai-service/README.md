@@ -70,15 +70,26 @@ curl http://192.168.50.2:8000/health
 ```
 GLM_API_KEY=你的智谱Key
 GEMINI_API_KEY=你的GeminiKey
+SILICONFLOW_API_KEY=你的硅基流动Key   # 必填：翻译/总结走这里
 ```
 
-可选参数：
+可选参数（仅可调用以下白名单模型，默认选最新）：
 
 ```
-GLM_MODEL=glm-4.7-flash
+GLM_TEXT_MODEL=glm-4.7-flash                  # 文本（最新）
+GLM_TEXT_FALLBACK_MODEL=glm-4-flash-250414    # 文本备选
+GLM_VISION_MODEL=glm-4.6v-flash               # 视觉（最新）
+GLM_VISION_THINK_MODEL=glm-4.1v-thinking-flash # 视觉思考型
+GLM_VISION_FALLBACK_MODEL=glm-4v-flash        # 视觉备选
+GLM_IMAGE_MODEL=cogview-3-flash               # 图片生成
+GLM_IMAGE_SIZE=1024x1024
 GEMINI_MODEL=gemini-flash-latest
 GEMINI_ENABLED=false     # 默认 false：关闭 Gemini（国内无法直连 Google API，避免超时等待）
                         # 有代理能访问 Google 时改为 true 启用备用
+# 硅基流动专用任务（默认值，可覆盖）
+# SILICONFLOW_BASE_URL=https://api.siliconflow.cn/v1
+# HUNYUAN_TRANSLATE_MODEL=tencent/Hunyuan-MT-7B   # 翻译模型
+# QWEN_SUMMARY_MODEL=Qwen/Qwen3-8B                # 对话总结模型
 REQUEST_TIMEOUT=120
 ```
 
