@@ -38,6 +38,10 @@ logs/
 *.pth
 *.onnx
 *.tar.gz
+
+# ===== 部署临时目录 =====
+.deploy-staging/
+
 onnx-model/
 **/onnx-model/
 
