@@ -22,7 +22,8 @@ class Settings(BaseSettings):
 
     # ---- Google Gemini（官方 HTTP 接口）----
     GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-flash-latest"
+    # 只允许调用以下白名单模型（默认选最新）
+    GEMINI_MODEL: str = "gemini-3.6-flash"
     # 开关：默认关闭（国内无法直连 Google API，避免等待超时）
     # 设置为 true 时启用 Gemini 作为 GLM 失败后的备用
     GEMINI_ENABLED: bool = False

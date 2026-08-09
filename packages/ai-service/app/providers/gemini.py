@@ -6,6 +6,22 @@ import httpx
 from ..config import settings
 from .base import BaseProvider
 
+# 允许调用的模型白名单（禁止调用白名单之外的其他模型）
+ALLOWED_MODELS = {
+    "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite", "gemini-3-flash-preview",
+    "gemini-2.5-pro", "gemini-2.5-flash",
+}
+
+
+def _require_allowed(model: str) -> str:
+    if model not in ALLOWED_MODELS:
+        raise ValueError(
+            f"Model '{model}' is not in the allowlist for gemini. "
+            f"Allowed: {sorted(ALLOWED_MODELS)}"
+        )
+    return model
+
 
 class GeminiProvider(BaseProvider):
     """Google Gemini Provider：使用官方 HTTP 接口"""
@@ -13,7 +29,7 @@ class GeminiProvider(BaseProvider):
     name = "gemini"
 
     def __init__(self) -> None:
-        self.model = settings.GEMINI_MODEL
+        self.model = _require_allowed(settings.GEMINI_MODEL)
         self.url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
         self.stream_url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:streamGenerateContent?alt=sse"
 

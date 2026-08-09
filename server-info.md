@@ -435,3 +435,61 @@ docker exec gateway python -c "import sqlite3; c=sqlite3.connect('/data/gateway.
 # 服务器上执行 tests/tmp_check_routes.sh
 bash /tmp/tmp_check_routes.sh
 ```
+
+---
+
+## 九、本地代理（clash-meta）与 Gemini 接入开发记录（2026-08-10）
+
+### 目标
+
+在服务器部署本地代理，使 Docker 中的 AI Service 能访问 Gemini API（Google 官方接口）。
+
+### 部署成果
+
+- 安装 **clash-meta（mihomo）**，数据目录 `/opt/clash/`，systemd 服务 `clash-meta.service`（开机自启）
+- 混合端口 `mixed-port: 7890`（HTTP/SOCKS5 共用），监听 `127.0.0.1:7890`
+- AI Service 容器注入代理环境变量：
+  - `HTTP_PROXY=http://host.docker.internal:7890`
+  - `HTTPS_PROXY=http://host.docker.internal:7890`
+  - `NO_PROXY=localhost,127.0.0.1,172.16.0.0/12,192.168.0.0/16,gateway,scheduler,ai-service,bigmodel.cn,siliconflow.cn,hf-mirror.com`
+  - 配合 `extra_hosts: host.docker.internal:host-gateway`
+
+### 关键问题排查
+
+1. **校园网强制门户劫持（根因）**
+   - 服务器 WiFi（wlp3s0）未通过北京林业大学 Dr.COM 认证时，**所有 IPv4 出站被劫持**：
+     - HTTP 80 → 302 → `http://login.bjfu.edu.cn/`
+     - HTTPS 443 → MITM 返回 `*.bjfu.edu.cn` 证书
+   - IPv6 出站不受影响（这是旧 checker 误判"网络正常"的原因）
+   - 解决方案：复用服务器已有 `/opt/bjfu-login` 认证脚本（Playwright 登录门户），手动触发 `do_login()` 完成认证
+
+2. **DNS DoH 被劫持**
+   - 原配置 `proxy-server-nameserver`/`fallback` 使用 DoH（dns.alidns.com 等），未认证时 TLS 被 MITM 导致节点域名解析失败
+   - 修复：改为明文 UDP DNS（`proxy-server-nameserver: [223.5.5.5, 119.29.29.29]`、`fallback: [8.8.8.8, 1.1.1.1]`）
+
+3. **节点失败自动切换**
+   - 为 4 个 url-test 组（♻️自动选择 / 🇯🇵 / 🇸🇬 / 🇺🇸）添加 `interval: 60, timeout: 3000, tolerance: 50`
+   - 节点超时后最多 60 秒内自动切换到健康节点
+
+4. **checker.py 修复**
+   - 原 checker 用 urllib 探测（默认走 IPv6 出站，未被劫持）→ 误判"网络正常"永不触发认证
+   - 重写为强制 IPv4 直连（`http.client` + A 记录解析），能正确识别门户劫持并触发自动重登
+
+### 验证结果
+
+- `curl -x http://127.0.0.1:7890 https://www.google.com` → HTTP 200
+- gstatic generate_204 → 204
+- Gemini API（generativelanguage.googleapis.com）网络可达（403 = 缺 key，属正常）
+- ai-service / clash-meta / bjfu-login 均 active + 开机自启
+
+### 代码改动（本地仓库）
+
+- `packages/ai-service/app/providers/gemini.py`：新增 `ALLOWED_MODELS` 白名单 + `_require_allowed()` 校验
+- `packages/ai-service/app/config.py`：`GEMINI_MODEL` 默认改为 `gemini-3.6-flash`
+- `packages/ai-service/.env.example`：更新模型注释（7 个可用模型）
+
+### 注意事项
+
+- `/opt/clash/config.yaml` 为敏感文件（600 权限），含节点订阅信息，**不提交 git**
+- 服务器重启后：clash-meta 与 bjfu-login 均已 enable，自动恢复
+- 校园网掉线时 checker（IPv4 探测）会检测到并自动重登
