@@ -447,7 +447,7 @@ bash /tmp/tmp_check_routes.sh
 ### 部署成果
 
 - 安装 **clash-meta（mihomo）**，数据目录 `/opt/clash/`，systemd 服务 `clash-meta.service`（开机自启）
-- 混合端口 `mixed-port: 7890`（HTTP/SOCKS5 共用），监听 `127.0.0.1:7890`
+- 混合端口 `mixed-port: 7890`（HTTP/SOCKS5 共用），`allow-lan: true` → 监听 `*:7890`（容器经 `host.docker.internal:7890` 访问）
 - AI Service 容器注入代理环境变量：
   - `HTTP_PROXY=http://host.docker.internal:7890`
   - `HTTPS_PROXY=http://host.docker.internal:7890`
@@ -475,11 +475,25 @@ bash /tmp/tmp_check_routes.sh
    - 原 checker 用 urllib 探测（默认走 IPv6 出站，未被劫持）→ 误判"网络正常"永不触发认证
    - 重写为强制 IPv4 直连（`http.client` + A 记录解析），能正确识别门户劫持并触发自动重登
 
+5. **容器连不上代理（监听地址）**
+   - 症状：容器内经 `host.docker.internal:7890` 连代理 → ConnectError
+   - 根因：mihomo 入站默认只监听回环。改 `bind-address: "*"` 无效（那是出站绑定）
+   - 修复：`allow-lan: true` → 入站监听 `*:7890`，容器可访问
+   - 备注：`allow-lan: true` 会让同网段设备可访问代理（无认证），个人服务器场景可接受
+
+6. **Gemini 400 "User location is not supported"（模型地区限制）**
+   - 症状：`generateContent` 返回 `FAILED_PRECONDITION: User location is not supported`
+   - 根因：Gemini 3.x 系列对部分地区（如香港等）不允许使用；2.5-pro 位置 OK 但 quota 超限
+   - 修复：config.yaml 增加规则 `DOMAIN-SUFFIX,generativelanguage.googleapis.com,🇯🇵日本节点`
+     （第一条命中优先于现有 `googleapis.com → 🔮节点选择` 规则），日本组实测对 gemini-3.6-flash 返回 200
+   - 持久化：规则写入 config.yaml，重启 clash 后仍生效，不依赖 🔮节点选择 当前指向
+
 ### 验证结果
 
 - `curl -x http://127.0.0.1:7890 https://www.google.com` → HTTP 200
 - gstatic generate_204 → 204
 - Gemini API（generativelanguage.googleapis.com）网络可达（403 = 缺 key，属正常）
+- **真实 chat 调用 provider=gemini → success=True**（走 🇯🇵日本节点，重启后依然成功）
 - ai-service / clash-meta / bjfu-login 均 active + 开机自启
 
 ### 代码改动（本地仓库）
@@ -487,6 +501,10 @@ bash /tmp/tmp_check_routes.sh
 - `packages/ai-service/app/providers/gemini.py`：新增 `ALLOWED_MODELS` 白名单 + `_require_allowed()` 校验
 - `packages/ai-service/app/config.py`：`GEMINI_MODEL` 默认改为 `gemini-3.6-flash`
 - `packages/ai-service/.env.example`：更新模型注释（7 个可用模型）
+- `packages/ai-service/app/main.py`：`PROVIDER_BY_NAME` + `_build_providers_to_try(pref)`（用户首选 + 失败自动快速切到下一个）；`ChatRequest.provider`；`/api/settings` 返回 `available_providers` 并持久化 `ai_provider`
+- `packages/ai-service/app/memory/database.py`：`user_settings` 表加 `ai_provider` 列（含旧库 ALTER 迁移）
+- `packages/ai-service/app/memory/manager.py`：`UserSettingsManager` 支持 `ai_provider` 读写
+- 前端（`d:\project\snhgn.me`）：`ChatInput.vue` 加 provider 单选组（自动/GLM/Gemini，无模型级选择）；`AiView.vue` 持久化偏好 + 发送参数 + 展示实际 provider
 
 ### 注意事项
 

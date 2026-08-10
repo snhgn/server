@@ -106,9 +106,15 @@ def init_db() -> None:
             CREATE TABLE user_settings (
                 user_id INTEGER PRIMARY KEY,
                 memory_enabled INTEGER NOT NULL DEFAULT 1,
+                ai_provider TEXT,
                 updated_at TEXT DEFAULT (datetime('now', 'localtime'))
             )
         """)
+    elif not _column_exists(conn, "user_settings", "ai_provider"):
+        # 已有库补列：AI provider 偏好（NULL=自动，'glm'/'gemini'=固定首选）
+        conn.execute(
+            "ALTER TABLE user_settings ADD COLUMN ai_provider TEXT"
+        )
 
     # ---- user_files 表（用户上传的临时/知识库文件）----
     if not _table_exists(conn, "user_files"):

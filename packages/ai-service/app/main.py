@@ -67,6 +67,21 @@ PROVIDERS = [GLMProvider()]
 if settings.GEMINI_ENABLED:
     PROVIDERS.append(GeminiProvider())
 
+PROVIDER_BY_NAME = {p.name: p for p in PROVIDERS}
+
+
+def _build_providers_to_try(pref: str | None) -> list:
+    """构造 provider 尝试顺序：
+    - pref 指定时（请求参数优先，其次用户设置），该 provider 排在首位；
+    - 其余 provider 按注册顺序跟在后面；
+    - 任一 provider 失败时调用方按此顺序自动切换到下一个。
+    """
+    if pref in PROVIDER_BY_NAME:
+        return [PROVIDER_BY_NAME[pref]] + [
+            p for p in PROVIDERS if p.name != pref
+        ]
+    return list(PROVIDERS)
+
 # 硅基流动专用 Provider（配置了 key 才启用）
 # - 翻译：腾讯混元 MT
 # - 总结：通义千问
@@ -272,6 +287,7 @@ class ChatRequest(BaseModel):
     use_rag: bool = False
     session_id: str | None = None  # 不传则自动生成
     file_ids: list[str] | None = None  # 附件文件 id 列表
+    provider: str | None = None  # 首选 provider（'glm'/'gemini'），失败自动切换，默认全部按序尝试
 
 
 class ChatResponse(BaseModel):
@@ -291,7 +307,8 @@ class MemoryRequest(BaseModel):
 
 
 class SettingsRequest(BaseModel):
-    memory_enabled: bool
+    memory_enabled: bool = True
+    ai_provider: str | None = None  # 'glm'/'gemini'/'auto'（None 表示自动）
 
 
 # ---- 会话元信息摘要（异步后台任务）----
@@ -583,7 +600,9 @@ async def chat(
     answer = None
     used_provider_name: str | None = None
     is_translate = TRANSLATOR_PROVIDER is not None and not image_b64_list and _is_translation_request(full_prompt)
-    providers_to_try = ([TRANSLATOR_PROVIDER] if is_translate else []) + PROVIDERS
+    # 首选 provider：请求参数优先，其次用户设置；未指定则全部按序尝试
+    pref = req.provider or (settings_data.get("ai_provider") or None)
+    providers_to_try = ([TRANSLATOR_PROVIDER] if is_translate else []) + _build_providers_to_try(pref)
     for provider in providers_to_try:
         try:
             if image_b64_list:
@@ -741,7 +760,9 @@ async def _stream_chat_generator(
     mem_filter = MemoryTagFilter()
 
     is_translate = TRANSLATOR_PROVIDER is not None and not image_b64_list and _is_translation_request(full_prompt)
-    providers_to_try = ([TRANSLATOR_PROVIDER] if is_translate else []) + PROVIDERS
+    # 首选 provider：请求参数优先，其次用户设置；未指定则全部按序尝试
+    pref = req.provider or (settings_data.get("ai_provider") or None)
+    providers_to_try = ([TRANSLATOR_PROVIDER] if is_translate else []) + _build_providers_to_try(pref)
     for provider in providers_to_try:
         try:
             if image_b64_list:
@@ -1132,8 +1153,10 @@ async def delete_memory(
 async def get_settings(
     x_user_id: int = Header(..., alias="X-User-Id"),
 ) -> dict:
-    """获取当前用户的设置"""
-    return user_settings.get(x_user_id)
+    """获取当前用户的设置（含可用 provider 列表，供前端选择）"""
+    data = user_settings.get(x_user_id)
+    data["available_providers"] = [p.name for p in PROVIDERS]
+    return data
 
 
 @app.put("/api/settings")
@@ -1142,9 +1165,18 @@ async def update_settings(
     x_user_id: int = Header(..., alias="X-User-Id"),
 ) -> dict:
     """更新当前用户的设置"""
+    # 只更新非空字段（memory_enabled 为开关无法区分未传，始终写入）
     user_settings.set_memory_enabled(x_user_id, req.memory_enabled)
-    logger.info("settings updated: user_id=%d memory_enabled=%s", x_user_id, req.memory_enabled)
-    return {"success": True, "memory_enabled": req.memory_enabled}
+    if req.ai_provider is not None:
+        pref = None if req.ai_provider in ("", "auto") else req.ai_provider
+        if pref is not None and pref not in PROVIDER_BY_NAME:
+            raise HTTPException(422, f"Unknown provider: {pref}")
+        user_settings.set_ai_provider(x_user_id, pref)
+    logger.info(
+        "settings updated: user_id=%d memory_enabled=%s ai_provider=%s",
+        x_user_id, req.memory_enabled, req.ai_provider,
+    )
+    return {"success": True, "memory_enabled": req.memory_enabled, "ai_provider": req.ai_provider}
 
 
 # ---- Admin 接口：跨用户管理 ----

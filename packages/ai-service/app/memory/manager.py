@@ -215,8 +215,13 @@ class UserSettingsManager:
         conn.close()
         if row:
             return dict(row)
-        # 默认值：memory_enabled=1
-        return {"user_id": user_id, "memory_enabled": 1, "updated_at": None}
+        # 默认值：memory_enabled=1，ai_provider=None（自动）
+        return {
+            "user_id": user_id,
+            "memory_enabled": 1,
+            "ai_provider": None,
+            "updated_at": None,
+        }
 
     def set_memory_enabled(self, user_id: int, enabled: bool) -> None:
         conn = get_connection()
@@ -227,6 +232,20 @@ class UserSettingsManager:
                    memory_enabled=excluded.memory_enabled,
                    updated_at=datetime('now','localtime')""",
             (user_id, 1 if enabled else 0),
+        )
+        conn.commit()
+        conn.close()
+
+    def set_ai_provider(self, user_id: int, provider: str | None) -> None:
+        """设置 AI provider 偏好：None=自动，'glm'/'gemini'=固定首选该 provider"""
+        conn = get_connection()
+        conn.execute(
+            """INSERT INTO user_settings (user_id, ai_provider, updated_at)
+               VALUES (?, ?, datetime('now','localtime'))
+               ON CONFLICT(user_id) DO UPDATE SET
+                   ai_provider=excluded.ai_provider,
+                   updated_at=datetime('now','localtime')""",
+            (user_id, provider),
         )
         conn.commit()
         conn.close()
