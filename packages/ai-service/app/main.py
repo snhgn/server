@@ -378,7 +378,12 @@ async def summarize_session(
     # 并发上限：同时最多 SUMMARIZE_MAX_CONCURRENCY 个总结任务，
     # 其余排队等待，避免高并发时阻塞事件循环 / 打爆第三方 API
     async with _get_summarize_sem():
-        await _summarize_session_impl(user_id, session_id, user_msg, ai_resp)
+        await _summarize_session_impl(
+            user_id=user_id,
+            session_id=session_id,
+            user_msg=user_msg,
+            ai_resp=ai_resp,
+        )
 
 
 async def _summarize_session_impl(
