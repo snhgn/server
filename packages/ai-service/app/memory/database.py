@@ -85,7 +85,7 @@ def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_conv_user ON conversations(user_id, session_id)"
         )
 
-    # ---- conversation_meta 表（会话维度的标题/摘要/关键词）----
+    # ---- conversation_meta 表（会话维度的标题/摘要/关键词/滚动摘要）----
     if not _table_exists(conn, "conversation_meta"):
         conn.execute("""
             CREATE TABLE conversation_meta (
@@ -94,11 +94,17 @@ def init_db() -> None:
                 title TEXT,
                 summary TEXT,
                 keywords TEXT,
+                rolling_summary TEXT,
                 created_at TEXT DEFAULT (datetime('now', 'localtime')),
                 updated_at TEXT DEFAULT (datetime('now', 'localtime')),
                 PRIMARY KEY (user_id, session_id)
             )
         """)
+    elif not _column_exists(conn, "conversation_meta", "rolling_summary"):
+        # 已有库补列：滚动摘要（超窗压缩后的长期上下文）
+        conn.execute(
+            "ALTER TABLE conversation_meta ADD COLUMN rolling_summary TEXT"
+        )
 
     # ---- user_settings 表 ----
     if not _table_exists(conn, "user_settings"):

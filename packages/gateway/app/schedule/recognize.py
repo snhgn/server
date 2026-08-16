@@ -26,6 +26,17 @@ TEMPLATE_THRESHOLD = 0.55  # 模板匹配置信度阈值(IoU)，低于此值走 
 
 _matcher = None
 _cnn = None  # (model, charset, device) 懒加载缓存
+_ddddocr = None  # ddddocr 实例懒加载缓存（单次初始化 ~1s+，必须复用）
+
+
+def _get_ddddocr():
+    """获取 ddddocr 单例：模型加载仅一次，避免每次识别重建实例"""
+    global _ddddocr
+    if _ddddocr is None:
+        import ddddocr
+
+        _ddddocr = ddddocr.DdddOcr(show_ad=False)
+    return _ddddocr
 
 
 class TemplateMatcher:
@@ -91,8 +102,7 @@ def _ocr_char(char_img):
         return None
     data = png.tobytes()
     try:
-        import ddddocr
-        return ddddocr.DdddOcr(show_ad=False).classification(data)
+        return _get_ddddocr().classification(data)
     except ImportError:
         pass
     except Exception:
@@ -121,8 +131,7 @@ def _full_image_ocr(image):
     if data is None:
         return ""
     try:
-        import ddddocr
-        return ddddocr.DdddOcr(show_ad=False).classification(data)
+        return _get_ddddocr().classification(data)
     except ImportError:
         return ""
     except Exception:

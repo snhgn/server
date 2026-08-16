@@ -1,6 +1,6 @@
 # snhgn.me 服务器与项目总览
 
-最近更新：2026-08-10
+最近更新：2026-08-15
 
 ---
 
@@ -71,7 +71,7 @@
 | caddy | caddy:2.9-alpine | 8080→80 | 静态网站 + API 反向代理 |
 | cloudflared | cloudflare/cloudflared:latest | host | Cloudflare 隧道 |
 | ai-service | 自建 | 8000 | AI 统一服务（GLM/Gemini + Memory + RAG） |
-| gateway | 自建 | 8001→127.0.0.1 | JWT 认证 + 路由代理 |
+| gateway | 自建 | 8001→127.0.0.1 | Session(Cookie)+JWT 双通道认证 + 路由代理 |
 | scheduler | 自建 | 8002→127.0.0.1 | APScheduler 定时任务 |
 
 ### 数据卷
@@ -128,8 +128,8 @@ d:\project\snhgn.me\             # Vue3 + Vite + TS + Tailwind
 ├── src/
 │   ├── views/                   # 页面（Home/Login/AI/Dashboard/...）
 │   ├── components/              # 组件（Navbar/Footer/StatusCard）
-│   ├── stores/auth.ts           # 认证状态管理
-│   ├── api.ts                   # API 封装（自动带 JWT）
+│   ├── stores/auth.ts           # 认证状态管理（Cookie Session + /me 恢复）
+│   ├── api.ts                   # API 封装（自动带 Cookie；JWT 兼容）
 │   └── router/index.ts          # 路由 + 权限守卫
 └── dist/                        # 构建产物 → 上传到 /opt/website/web/
 ```
@@ -407,17 +407,42 @@ npm run build
 ssh snhgn@192.168.50.2 "sudo rm -rf /opt/website/web/* && sudo cp -r /tmp/snhgn-dist/* /opt/website/web/"
 ```
 
-### 后端部署
+### 后端部署（真实流程，2026-08-15 更新）
 
-```bash
-# 重新构建并启动（在服务器项目目录）
-cd /path/to/server
-git pull
-docker compose up -d --build
+服务器上**不是统一编排**，而是 5 个独立 compose 项目（源码 ≠ git 仓库，用文件同步部署）：
 
-# 重载 Caddy 配置
-docker exec caddy caddy reload --config /etc/caddy/Caddyfile
+| 容器 | compose 项目目录 | 说明 |
+|------|------------------|------|
+| ai-service | `/opt/snhgn/services/ai-service/` | wheels 离线装依赖，双网络(default + snhgn-network)，端口 127.0.0.1:8000 |
+| gateway | `/opt/snhgn/services/gateway/` | 端口 127.0.0.1:8001，挂 docker.sock |
+| scheduler | `/opt/snhgn/services/scheduler/` | 端口 127.0.0.1:8002 |
+| caddy | `/opt/website/` | Caddyfile + web 静态文件，端口 8080 |
+| cloudflared | `/opt/cloudflared/` | host 网络，不动 |
+
+部署步骤（从本地 Windows）：
+
+```powershell
+# 1. 本地打包（在 d:\project\server，脚本与流程见 debug/deploy_p0p1_v3.sh）
+tar -czf debug\payload.tar.gz --exclude '__pycache__' --exclude '*.pyc' `
+  packages/ai-service/app packages/ai-service/Dockerfile packages/ai-service/requirements.txt `
+  packages/gateway/app packages/gateway/Dockerfile packages/gateway/requirements.txt `
+  packages/scheduler/app packages/scheduler/Dockerfile packages/scheduler/requirements.txt
+
+# 2. 上传（pscp，hostkey 见上文）
+& "C:\Program Files\PuTTY\pscp.exe" -batch -hostkey SHA256:roEbdNCO4i18oR7yR1r9HY6kUcE9/hJJsELFJ2CI46I -pw 1 debug\payload.tar.gz snhgn@192.168.50.2:/tmp/
+
+# 3. 服务器上解压到 /tmp、剔除 schedule/models（root 所有运行资产，勿动）、
+#    cp -r 合并复制到 /opt/snhgn/services/<svc>/，然后逐服务：
+cd /opt/snhgn/services/<svc> && docker compose build && docker compose up -d
 ```
+
+注意事项：
+- `gateway/app/schedule/models/`（验证码模型+模板）为 root 所有且是运行数据，**不要删除/覆盖**
+- 服务器直连 Caddy 测试必须带 `-H 'Host: snhgn.me'`，否则站点不匹配返回空 200（易误判为故障）
+- 部署前备份到 `/opt/snhgn/backups/`（app + Dockerfile + compose + Caddyfile）
+
+# 重载 Caddy 配置（改 Caddyfile 后无需重启容器）
+docker exec caddy caddy reload --config /etc/caddy/Caddyfile
 
 ### admin 密码管理
 
@@ -511,3 +536,106 @@ bash /tmp/tmp_check_routes.sh
 - `/opt/clash/config.yaml` 为敏感文件（600 权限），含节点订阅信息，**不提交 git**
 - 服务器重启后：clash-meta 与 bjfu-login 均已 enable，自动恢复
 - 校园网掉线时 checker（IPv4 探测）会检测到并自动重登
+
+---
+
+## 十、P0+P1 性能重构部署记录（2026-08-15）
+
+### 部署内容
+
+架构审计（见 `docs/audit/2026-08-15-backend-architecture-audit.md`）后的 P0+P1 重构上线：
+
+- **ai-service**：事件循环阻塞清零（全部同步 IO 改 to_thread）、GLM 流式桥接重写（每流 1 线程 + idle 超时）、Gemini/SiliconFlow 共享 httpx 连接池、上传流式落盘+文件名 sanitize、SSE 心跳（`: ping`，15s）、统一 ChatPipeline（chat/stream 共用上下文收集）、lifespan 统一关闭连接池
+- **gateway**：auth 30s TTL 用户缓存、登录失败限流（5min/10 次误密码 → 429）、multipart 原始流透传（内存恒定）、cpu_percent to_thread、ddddocr 单例
+- **scheduler**：record_history to_thread、建表一次性化、历史截断周期化（每 50 次）
+- **基础设施**：ai-service 端口收回 127.0.0.1（修复 X-User-* 冒充漏洞）、四容器 mem_limit（1536/384/256/128m）、uvicorn --limit-concurrency（64/128/16）+ --timeout-keep-alive 65、Caddyfile flush_interval -1（SSE 零缓冲）
+
+### 验证结果（全链路含公网）
+
+| 检查项 | 结果 |
+|--------|------|
+| 5 容器状态 | ✓ 全部 Up |
+| 端口绑定 | ✓ 8000/8001/8002 仅 127.0.0.1，8080 对外 |
+| mem_limit | ✓ 四容器全部生效 |
+| 登录（Cloudflare→cloudflared→Caddy→gateway） | ✓ 200 + JWT |
+| 无 token API | ✓ 401 JSON |
+| 非流式 chat | ✓（上游 429/503 时 fallback 链正常，极端耗时 114s 仍成功） |
+| 流式 SSE | ✓ status 事件 + 逐 token + 零缓冲 |
+| 静态站 + 公网 https://snhgn.me | ✓ 200 |
+
+### 回滚方式
+
+```bash
+# 服务器上
+tar -xzf /opt/snhgn/backups/pre-p0p1-20260815-213024.tar.gz -C /
+# 然后逐服务重建
+cd /opt/snhgn/services/<svc> && docker compose up -d --build
+# caddy 同理（/opt/website）
+```
+
+### 遗留观察项
+
+- Gemini 代理节点偶发 ConnectError/503（clash 日本组），fallback 已覆盖，无需处理
+- GLM 偶发 429（zai SDK 自动重试中），高峰期正常现象
+- memory summarize 的 qwen（SiliconFlow）偶发 ReadTimeout，后台异步任务不影响主流程
+
+---
+
+## 十一、登录持久化改造部署记录（2026-08-15）
+
+### 部署内容：Server-side Session + HttpOnly Cookie 持久登录
+
+- **gateway 新增 `app/sessions.py`**：SQLite sessions 表（复用 gateway.db，启动幂等建表），sid=`secrets.token_urlsafe(32)`，有效期 30 天（`SESSION_EXPIRE_DAYS` 统一配置），创建时惰性清理过期行
+- **`app/auth.py` `require_auth` 双通道**：优先 Cookie Session（30s TTL 进程缓存），回退 Bearer JWT（兼容旧客户端/脚本）；两通道返回统一 payload {sub, uid, role}，下游 require_user/admin、X-User-* 注入零改动
+- **`app/routers/auth.py`**：login 成功 → 创建 Session + `Set-Cookie`（HttpOnly/SameSite=Lax/Max-Age=30d/Secure，服务端 Session 旋转防 fixation）+ 响应增加 user_id；新增 `GET /api/auth/me`（恢复登录状态，未登录 401）；新增 `POST /api/auth/logout`（删 Session 行 + 清 Cookie + 失效缓存，立即生效）
+- **前端 snhgn.me**：`stores/auth.ts` 重写（启动 init() 调 /me 恢复用户，authReady 防闪砀；旧 localStorage JWT 一次性过渡后清除）；`api.ts` 全部 fetch 加 credentials + 401 统一跳登录页；`router/index.ts` 异步守卫 await init()；Navbar/AssistantSidebar authReady 门控 + 退出后跳转
+- **生产配置**：`/opt/snhgn/services/gateway/.env` 追加 `SESSION_COOKIE_SECURE=True`（Caddy 会重写 X-Forwarded-Proto 为 http，无法自动判断，必须显式配置）
+
+### 验证结果
+
+| 检查项 | 结果 |
+|--------|------|
+| 本地单元测试（tests/test_auth_session.py，9 用例：Cookie 属性/me/401/Bearer 兼容/logout 失效/旋转/过期/错密码/下游 payload） | ✓ 9/9 |
+| 服务器内网全链路（verify_auth.sh 15 项） | ✓ 15/15 |
+| 公网 HTTPS 完整登录流（登录→Cookie→/me→AI API→logout→旧 Cookie 401） | ✓ ALL PASS |
+| 浏览器实测 6 步（未登录重定向/登录/刷新保持/导航栏状态/退出/退出后重定向） | ✓ 6/6（截图 debug/step1-6） |
+| Set-Cookie 属性（公网实测） | ✓ HttpOnly + Secure + SameSite=lax + Max-Age=2592000 |
+| 伪造 Session ID | ✓ 401 |
+
+### 注意事项
+
+- 前端 dist 部署：`/opt/website/web/` 历史文件可能 root 所有，清理需 `sudo rm -rf /opt/website/web/*` 再复制；web 目录本身也可能 root 所有（tar 解包报 Cannot utime 但内容完整，ls 确认即可）
+- 服务器自身 curl 公网偶发 000（Wi-Fi 出网到 CF 边缘抖动），公网用户路径不受影响，验证时从本地测
+- 前端仓库不在本 workspace，修改走中转：`debug/frontend-patch/` → Copy-Item → `npm run build` → tar 上传
+
+---
+
+## 十二、管理员脚本 AI 生成/审查改造部署记录（2026-08-15）
+
+### 功能：新建任务由手写命令改为「提示词 → AI 编写 → 另一 AI 审查」
+
+- **scheduler `app/routers/scripts.py` 新增两端点**：
+  - `POST /api/admin/scripts/generate`：{name, prompt} → 调 ai-service（provider=glm）生成 Python 代码，本地 `ast.parse` 语法校验，返回 {code, syntax_ok, generator}
+  - `POST /api/admin/scripts/review`：{code} → 调 ai-service（provider=gemini，**另一个 AI 交叉验证**）审查安全性/正确性/健壮性，返回 {verdict: pass|warn|fail, issues, summary, reviewer}；语法错直接 fail 不调 AI
+  - 拆两端点原因：gateway REQUEST_TIMEOUT=130s，串行两次 AI 调用有截断风险；且分开后管理员手改代码可单独重新审查
+- **`ScriptCreate/ScriptUpdate` 新增可选 `code` 字段**：有 code 时后端语法校验 → 落盘 `/app/scripts/<safe_name>.py`（文件名 sanitize 仅 [a-zA-Z0-9_-]）→ command 自动生成为 `python /app/scripts/xxx.py`；command 与 code 二选一；更新时 name 变更自动清理旧文件；删除任务时自动清理落盘文件
+- **生成/审查提示词内置硬约束**：仅标准库（容器内无第三方库）、网络超时+重试、禁止危险操作（rm -rf/反弹 shell 等）、print 进度日志
+- **配置（scheduler config.py）**：`SCRIPTS_CODE_DIR=/app/scripts`、`AI_GENERATE_TIMEOUT=110`、`AI_CODE_PROVIDER=glm`、`AI_REVIEW_PROVIDER=gemini`
+- **compose 变更**：scheduler volumes 追加 `- /opt/snhgn/scripts:/app/scripts`（宿主目录已存在，内含 bjfu-login、notice-monitor 子目录，互不冲突）
+- **前端 snhgn.me**：`api/scripts.ts` 新增 generateScriptCode/reviewScriptCode；`AdminScriptForm.vue` 重写——新建模式为提示词输入 +「AI 生成代码」按钮 + 代码编辑区（可手改）+ 审查结果块（verdict 徽章/issues 列表/重新审查），生成成功自动触发审查，fail 需 confirm 才能创建；编辑模式保持原执行命令编辑
+
+### 验证结果（服务器内网直连 scheduler:8002）
+
+| 检查项 | 结果 |
+|--------|------|
+| generate：glm 生成 1641 字符代码，语法 OK | ✓ |
+| review：gemini 交叉审查，实报 `ssl._create_unverified_context` 安全隐患 + 重试无退避（verdict=warn） | ✓ |
+| create：201，command 自动生成 `python /app/scripts/aigen_selftest.py` | ✓ |
+| run：AI 生成脚本实际执行 success | ✓ |
+| 落盘文件存在，删除任务后文件同步清理 | ✓ CLEANUP-OK |
+
+### 注意事项
+
+- 生成耗时约 30-90 秒，前端按钮有 loading 状态提示；单次 AI 调用上限 110s < gateway 130s，不会被网关截断
+- `/opt/snhgn/scripts/` 下 AI 生成文件为容器 root 所有，宿主删除需 docker exec 或 sudo
+- 审查 AI 的 issues 展示给管理员参考，verdict=fail 仅弹窗拦截非强制；管理员仍是最终把关人

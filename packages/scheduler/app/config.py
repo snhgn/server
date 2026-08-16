@@ -28,5 +28,11 @@ class Settings(BaseSettings):
     AI_SERVICE_URL: str = "http://ai-service:8000"
     AI_ANALYZE_TIMEOUT: float = 60.0
 
+    # ---- AI 代码生成/审查（管理员新建脚本，复用 ai-service）----
+    SCRIPTS_CODE_DIR: str = "/app/scripts"   # AI 生成脚本的落盘目录（需 volume 持久化）
+    AI_GENERATE_TIMEOUT: float = 110.0        # 单次 AI 调用上限（须 < gateway REQUEST_TIMEOUT=130s）
+    AI_CODE_PROVIDER: str = "glm"             # 代码生成 provider
+    AI_REVIEW_PROVIDER: str = "gemini"        # 代码审查 provider（另一个 AI，交叉验证）
+
 
 settings = Settings()

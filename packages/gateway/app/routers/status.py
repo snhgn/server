@@ -1,4 +1,5 @@
 """系统状态路由：/api/status"""
+import asyncio
 import shutil
 import socket
 import time
@@ -50,7 +51,8 @@ async def _get_docker_containers() -> list[dict]:
 @router.get("/")
 async def system_status(_: dict = Depends(require_admin)) -> dict:
     """系统状态"""
-    cpu_percent = psutil.cpu_percent(interval=1)
+    # cpu_percent(interval=1) 会阻塞 1 秒采样，走线程池避免阻塞事件循环
+    cpu_percent = await asyncio.to_thread(psutil.cpu_percent, 1)
     mem = psutil.virtual_memory()
     disk = shutil.disk_usage("/")
 

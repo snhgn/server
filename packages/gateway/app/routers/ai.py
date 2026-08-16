@@ -20,7 +20,7 @@ _client = httpx.AsyncClient(
 
 @router.api_route(
     "/{path:path}",
-    methods=["GET", "POST", "PUT", "DELETE"],
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
 )
 async def proxy_ai(path: str, request: Request, user: dict = Depends(require_user)) -> Response:
     """转发请求到 ai-service"""
@@ -28,36 +28,34 @@ async def proxy_ai(path: str, request: Request, user: dict = Depends(require_use
     # 构造查询参数
     params = dict(request.query_params)
 
-    # 读取请求体
-    body = await request.body() if request.method in ("POST", "PUT") else None
-
     # 注入用户身份 Header（供 ai-service 读取）
     headers = {
         "X-User-Id": str(user["uid"]),
         "X-Username": user["sub"],
         "X-Role": user["role"],
     }
-
-    # 转发 form-data（文件上传）
     content_type = request.headers.get("content-type", "")
+
+    # multipart（文件上传）：原始体流式透传，不解析、不缓存。
+    # 网关内存占用与文件大小无关（大小/类型校验由 ai-service 负责）。
     if "multipart/form-data" in content_type:
-        form = await request.form()
-        files = []
-        data = {}
-        for key, value in form.multi_items():
-            if hasattr(value, "read"):  # UploadFile
-                files.append((key, (value.filename, await value.read(), value.content_type)))
-            else:
-                data[key] = value
-        req_headers = {**headers, "content-type": content_type}
-        resp = await _client.request(
-            request.method, url, params=params, data=data, files=files, headers=req_headers
+        async def _raw_body():
+            async for chunk in request.stream():
+                yield chunk
+
+        fwd_headers = {**headers, "content-type": content_type}
+        req = _client.build_request(
+            request.method, url, params=params, content=_raw_body(), headers=fwd_headers
         )
+        resp = await _client.send(req, stream=False)
         return Response(
             content=resp.content,
             status_code=resp.status_code,
             media_type=resp.headers.get("content-type"),
         )
+
+    # 读取请求体（JSON 等小体）
+    body = await request.body() if request.method in ("POST", "PUT", "PATCH") else None
 
     # SSE 流式：使用 client.stream()，逐块转发
     is_sse = path.endswith("/chat/stream") or path == "chat/stream"

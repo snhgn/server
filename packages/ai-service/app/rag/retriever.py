@@ -30,29 +30,56 @@ class RAGRetriever:
         self.store.add(chunks, metadatas, ids)
         return len(chunks)
 
-    def search(self, query: str, user_id: int, top_k: int | None = None) -> list[dict]:
-        """检索该用户的知识片段"""
+    def search(
+        self,
+        query: str,
+        user_id: int,
+        top_k: int | None = None,
+        min_score: float | None = None,
+    ) -> list[dict]:
+        """检索该用户的知识片段，过滤低于 min_score 的无关片段"""
         if top_k is None:
             top_k = settings.RAG_TOP_K
+        if min_score is None:
+            min_score = settings.RAG_MIN_SCORE
 
         results = self.store.query(query, top_k, user_id=user_id)
         documents = results.get("documents", [[]])[0]
         metadatas = results.get("metadatas", [[]])[0]
         distances = results.get("distances", [[]])[0]
 
-        return [
-            {
-                "content": doc,
-                "source": meta.get("source", ""),
-                "category": meta.get("category", ""),
-                "score": round(1 - dist, 4),
-            }
-            for doc, meta, dist in zip(documents, metadatas, distances)
-        ]
+        filtered: list[dict] = []
+        for doc, meta, dist in zip(documents, metadatas, distances):
+            score = round(1 - dist, 4)
+            if score >= min_score:
+                filtered.append(
+                    {
+                        "content": doc,
+                        "source": meta.get("source", ""),
+                        "category": meta.get("category", ""),
+                        "score": score,
+                    }
+                )
+            else:
+                logger.info(
+                    "RAG chunk filtered out (score=%.4f < min_score=%.4f): source=%s snippet=%.60s",
+                    score,
+                    min_score,
+                    meta.get("source", ""),
+                    doc.replace("\n", " "),
+                )
 
-    def get_context(self, query: str, user_id: int, top_k: int | None = None) -> str:
+        return filtered
+
+    def get_context(
+        self,
+        query: str,
+        user_id: int,
+        top_k: int | None = None,
+        min_score: float | None = None,
+    ) -> str:
         """检索并格式化为 prompt 上下文"""
-        results = self.search(query, user_id, top_k)
+        results = self.search(query, user_id, top_k, min_score=min_score)
         if not results:
             return ""
         return "\n\n---\n\n".join(r["content"] for r in results)

@@ -10,6 +10,7 @@ services:
     volumes:
       - /opt/snhgn/data/sqlite:/data/sqlite
       - /opt/snhgn/logs/scheduler:/app/logs
+      - /opt/snhgn/scripts:/app/scripts
     networks:
       - default
       - snhgn-network

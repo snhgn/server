@@ -11,6 +11,11 @@ class Settings(BaseSettings):
     JWT_SECRET: str = ""
     JWT_EXPIRE_HOURS: int = 24
 
+    # ---- 登录 Session（持久登录，有效期统一在此配置）----
+    SESSION_EXPIRE_DAYS: int = 30          # Session 有效期（天）
+    SESSION_COOKIE_NAME: str = "snhgn_session"
+    SESSION_COOKIE_SECURE: bool = False    # 生产 HTTPS 在 .env 置 true（开发 HTTP 保持 false）
+
     # ---- 用户数据库 ----
     SQLITE_DB_PATH: str = "/data/gateway.db"
 

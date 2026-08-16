@@ -12,8 +12,11 @@ http://snhgn.me {
     }
 
     # API 反向代理到 gateway 容器（不压缩，保持 SSE 流式响应）
+    # flush_interval -1：响应字节立即转发，SSE token/心跳零缓冲
     handle /api/* {
-        reverse_proxy gateway:8001
+        reverse_proxy gateway:8001 {
+            flush_interval -1
+        }
     }
 
     # 静态文件 + SPA 回退（仅对静态资源启用压缩，避免缓冲 API 响应）

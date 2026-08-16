@@ -82,14 +82,20 @@ class ConversationStore:
         conn.commit()
         conn.close()
 
-    def get_history(self, user_id: int, session_id: str, limit: int = 20) -> list[dict]:
+    def get_history(
+        self, user_id: int, session_id: str, limit: int | None = 20
+    ) -> list[dict]:
+        """取会话历史（时间正序）；limit=None 返回全部。"""
         conn = get_connection()
-        rows = conn.execute(
-            """SELECT * FROM conversations
-               WHERE user_id=? AND session_id=?
-               ORDER BY id DESC LIMIT ?""",
-            (user_id, session_id, limit),
-        ).fetchall()
+        sql = (
+            "SELECT * FROM conversations "
+            "WHERE user_id=? AND session_id=? ORDER BY id DESC"
+        )
+        params: list = [user_id, session_id]
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
         conn.close()
         return [dict(r) for r in reversed(rows)]
 
@@ -104,6 +110,47 @@ class ConversationStore:
         ).fetchone()
         conn.close()
         return dict(row) if row else None
+
+    def delete_session(self, user_id: int, session_id: str) -> bool:
+        """删除当前用户的整个会话（对话记录 + 元信息），返回是否删除成功"""
+        conn = get_connection()
+        cur = conn.execute(
+            "DELETE FROM conversations WHERE user_id=? AND session_id=?",
+            (user_id, session_id),
+        )
+        conn.execute(
+            "DELETE FROM conversation_meta WHERE user_id=? AND session_id=?",
+            (user_id, session_id),
+        )
+        conn.commit()
+        conn.close()
+        return cur.rowcount > 0
+
+    def rename_session(self, user_id: int, session_id: str, title: str) -> bool:
+        """重命名当前用户的会话标题（写入 conversation_meta.title）。
+        会话不存在返回 False。"""
+        title = (title or "").strip()[:50]
+        if not title:
+            return False
+        conn = get_connection()
+        row = conn.execute(
+            "SELECT 1 FROM conversations WHERE user_id=? AND session_id=? LIMIT 1",
+            (user_id, session_id),
+        ).fetchone()
+        if not row:
+            conn.close()
+            return False
+        conn.execute(
+            """INSERT INTO conversation_meta (user_id, session_id, title)
+               VALUES (?, ?, ?)
+               ON CONFLICT(user_id, session_id) DO UPDATE SET
+                   title=excluded.title,
+                   updated_at=datetime('now','localtime')""",
+            (user_id, session_id, title),
+        )
+        conn.commit()
+        conn.close()
+        return True
 
     def list_sessions(self, user_id: int) -> list[dict]:
         """列出用户的所有 session（去重，含 meta：title/summary/keywords）"""
@@ -160,22 +207,24 @@ class ConversationStore:
         title: str | None = None,
         summary: str | None = None,
         keywords: list[str] | None = None,
+        rolling_summary: str | None = None,
     ) -> None:
-        """写入/更新会话元信息（title/summary/keywords）"""
+        """写入/更新会话元信息（title/summary/keywords/rolling_summary）"""
         conn = get_connection()
         kw_json = None
         if keywords is not None:
             import json as _json
             kw_json = _json.dumps(keywords, ensure_ascii=False)
         conn.execute(
-            """INSERT INTO conversation_meta (user_id, session_id, title, summary, keywords)
-               VALUES (?, ?, ?, ?, ?)
+            """INSERT INTO conversation_meta (user_id, session_id, title, summary, keywords, rolling_summary)
+               VALUES (?, ?, ?, ?, ?, ?)
                ON CONFLICT(user_id, session_id) DO UPDATE SET
                    title=COALESCE(excluded.title, conversation_meta.title),
                    summary=COALESCE(excluded.summary, conversation_meta.summary),
                    keywords=COALESCE(excluded.keywords, conversation_meta.keywords),
+                   rolling_summary=COALESCE(excluded.rolling_summary, conversation_meta.rolling_summary),
                    updated_at=datetime('now','localtime')""",
-            (user_id, session_id, title, summary, kw_json),
+            (user_id, session_id, title, summary, kw_json, rolling_summary),
         )
         conn.commit()
         conn.close()
@@ -199,6 +248,39 @@ class ConversationStore:
         else:
             d["keywords"] = []
         return d
+
+    def get_history_and_meta(
+        self, user_id: int, session_id: str, limit: int | None = 20
+    ) -> tuple[list[dict], dict | None]:
+        """单次连接同时取会话历史与元信息（合并原先两次连接）"""
+        conn = get_connection()
+        sql = (
+            "SELECT * FROM conversations "
+            "WHERE user_id=? AND session_id=? ORDER BY id DESC"
+        )
+        params: list = [user_id, session_id]
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+        history = [dict(r) for r in reversed(rows)]
+        row = conn.execute(
+            """SELECT * FROM conversation_meta WHERE user_id=? AND session_id=?""",
+            (user_id, session_id),
+        ).fetchone()
+        conn.close()
+        meta: dict | None = None
+        if row:
+            meta = dict(row)
+            if meta.get("keywords"):
+                import json as _json
+                try:
+                    meta["keywords"] = _json.loads(meta["keywords"])
+                except Exception:
+                    meta["keywords"] = []
+            else:
+                meta["keywords"] = []
+        return history, meta
 
 
 class UserSettingsManager:

@@ -156,3 +156,34 @@ snhgn.me {
 ```
 
 （目前 AI 服务仅监听 8000 端口，未暴露公网，按需决定是否开放。）
+
+
+## Context Engine（上下文管理）
+
+独立模块 `app/context/`：按 Token 预算组装 LLM 上下文，超预算时按优先级压缩。
+
+组装优先级（从高到低，超预算时从低到高丢弃）：
+
+1. System Prompt（`AI_SYSTEM_PROMPT`，可选，永不移除）
+2. 用户长期 Memory
+3. Conversation Summary（滚动摘要，DB 缓存）
+4. 文件 / 课表上下文
+5. 最近消息（默认最近 15 轮，从最旧丢弃）
+6. RAG Context（最易被压缩）
+7. 当前用户消息（永不移除）
+
+预算公式：`min(模型上下文窗口, CONTEXT_MAX_TOKENS) - 预留输出 - CONTEXT_SAFETY_MARGIN`。
+
+- Token 估算：轻量启发式（CJK 按 1 字 ≈ 1 token），无外部依赖，配安全余量。
+- 模型窗口：GLM / Gemini 内置注册表（`app/context/models.py`），
+  可用 `MODEL_CONTEXT_WINDOW_OVERRIDES`（JSON）覆盖。
+- Memory / RAG 自动判断：客户端 `use_memory` / `use_rag` flag 优先生效；
+  未开启时后端按消息关键词自动判断（`CONTEXT_AUTO_MEMORY` / `CONTEXT_AUTO_RAG`，默认开启）。
+- 滚动摘要触发：轮数超窗或历史 Token 超 `CONTEXT_SUMMARY_TRIGGER_TOKENS`，异步执行，不阻塞回答。
+- Streaming：SSE 事件结构不变（status / token / complete / error）；
+  流式中途失败不保存不完整回答，返回 error 事件。
+- 日志：每次请求记录 provider / user / session / 耗时 / 输入总 token 及
+  system / memory / summary / rag / history / user_msg 分项 / 输出估算 / 是否压缩，
+  不记录消息内容与密钥。
+
+详细设计与实施记录见 `docs/superpowers/plans/2026-08-13-context-engine-optimization.md`。

@@ -1,4 +1,5 @@
 """APScheduler 任务管理"""
+import asyncio
 import logging
 import os
 from datetime import datetime
@@ -41,7 +42,10 @@ async def _execute_job(job_id: str, name: str, job_type: str, payload: str, time
         error = str(e)
     finally:
         finished = datetime.now()
-        record_history(job_id, name, started, finished, success, output, error)
+        # SQLite 写入走线程池，不阻塞调度器事件循环
+        await asyncio.to_thread(
+            record_history, job_id, name, started, finished, success, output, error
+        )
         status = "OK" if success else "FAIL"
         logger.info("Job '%s' (%s) finished: %s", name, job_id, status)
         if error:

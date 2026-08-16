@@ -20,24 +20,41 @@ _running_procs: dict[str, "asyncio.subprocess.Process"] = {}
 # 历史记录 DB 初始化
 _HISTORY_DB = os.path.join(os.path.dirname(settings.SQLITE_DB_PATH), "scheduler_history.db")
 
+_db_initialized = False
+_insert_count = 0
+_TRIM_EVERY = 50  # 每 N 次插入截断一次旧记录，避免每次执行都全表 DELETE
+
+
+def _init_db() -> None:
+    """建表仅执行一次（原先每次查询/写入都 CREATE TABLE IF NOT EXISTS）"""
+    global _db_initialized
+    if _db_initialized:
+        return
+    conn = sqlite3.connect(_HISTORY_DB)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS run_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id TEXT NOT NULL,
+                job_name TEXT,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                duration_ms INTEGER,
+                success INTEGER NOT NULL,
+                output TEXT,
+                error TEXT
+            )
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+    _db_initialized = True
+
 
 def _get_db() -> sqlite3.Connection:
+    _init_db()
     conn = sqlite3.connect(_HISTORY_DB)
     conn.row_factory = sqlite3.Row
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS run_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            job_id TEXT NOT NULL,
-            job_name TEXT,
-            started_at TEXT NOT NULL,
-            finished_at TEXT,
-            duration_ms INTEGER,
-            success INTEGER NOT NULL,
-            output TEXT,
-            error TEXT
-        )
-    """)
-    conn.commit()
     return conn
 
 
@@ -51,9 +68,9 @@ def record_history(
     error: str = "",
 ) -> None:
     """记录一次任务执行结果"""
+    global _insert_count
     conn = _get_db()
     try:
-        # 保留最近的 HISTORY_LIMIT 条
         conn.execute(
             "INSERT INTO run_history (job_id, job_name, started_at, finished_at, duration_ms, success, output, error) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -65,11 +82,14 @@ def record_history(
                 output[:5000], error[:5000],
             ),
         )
-        conn.execute(
-            "DELETE FROM run_history WHERE id NOT IN "
-            "(SELECT id FROM run_history ORDER BY id DESC LIMIT ?)",
-            (settings.HISTORY_LIMIT,),
-        )
+        # 每 _TRIM_EVERY 次插入截断一次（保留最近 HISTORY_LIMIT 条）
+        _insert_count += 1
+        if _insert_count % _TRIM_EVERY == 0:
+            conn.execute(
+                "DELETE FROM run_history WHERE id NOT IN "
+                "(SELECT id FROM run_history ORDER BY id DESC LIMIT ?)",
+                (settings.HISTORY_LIMIT,),
+            )
         conn.commit()
     finally:
         conn.close()

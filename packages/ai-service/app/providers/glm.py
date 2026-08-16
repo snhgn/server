@@ -1,5 +1,4 @@
 import asyncio
-import queue
 import threading
 from typing import AsyncGenerator
 
@@ -33,6 +32,14 @@ def _max_tokens_for(model: str, configured: int) -> int:
     return min(configured, cap)
 
 
+def _post(loop, q, item) -> None:
+    """生产者线程向事件循环投递元素；进程退出（loop 已关）时静默丢弃"""
+    try:
+        loop.call_soon_threadsafe(q.put_nowait, item)
+    except RuntimeError:
+        pass
+
+
 def _require_allowed(model: str, purpose: str) -> str:
     if model not in ALLOWED_MODELS:
         raise ValueError(
@@ -64,82 +71,110 @@ class GLMProvider(BaseProvider):
         ]
         self.image_model = _require_allowed(settings.GLM_IMAGE_MODEL, "image")
 
+    @property
+    def primary_text_model(self) -> str | None:
+        """主要文本模型（文本链的第一个）"""
+        return self.text_models[0]
+
+    @property
+    def max_output_tokens(self) -> int | None:
+        """主要文本模型的最大输出 token（受白名单模型上限约束）"""
+        return _max_tokens_for(self.text_models[0], settings.GLM_MAX_TOKENS)
+
     # ---- 文本对话 ----
 
-    async def chat(self, message: str, timeout: float = settings.REQUEST_TIMEOUT) -> str:
+    async def chat(
+        self,
+        messages: list[dict],
+        timeout: float = settings.REQUEST_TIMEOUT,
+        system: str | None = None,
+    ) -> str:
         last_err: Exception | None = None
         for model in self.text_models:
             try:
                 return await asyncio.wait_for(
-                    asyncio.to_thread(self._chat_sync, model, message), timeout=timeout
+                    asyncio.to_thread(self._chat_sync, model, messages, system),
+                    timeout=timeout,
                 )
             except Exception as exc:
                 last_err = exc
         assert last_err is not None
         raise last_err
 
-    def _chat_sync(self, model: str, message: str) -> str:
+    def _chat_sync(
+        self, model: str, messages: list[dict], system: str | None
+    ) -> str:
+        msgs = ([{"role": "system", "content": system}] if system else []) + list(messages)
         response = self.client.chat.completions.create(
             model=model,
-            messages=[{"role": "user", "content": message}],
+            messages=msgs,
             max_tokens=_max_tokens_for(model, settings.GLM_MAX_TOKENS),
             temperature=settings.GLM_TEMPERATURE,
         )
         return response.choices[0].message.content
 
     async def chat_stream(
-        self, message: str, timeout: float = 120.0
+        self,
+        messages: list[dict],
+        timeout: float = 120.0,
+        system: str | None = None,
     ) -> AsyncGenerator[str, None]:
-        """流式调用 GLM：线程消费同步迭代器，queue 桥接 async。
-        模型失败自动回退到下一个白名单模型（重新开始流式）。
+        """流式调用 GLM：生产者线程消费同步 SDK 迭代器，经 asyncio.Queue 桥接。
+
+        - 每个流只占用 1 个生产者线程（token 经 call_soon_threadsafe 直投事件循环，
+          不再占用 executor 线程逐个 q.get，避免高并发时线程池饥饿）
+        - timeout 语义为「相邻 token 之间的空闲超时」：首包慢或中途断流都会触发，
+          触发后按普通失败走模型/Provider 回退
+        - 模型失败自动回退到下一个白名单模型（重新开始流式）
         """
         last_err: Exception | None = None
         for model in self.text_models:
-            q: queue.Queue = queue.Queue()
+            q: asyncio.Queue = asyncio.Queue()
+            loop = asyncio.get_running_loop()
             sentinel = object()
 
             def _produce(_model: str = model) -> None:
                 try:
+                    msgs = ([{"role": "system", "content": system}] if system else []) + list(messages)
                     response = self.client.chat.completions.create(
                         model=_model,
-                        messages=[{"role": "user", "content": message}],
+                        messages=msgs,
                         max_tokens=_max_tokens_for(_model, settings.GLM_MAX_TOKENS),
                         temperature=settings.GLM_TEMPERATURE,
                         stream=True,
                     )
                     for chunk in response:
                         if chunk.choices and chunk.choices[0].delta.content:
-                            q.put(chunk.choices[0].delta.content)
+                            _post(loop, q, chunk.choices[0].delta.content)
                 except Exception as exc:
-                    q.put(exc)
+                    _post(loop, q, exc)
                 finally:
-                    q.put(sentinel)
+                    _post(loop, q, sentinel)
 
-            thread = threading.Thread(target=_produce, daemon=True)
-            thread.start()
+            threading.Thread(target=_produce, daemon=True).start()
 
-            loop = asyncio.get_event_loop()
+            produced_any = False
             try:
-                async def _iter():
-                    while True:
-                        item = await loop.run_in_executor(None, q.get)
-                        if item is sentinel:
-                            break
-                        if isinstance(item, Exception):
-                            raise item
-                        yield item
-                # 消费生成器；中途失败则换下一个模型重试
-                produced_any = False
-                async for token in _iter():
+                while True:
+                    try:
+                        item = await asyncio.wait_for(q.get(), timeout=timeout)
+                    except asyncio.TimeoutError:
+                        raise TimeoutError(
+                            f"glm stream idle > {timeout:.0f}s (model={model})"
+                        )
+                    if item is sentinel:
+                        break
+                    if isinstance(item, Exception):
+                        raise item
                     produced_any = True
-                    yield token
+                    yield item
                 return  # 正常完成
             except Exception as exc:
                 last_err = exc
                 if produced_any:
                     # 已产出部分内容，回退会重复输出，直接抛出
                     raise exc
-                # 尚未产出内容（请求阶段失败），回退下一个模型
+                # 尚未产出内容（请求阶段失败/首包超时），回退下一个模型
                 continue
 
         if last_err is not None:

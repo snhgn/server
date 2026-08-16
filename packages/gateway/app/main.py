@@ -8,6 +8,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
+from . import sessions
 from .routers import ai, auth, schedule, scheduler, scripts, status
 from .schedule import course_db, db as schedule_db
 from .schedule import scheduler as course_scheduler
@@ -44,7 +45,8 @@ for uv_name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
 
 @contextlib.asynccontextmanager
 async def lifespan(_: FastAPI):
-    # 课表缓存表 + 课程表 + 同步状态表（幂等，CREATE IF NOT EXISTS）
+    # 登录 Session 表（幂等，CREATE IF NOT EXISTS）+ 课表缓存表 + 课程表 + 同步状态表
+    sessions.init()
     schedule_db.init_db()
     course_db.init_db()
     # 每日定时同步：启动后延迟到 COURSE_SYNC_HOUR 时刻执行

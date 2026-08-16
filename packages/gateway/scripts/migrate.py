@@ -38,6 +38,17 @@ def migrate() -> None:
             updated_time  TEXT NOT NULL
         )
     """)
+    # ---- sessions 表（登录 Session，HttpOnly Cookie 对应的服务端存储）----
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS sessions (
+            sid         TEXT PRIMARY KEY,
+            user_id     INTEGER NOT NULL,
+            created_at  TEXT NOT NULL,
+            expires_at  TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)")
     conn.commit()
 
     count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]

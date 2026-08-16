@@ -22,17 +22,26 @@ services:
     build: ./packages/ai-service
     container_name: ai-service
     restart: unless-stopped
+    # ONNX 嵌入 + Chroma 常驻，限 1.5G 防止异常时拖垮整机（3.7G 小机）
+    mem_limit: 1536m
     env_file:
       - ./packages/ai-service/.env
     ports:
-      - "8000:8000"
+      # 仅绑定本机回环：ai-service 盲信 X-User-* 头，绝不能暴露到外网
+      # （gateway 经 snhgn-network 内部访问，无需对外端口；保留 127.0.0.1 供本机调试）
+      - "127.0.0.1:8000:8000"
     volumes:
       - /opt/snhgn/data:/data
       - /opt/snhgn/data/gateway/course-data:/data/course-data
       - /opt/snhgn/knowledge:/data/knowledge
       - /opt/snhgn/data/chroma-cache:/root/.cache/chroma
       - /opt/snhgn/logs/ai-service:/app/logs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
+      - HTTP_PROXY=http://host.docker.internal:7890
+      - HTTPS_PROXY=http://host.docker.internal:7890
+      - NO_PROXY=localhost,127.0.0.1,172.16.0.0/12,192.168.0.0/16,gateway,scheduler,ai-service,bigmodel.cn,siliconflow.cn,hf-mirror.com
       - HF_ENDPOINT=https://hf-mirror.com
     networks:
       - snhgn-network
@@ -42,6 +51,7 @@ services:
     build: ./packages/scheduler
     container_name: scheduler
     restart: unless-stopped
+    mem_limit: 256m
     env_file:
       - ./packages/scheduler/.env
     ports:
@@ -58,6 +68,7 @@ services:
     build: ./packages/gateway
     container_name: gateway
     restart: unless-stopped
+    mem_limit: 384m
     env_file:
       - ./packages/gateway/.env
     ports:
@@ -77,10 +88,11 @@ services:
     image: caddy:2.9-alpine
     container_name: caddy
     restart: unless-stopped
+    mem_limit: 128m
     ports:
       - "8080:80"
     volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./deploy/web:/srv/web:ro
       - caddy_data:/data
       - caddy_config:/config
