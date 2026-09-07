@@ -3,7 +3,7 @@
 # TLS 由 Cloudflare 边缘终结，Caddy 只做内部静态文件服务 + API 反向代理
 # 使用 http:// 前缀强制走 HTTP，避免 Caddy 尝试自动申请证书
 
-http://snhgn.me {
+http://snhgn.me, :80 {
     root * /srv/web
     header {
         X-Content-Type-Options "nosniff"

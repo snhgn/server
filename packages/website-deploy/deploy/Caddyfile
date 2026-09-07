@@ -3,7 +3,7 @@
 # TLS 由 Cloudflare 边缘终止，Caddy 只做内部静态文件服务
 # 使用 http:// 前缀强制纯 HTTP，避免 Caddy 尝试自动申请证书
 
-http://snhgn.me {
+http://snhgn.me, :80 {
     encode zstd gzip
     root * /srv/web
     try_files {path} {path}/index.html /index.html
