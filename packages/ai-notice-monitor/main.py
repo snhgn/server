@@ -69,7 +69,17 @@ def run(config=None, *, dry_run: bool = False, test_mode: bool = False) -> int:
         logger.info("本次新增 %d 条，库中总计 %d 条", len(new_notices), db.count())
 
         if not new_notices:
-            logger.info("没有新通知，结束")
+            logger.info("没有新通知")
+            if config.run.send_empty_report and not (dry_run or test_mode):
+                site_names = [s.name for s in config.sites]
+                email_sender = EmailSender(config.email)
+                email_sender.send_empty_report(
+                    total_scanned=len(notices),
+                    total_db=db.count(),
+                    sites=site_names,
+                )
+                logger.info("无新通知巡检汇报邮件已发送")
+            logger.info("结束")
             return 0
 
         # 首次运行（运行前库为空）且 FIRST_RUN_SEND_ALL=false → 历史只入库不发送

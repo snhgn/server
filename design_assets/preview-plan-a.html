@@ -1,0 +1,1102 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>snhgn· — 方案A：垂直纵深分离与精密工程建筑坐标系</title>
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  
+  <style>
+    /* ==========================================================================
+       snhgn. Design System Tokens (Monochrome-First + Precise Amber g)
+       Aligned with .agents/rules/design-principles.md
+       ========================================================================== */
+    :root {
+      /* ========================================================================
+         Light Mode: "Warm Ceramic & Tactile Blueprint" (暖调高级陶瓷与精密工程图纸)
+         ======================================================================== */
+      --bg-primary: #F7F6F2;
+      --bg-surface: #FFFFFF;
+      --bg-subtle: #EFECE6;
+      --text-main: #161719;
+      --text-muted: #5C6068;
+      --text-subtle: #8A909A;
+      --border-subtle: rgba(40, 35, 30, 0.09);
+      --border-hover: rgba(40, 35, 30, 0.28);
+      
+      /* Rich Lacquer Amber Gold */
+      --accent-g: #B86B02;
+      --accent-g-rgb: 184, 107, 2;
+      --accent-glow: rgba(184, 107, 2, 0.12);
+      
+      /* Background Architecture System Tokens (Light Mode) */
+      --bg-grain-opacity: 0.035;
+      --bg-guide-line: rgba(40, 35, 30, 0.045);
+      --bg-guide-line-dashed: rgba(40, 35, 30, 0.08);
+      --bg-grid-line: rgba(40, 35, 30, 0.03);
+      --bg-crosshair: rgba(40, 35, 30, 0.25);
+      --bg-coord-text: rgba(40, 35, 30, 0.35);
+      --hero-ambient-glow: radial-gradient(circle 520px at 50% 36%, rgba(184, 107, 2, 0.05) 0%, rgba(255, 255, 255, 0.92) 48%, transparent 75%);
+      --cursor-glow-color: rgba(184, 107, 2, 0.035);
+      --card-shadow: 0 1px 2px rgba(40, 30, 20, 0.03), 0 3px 10px rgba(40, 30, 20, 0.025);
+      
+      --font-main: 'Inter', -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+      
+      --transition-base: 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    [data-theme="dark"] {
+      /* ========================================================================
+         Dark Mode: "Deep Obsidian Sanctuary & Luminous Gold" (深邃曜石圣殿与发光金)
+         ======================================================================== */
+      --bg-primary: #0E1012;
+      --bg-surface: #16191C;
+      --bg-subtle: #1D2125;
+      --text-main: #F2F2F2;
+      --text-muted: #8E9399;
+      --text-subtle: #5C6269;
+      --border-subtle: rgba(255, 255, 255, 0.09);
+      --border-hover: rgba(255, 255, 255, 0.25);
+      
+      /* Dark Mode Accent: Luminous Warm Gold */
+      --accent-g: #F5B738;
+      --accent-g-rgb: 245, 183, 56;
+      --accent-glow: rgba(245, 183, 56, 0.15);
+      
+      /* Background Architecture System Tokens (Dark Mode) */
+      --bg-grain-opacity: 0.042;
+      --bg-guide-line: rgba(255, 255, 255, 0.038);
+      --bg-guide-line-dashed: rgba(255, 255, 255, 0.07);
+      --bg-grid-line: rgba(255, 255, 255, 0.026);
+      --bg-crosshair: rgba(255, 255, 255, 0.22);
+      --bg-coord-text: rgba(255, 255, 255, 0.28);
+      --hero-ambient-glow: radial-gradient(circle 540px at 50% 36%, rgba(245, 183, 56, 0.065) 0%, rgba(24, 28, 33, 0.5) 45%, transparent 78%);
+      --cursor-glow-color: rgba(245, 183, 56, 0.04);
+      --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    }
+
+    /* ==========================================================================
+       Reset & Base Rules
+       ========================================================================== */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      min-height: 100vh;
+      background-color: var(--bg-primary);
+      color: var(--text-main);
+      font-family: var(--font-main);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      transition: background-color 0.25s ease, color 0.25s ease;
+      overflow-x: hidden;
+      position: relative;
+    }
+
+    .container {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0 28px;
+      position: relative;
+      z-index: 2;
+    }
+
+    /* ==========================================================================
+       0. Advanced Background Architecture (Plan A: Structural Blueprint System)
+       ========================================================================== */
+    
+    /* 0.1 Artisanal Noise Layer (Tactile Matte Finish) */
+    .bg-grain-layer {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
+      z-index: 1;
+      opacity: var(--bg-grain-opacity);
+      background-repeat: repeat;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+    }
+
+    /* 0.2 Subtle Interactive Mouse Cursor Glow */
+    .bg-interactive-glow {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
+      z-index: 1;
+      background: radial-gradient(600px circle at var(--mouse-x, 50%) var(--mouse-y, 35%), var(--cursor-glow-color), transparent 60%);
+      transition: background 0.1s ease-out;
+    }
+
+    /* 0.3 Architectural Structural Blueprint Grid & Vertical Guides */
+    .bg-blueprint-system {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 0;
+      overflow: hidden;
+    }
+
+    /* Subtle Coordinate Grid with Radial Falloff */
+    .bg-grid-mesh {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 1200px;
+      background-size: 56px 56px;
+      background-image: 
+        linear-gradient(to right, var(--bg-grid-line) 1px, transparent 1px),
+        linear-gradient(to bottom, var(--bg-grid-line) 1px, transparent 1px);
+      mask-image: radial-gradient(circle 560px at 50% 380px, black 25%, transparent 75%);
+      -webkit-mask-image: radial-gradient(circle 560px at 50% 380px, black 25%, transparent 75%);
+    }
+
+    /* Hero Ambient Depth Spotlight */
+    .hero-depth-spotlight {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 100%;
+      max-width: 1300px;
+      height: 860px;
+      background: var(--hero-ambient-glow);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Precision Alignment Guide Lines (Blueprint Axes) */
+    .bg-guide-lines {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 100%;
+      max-width: 1120px;
+      height: 100%;
+    }
+
+    /* Center Symmetry Axis (Passes exactly through 6-element symbol and origin) */
+    .guide-line-center {
+      position: absolute;
+      left: 50%;
+      top: 64px;
+      bottom: 0;
+      width: 1px;
+      background: linear-gradient(to bottom, transparent, var(--bg-guide-line-dashed) 80px, var(--bg-guide-line-dashed) 900px, transparent);
+      transform: translateX(-50%);
+    }
+
+    /* Boundary Hairlines */
+    .guide-line-left, .guide-line-right {
+      position: absolute;
+      top: 64px;
+      bottom: 0;
+      width: 1px;
+      background: linear-gradient(to bottom, transparent, var(--bg-guide-line) 120px, var(--bg-guide-line) 1200px, transparent);
+    }
+    .guide-line-left { left: 28px; }
+    .guide-line-right { right: 28px; }
+
+    /* Sub-Quadrant Guides (Golden Ratio Alignment) */
+    .guide-line-sub-l, .guide-line-sub-r {
+      position: absolute;
+      top: 100px;
+      height: 720px;
+      width: 1px;
+      background: linear-gradient(to bottom, transparent, var(--bg-guide-line) 60px, var(--bg-guide-line) 580px, transparent);
+      border-right: 1px dashed var(--bg-guide-line-dashed);
+    }
+    .guide-line-sub-l { left: 25%; }
+    .guide-line-sub-r { right: 25%; }
+
+    /* CAD Crosshairs & Coordinate Callouts */
+    .cad-crosshair {
+      position: absolute;
+      font-family: var(--font-mono);
+      font-size: 9px;
+      letter-spacing: 0.08em;
+      color: var(--bg-coord-text);
+      user-select: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .cad-crosshair::before {
+      content: "+";
+      font-size: 13px;
+      line-height: 1;
+      color: var(--bg-crosshair);
+      font-weight: 300;
+    }
+
+    .cad-top-l { top: 120px; left: 28px; transform: translate(-4px, -50%); }
+    .cad-top-r { top: 120px; right: 28px; transform: translate(4px, -50%); flex-direction: row-reverse; }
+    .cad-center-axis { top: 180px; left: 50%; transform: translate(-50%, -50%); }
+    .cad-grid-hero { top: 430px; left: 28px; transform: translate(-4px, -50%); }
+    .cad-spaces-ref { top: 780px; right: 28px; transform: translate(4px, -50%); flex-direction: row-reverse; }
+
+    /* ==========================================================================
+       1. Navigation Bar (Pure Wordmark - No Distracting Logo)
+       ========================================================================== */
+    .navbar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 64px;
+      background: rgba(247, 246, 242, 0.82);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border-subtle);
+      z-index: 100;
+      transition: border-color 0.25s ease, background-color 0.25s ease;
+    }
+
+    [data-theme="dark"] .navbar {
+      background: rgba(14, 16, 18, 0.82);
+    }
+
+    .navbar-inner {
+      max-width: 1120px;
+      height: 100%;
+      margin: 0 auto;
+      padding: 0 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    /* Wordmark: Personal Digital Signature */
+    .nav-brand {
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+    }
+
+    .wordmark {
+      font-family: var(--font-main);
+      font-size: 16.5px;
+      font-weight: 400;
+      letter-spacing: 0.32em;
+      color: var(--text-main);
+      text-transform: lowercase;
+      user-select: none;
+      transition: opacity var(--transition-base);
+    }
+
+    .wordmark:hover {
+      opacity: 0.8;
+    }
+
+    /* g is the ONLY accented letter */
+    .wordmark .accent-g {
+      color: var(--accent-g);
+      font-weight: 500;
+      transition: color 0.25s ease;
+    }
+
+    .wordmark .dot {
+      color: var(--text-main);
+      font-weight: 600;
+      display: inline-block;
+      vertical-align: middle;
+      transform: translateY(-0.06em);
+      margin-left: 0.05em;
+    }
+
+    /* Nav Menu */
+    .nav-menu {
+      display: flex;
+      align-items: center;
+      gap: 32px;
+      list-style: none;
+    }
+
+    .nav-link {
+      font-size: 13.5px;
+      font-weight: 400;
+      color: var(--text-muted);
+      text-decoration: none;
+      letter-spacing: 0.02em;
+      padding: 6px 0;
+      position: relative;
+      transition: color var(--transition-base);
+    }
+
+    .nav-link:hover {
+      color: var(--text-main);
+    }
+
+    .nav-link.active {
+      color: var(--text-main);
+      font-weight: 500;
+    }
+
+    /* Plan Switcher Badge in Navbar */
+    .plan-pill {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 4px 10px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 4px;
+      color: var(--text-main);
+      text-decoration: none;
+      transition: all var(--transition-base);
+    }
+
+    .plan-pill:hover {
+      border-color: var(--accent-g);
+      color: var(--accent-g);
+    }
+
+    /* Nav Actions */
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .icon-btn {
+      width: 34px;
+      height: 34px;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all var(--transition-base);
+    }
+
+    .icon-btn:hover {
+      color: var(--text-main);
+      border-color: var(--border-subtle);
+      background: var(--bg-surface);
+    }
+
+    .icon-btn svg {
+      width: 16px;
+      height: 16px;
+      stroke-width: 1.6;
+    }
+
+    /* ==========================================================================
+       2. Hero Section (Plan A: Vertical Spatial Separation & Precision Anchoring)
+       ========================================================================== */
+    .hero-section {
+      min-height: 84vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 110px 24px 48px;
+      position: relative;
+    }
+
+    /* 2.1 Pure Symmetrical Geometric Symbol (6-Element Dual-Axis System) */
+    .hero-symbol-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 0;
+      cursor: default;
+    }
+
+    /* Subtle background circle guide for the hero symbol */
+    .symbol-halo-ring {
+      position: absolute;
+      width: 68px;
+      height: 68px;
+      border-radius: 50%;
+      border: 1px dashed var(--bg-guide-line-dashed);
+      pointer-events: none;
+      transition: border-color var(--transition-base);
+    }
+
+    .symbol-svg {
+      width: 46px;
+      height: 46px;
+      overflow: visible;
+      position: relative;
+      z-index: 1;
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .hero-symbol-wrapper:hover .symbol-svg {
+      transform: scale(1.06);
+    }
+
+    /* Geometry Lines - Quiet, Slim, High-precision */
+    .geo-axis {
+      stroke: var(--text-main);
+      stroke-width: 1.2;
+      stroke-linecap: round;
+      opacity: 0.75;
+    }
+
+    .geo-cross {
+      stroke: var(--border-subtle);
+      stroke-width: 1;
+      stroke-dasharray: 2 3;
+    }
+
+    .geo-wing-l, .geo-wing-r {
+      stroke-width: 1.15;
+      fill: none;
+      stroke-linecap: round;
+    }
+
+    .geo-wing-l {
+      stroke: var(--text-muted);
+      opacity: 0.55;
+    }
+
+    .geo-wing-r {
+      stroke: var(--accent-g);
+      opacity: 0.85;
+    }
+
+    /* 6 Coordinate Nodes */
+    .geo-node-sub {
+      fill: var(--text-muted);
+      opacity: 0.6;
+    }
+
+    .geo-node-g-focus {
+      fill: var(--accent-g);
+      filter: drop-shadow(0 0 5px var(--accent-glow));
+    }
+
+    /* 2.2 Intentional Whitespace Breathing Room (Laser-etched guide line) */
+    .hero-spacer {
+      height: 72px;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .hero-spacer-guide {
+      width: 1px;
+      height: 32px;
+      background: var(--border-subtle);
+      position: relative;
+    }
+
+    .hero-spacer-guide::after {
+      content: "";
+      position: absolute;
+      bottom: -3px;
+      left: -1.5px;
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: var(--border-subtle);
+    }
+
+    /* 2.3 Main Hero Brand Wordmark (Visual Sanctuary) */
+    .hero-title {
+      font-family: var(--font-main);
+      font-size: clamp(34px, 4.6vw, 48px);
+      font-weight: 400;
+      letter-spacing: 0.38em;
+      text-indent: 0.38em;
+      color: var(--text-main);
+      line-height: 1.2;
+      margin-bottom: 22px;
+      user-select: none;
+      transition: color 0.25s ease;
+    }
+
+    /* Pure Amber 'g' */
+    .hero-title .accent-g {
+      color: var(--accent-g);
+      font-weight: 500;
+      transition: color 0.25s ease;
+    }
+
+    .hero-title .dot {
+      color: var(--text-main);
+      font-weight: 500;
+      display: inline-block;
+      vertical-align: middle;
+      transform: translateY(-0.06em);
+    }
+
+    /* Slogan: "藏在品牌里的一句话" */
+    .hero-slogan {
+      font-family: var(--font-main);
+      font-size: 14.5px;
+      font-weight: 400;
+      color: var(--text-muted);
+      letter-spacing: 0.04em;
+      margin-bottom: 8px;
+      transition: color 0.25s ease;
+    }
+
+    .hero-tagline-sub {
+      font-family: var(--font-main);
+      font-size: 12.5px;
+      font-weight: 300;
+      color: var(--text-subtle);
+      letter-spacing: 0.16em;
+      margin-bottom: 42px;
+    }
+
+    /* Scroll Cue */
+    .scroll-cue {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-subtle);
+      text-decoration: none;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      padding: 6px 14px;
+      border-radius: 4px;
+      border: 1px solid transparent;
+      transition: all var(--transition-base);
+    }
+
+    .scroll-cue:hover {
+      color: var(--text-main);
+      border-color: var(--border-subtle);
+      background: var(--bg-surface);
+    }
+
+    .scroll-cue svg {
+      width: 14px;
+      height: 14px;
+      animation: pulseDown 2.2s infinite ease-in-out;
+    }
+
+    /* ==========================================================================
+       3. Curated Entry Spaces (Editorial Grid)
+       ========================================================================== */
+    .section-spaces {
+      padding: 30px 0 90px;
+      position: relative;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .section-label {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      letter-spacing: 0.08em;
+      color: var(--text-subtle);
+      text-transform: uppercase;
+    }
+
+    .spaces-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      background: var(--border-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: var(--card-shadow);
+    }
+
+    .space-item {
+      background: var(--bg-primary);
+      padding: 26px 22px;
+      text-decoration: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 210px;
+      position: relative;
+      transition: background-color var(--transition-base);
+    }
+
+    .space-item:hover {
+      background: var(--bg-surface);
+    }
+
+    .space-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .space-idx {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      font-weight: 500;
+      color: var(--text-subtle);
+      transition: color var(--transition-base);
+    }
+
+    .space-item:hover .space-idx {
+      color: var(--accent-g);
+    }
+
+    .space-tag {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      color: var(--text-subtle);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .space-title {
+      font-size: 17px;
+      font-weight: 500;
+      color: var(--text-main);
+      margin-bottom: 4px;
+      letter-spacing: -0.01em;
+      transition: color var(--transition-base);
+    }
+
+    .space-subtitle {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+
+    .space-desc {
+      font-size: 12px;
+      color: var(--text-subtle);
+      line-height: 1.55;
+    }
+
+    .space-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 20px;
+      padding-top: 12px;
+    }
+
+    .space-stat {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-subtle);
+    }
+
+    .space-arrow {
+      width: 16px;
+      height: 16px;
+      color: var(--text-subtle);
+      transition: transform var(--transition-base), color var(--transition-base);
+    }
+
+    .space-item:hover .space-arrow {
+      color: var(--accent-g);
+      transform: translate(2px, -2px);
+    }
+
+    /* ==========================================================================
+       Design System Review & Architecture Note
+       ========================================================================== */
+    .review-note {
+      margin: 40px auto 0;
+      padding: 18px 22px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      box-shadow: var(--card-shadow);
+    }
+
+    .review-text {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    .review-tag {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 4px 10px;
+      background: var(--bg-subtle);
+      color: var(--text-main);
+      border-radius: 4px;
+      white-space: nowrap;
+    }
+
+    /* Footer: Digital Signature */
+    footer {
+      border-top: 1px solid var(--border-subtle);
+      padding: 36px 0 50px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-subtle);
+      position: relative;
+      z-index: 2;
+    }
+
+    .footer-mark {
+      font-size: 13.5px;
+      letter-spacing: 0.28em;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    @keyframes pulseDown {
+      0%, 100% {
+        transform: translateY(0);
+        opacity: 0.5;
+      }
+      50% {
+        transform: translateY(3px);
+        opacity: 0.9;
+      }
+    }
+
+    /* Responsive */
+    @media (max-width: 860px) {
+      .spaces-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .nav-menu {
+        display: none;
+      }
+      .guide-line-sub-l, .guide-line-sub-r {
+        display: none;
+      }
+    }
+
+    @media (max-width: 540px) {
+      .spaces-grid {
+        grid-template-columns: 1fr;
+      }
+      .hero-title {
+        letter-spacing: 0.25em;
+        text-indent: 0.25em;
+      }
+      .hero-spacer {
+        height: 48px;
+      }
+      .cad-crosshair {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 0.1 Artisanal Noise Layer (Tactile Matte Paper / Anodized Titanium) -->
+  <div class="bg-grain-layer"></div>
+
+  <!-- 0.2 Subtle Interactive Mouse Cursor Glow -->
+  <div class="bg-interactive-glow" id="cursor-glow"></div>
+
+  <!-- 0.3 Blueprint Coordinate System & Alignment Guides -->
+  <div class="bg-blueprint-system">
+    <!-- Hero Ambient Depth Spotlight -->
+    <div class="hero-depth-spotlight"></div>
+    
+    <!-- 56px Hairline Coordinate Grid Mesh -->
+    <div class="bg-grid-mesh"></div>
+
+    <!-- Precision Layout Guide Lines -->
+    <div class="bg-guide-lines">
+      <div class="guide-line-center"></div>
+      <div class="guide-line-left"></div>
+      <div class="guide-line-right"></div>
+      <div class="guide-line-sub-l"></div>
+      <div class="guide-line-sub-r"></div>
+
+      <!-- CAD Coordinate Indicators -->
+      <div class="cad-crosshair cad-top-l">AXIS // 00.L</div>
+      <div class="cad-crosshair cad-top-r">AXIS // 00.R</div>
+      <div class="cad-crosshair cad-center-axis">SYM // CTR (0,0)</div>
+      <div class="cad-crosshair cad-grid-hero">GRID // 56px</div>
+      <div class="cad-crosshair cad-spaces-ref">SEC // SPACES</div>
+    </div>
+  </div>
+
+  <!-- 1. Navigation Bar (Pure Wordmark Signature) -->
+  <header class="navbar">
+    <div class="navbar-inner">
+      <a href="#" class="nav-brand" title="snhgn·">
+        <span class="wordmark">s n h <span class="accent-g">g</span> n<span class="dot">·</span></span>
+      </a>
+
+      <ul class="nav-menu">
+        <li><a href="#home" class="nav-link active">Home</a></li>
+        <li><a href="#projects" class="nav-link">Projects</a></li>
+        <li><a href="#notes" class="nav-link">Notes</a></li>
+        <li><a href="#research" class="nav-link">Research</a></li>
+        <li><a href="#about" class="nav-link">About</a></li>
+      </ul>
+
+      <div class="nav-actions">
+        <a href="preview-plan-b.html" class="plan-pill" title="查看方案 B（大尺度图腾空间氛围水印化）">切换至方案 B ➔</a>
+        <button class="icon-btn" id="search-btn" title="Search (⌘K)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <circle cx="11" cy="11" r="7"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+        </button>
+        <button class="icon-btn" id="theme-toggle" title="Switch Light / Dark Theme">
+          <svg id="sun-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <circle cx="12" cy="12" r="4"></circle>
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
+          </svg>
+          <svg id="moon-icon" style="display: none;" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- 2. Hero Section (6-Element Dual Symmetry & Amber 'g') -->
+    <section class="hero-section" id="home">
+      
+      <!-- 2.1 Symmetrical Geometric Symbol (3 Left Triad + 3 Right Triad) -->
+      <div class="hero-symbol-wrapper" title="snhgn. 轴对称几何坐标">
+        <div class="symbol-halo-ring"></div>
+        <svg class="symbol-svg" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <!-- Subtle Crosshair Grid -->
+          <line x1="8" y1="32" x2="56" y2="32" class="geo-cross" />
+          <line x1="32" y1="8" x2="32" y2="56" class="geo-cross" />
+
+          <!-- Vertical Symmetry Axis -->
+          <line x1="32" y1="4" x2="32" y2="60" class="geo-axis" />
+
+          <!-- Symmetrical Dual Wings / Dual Arcs -->
+          <!-- Left Wing: [s n h] -->
+          <path d="M 32 18 C 16 18 16 46 32 46" class="geo-wing-l" />
+          <!-- Right Wing: [g n .] -->
+          <path d="M 32 18 C 48 18 48 46 32 46" class="geo-wing-r" />
+
+          <!-- Center Origin Point (0,0) -->
+          <circle cx="32" cy="32" r="2.2" fill="var(--text-main)" />
+
+          <!-- 6 Symmetrical Coordinate Nodes: 3 Left + 3 Right -->
+          <!-- Left Triad Nodes: 's' (top), 'n' (mid), 'h' (bottom) -->
+          <circle cx="23" cy="22" r="1.8" class="geo-node-sub" />
+          <circle cx="16" cy="32" r="2.2" class="geo-node-sub" />
+          <circle cx="23" cy="42" r="1.8" class="geo-node-sub" />
+
+          <!-- Right Triad Nodes: 'g' (mid focus in amber gold), 'n' (top), '.' (bottom) -->
+          <circle cx="41" cy="22" r="1.8" class="geo-node-sub" />
+          <circle cx="48" cy="32" r="3.0" class="geo-node-g-focus" />
+          <circle cx="41" cy="42" r="1.8" class="geo-node-sub" />
+        </svg>
+      </div>
+
+      <!-- 2.2 Intentional Whitespace Breathing Room (72px) with structural guide -->
+      <div class="hero-spacer">
+        <div class="hero-spacer-guide"></div>
+      </div>
+
+      <!-- 2.3 Main Hero Brand Wordmark: s n h g n . -->
+      <div>
+        <h1 class="hero-title">
+          s  n  h  <span class="accent-g">g</span>  n  <span class="dot">·</span>
+        </h1>
+        <p class="hero-slogan">Stay curious, keep building.</p>
+        <p class="hero-tagline-sub">保持好奇 · 持续构建</p>
+
+        <a href="#projects" class="scroll-cue">
+          <span>Explore Spaces</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </a>
+      </div>
+
+    </section>
+
+    <!-- 3. Curated Spaces Grid (Clean Editorial Matrix) -->
+    <section class="section-spaces" id="projects">
+      <div class="section-header">
+        <span class="section-label">// Spaces & Workshops</span>
+        <span class="section-label">Digital Sanctuary</span>
+      </div>
+
+      <div class="spaces-grid">
+        <!-- 01 Projects -->
+        <a href="#projects" class="space-item">
+          <div>
+            <div class="space-header">
+              <span class="space-idx">01</span>
+              <span class="space-tag">Engineering</span>
+            </div>
+            <h3 class="space-title">Projects</h3>
+            <div class="space-subtitle">项目与实验</div>
+            <p class="space-desc">嵌入式系统、多智能体协作、机器人与硬件全栈构建实践。</p>
+          </div>
+          <div class="space-footer">
+            <span class="space-stat">8 Projects</span>
+            <svg class="space-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="7" y1="17" x2="17" y2="7"></line>
+              <polyline points="7 7 17 7 17 17"></polyline>
+            </svg>
+          </div>
+        </a>
+
+        <!-- 02 Notes -->
+        <a href="#notes" class="space-item">
+          <div>
+            <div class="space-header">
+              <span class="space-idx">02</span>
+              <span class="space-tag">Knowledge</span>
+            </div>
+            <h3 class="space-title">Notes</h3>
+            <div class="space-subtitle">深度笔记与思考</div>
+            <p class="space-desc">论文研读、高并发系统架构与工程重构中的复盘沉淀。</p>
+          </div>
+          <div class="space-footer">
+            <span class="space-stat">24 Articles</span>
+            <svg class="space-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="7" y1="17" x2="17" y2="7"></line>
+              <polyline points="7 7 17 7 17 17"></polyline>
+            </svg>
+          </div>
+        </a>
+
+        <!-- 03 Research -->
+        <a href="#research" class="space-item">
+          <div>
+            <div class="space-header">
+              <span class="space-idx">03</span>
+              <span class="space-tag">Frontier</span>
+            </div>
+            <h3 class="space-title">Research</h3>
+            <div class="space-subtitle">研究方向与探索</div>
+            <p class="space-desc">半导体芯片、AI Agent 编排机制与前沿交叉技术实验。</p>
+          </div>
+          <div class="space-footer">
+            <span class="space-stat">Topics</span>
+            <svg class="space-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="7" y1="17" x2="17" y2="7"></line>
+              <polyline points="7 7 17 7 17 17"></polyline>
+            </svg>
+          </div>
+        </a>
+
+        <!-- 04 About -->
+        <a href="#about" class="space-item">
+          <div>
+            <div class="space-header">
+              <span class="space-idx">04</span>
+              <span class="space-tag">Identity</span>
+            </div>
+            <h3 class="space-title">About</h3>
+            <div class="space-subtitle">关于我</div>
+            <p class="space-desc">个人经历、技术栈图谱、开源贡献与数字连接方式。</p>
+          </div>
+          <div class="space-footer">
+            <span class="space-stat">Profile</span>
+            <svg class="space-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="7" y1="17" x2="17" y2="7"></line>
+              <polyline points="7 7 17 7 17 17"></polyline>
+            </svg>
+          </div>
+        </a>
+      </div>
+
+      <!-- Design Rule Verification Note -->
+      <div class="review-note">
+        <div class="review-text">
+          <strong>方案 A 背景优化体系</strong>：引入<strong>建筑级精密工程坐标系</strong>（56px 坐标细线网格 + 纵向中轴基准线 + CAD 十字标）+ <strong>胶片级微噪点质感层</strong> + <strong>Hero 聚焦点向微光场</strong>。消除了原本纯色背景的空洞与简陋感，形成严谨沉静的数字工坊气质。
+        </div>
+        <span class="review-tag">Blueprint System</span>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container">
+      <div class="footer-mark">
+        s  n  h  <span style="color: var(--accent-g);">g</span>  n  <span class="dot">·</span>
+      </div>
+      <div>Stay curious, keep building. &copy; 2026 snhgn·</div>
+    </div>
+  </footer>
+
+  <!-- Theme Toggle & Subtle Cursor Glow Logic (Default Dark) -->
+  <script>
+    const themeToggleBtn = document.getElementById('theme-toggle');
+    const sunIcon = document.getElementById('sun-icon');
+    const moonIcon = document.getElementById('moon-icon');
+    const htmlElement = document.documentElement;
+    const cursorGlow = document.getElementById('cursor-glow');
+
+    function setTheme(theme) {
+      htmlElement.setAttribute('data-theme', theme);
+      if (theme === 'dark') {
+        sunIcon.style.display = 'block';
+        moonIcon.style.display = 'none';
+      } else {
+        sunIcon.style.display = 'none';
+        moonIcon.style.display = 'block';
+      }
+      localStorage.setItem('snhgn-theme', theme);
+    }
+
+    themeToggleBtn.addEventListener('click', () => {
+      const currentTheme = htmlElement.getAttribute('data-theme');
+      const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+      setTheme(newTheme);
+    });
+
+    const savedTheme = localStorage.getItem('snhgn-theme');
+    if (savedTheme) {
+      setTheme(savedTheme);
+    } else {
+      // Default to Dark Mode as requested
+      setTheme('dark');
+    }
+
+    // Subtle Cursor Glow Tracking (High Performance requestAnimationFrame throttle)
+    let mouseTicking = false;
+    window.addEventListener('mousemove', (e) => {
+      if (!mouseTicking) {
+        window.requestAnimationFrame(() => {
+          cursorGlow.style.setProperty('--mouse-x', `${e.clientX}px`);
+          cursorGlow.style.setProperty('--mouse-y', `${e.clientY}px`);
+          mouseTicking = false;
+        });
+        mouseTicking = true;
+      }
+    });
+  </script>
+</body>
+</html>

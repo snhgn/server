@@ -117,6 +117,9 @@ class RunConfig:
     first_run_send_all: bool = _get_env("FIRST_RUN_SEND_ALL", "false").lower() == "true"
     """首次运行是否发送历史通知（默认 false：只发新通知）"""
 
+    send_empty_report: bool = _get_env("SEND_EMPTY_REPORT", "true").lower() == "true"
+    """无新通知时是否发送状态说明邮件（默认 true：发送正常巡检汇报）"""
+
 
 @dataclass(frozen=True)
 class SiteItem:

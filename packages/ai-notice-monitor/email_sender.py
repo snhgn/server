@@ -57,7 +57,90 @@ class EmailSender:
         self._send(subject, body_html)
         logger.info("邮件已发送: %s 条通知 -> %s", len(items), self.config.receiver_email)
 
+    def send_empty_report(self, total_scanned: int, total_db: int, sites: list[str]) -> None:
+        """
+        发送无新通知时的日常巡检汇报邮件。
+        """
+        subject = f"[校园通知] {date.today().isoformat()} 今日无新增通知（监控正常运行）"
+        body_html = self._build_empty_html(total_scanned, total_db, sites)
+        self._send(subject, body_html)
+        logger.info("巡检说明邮件已发送 -> %s", self.config.receiver_email)
+
     # ---------- 邮件内容 ----------
+
+    def _build_empty_html(self, total_scanned: int, total_db: int, sites: list[str]) -> str:
+        """构造无新通知时的 HTML 报告正文。"""
+        sites_list_html = "".join(
+            f'<li style="margin: 4px 0; color: #555;">{html_lib.escape(s)}</li>'
+            for s in sites
+        )
+        return f"""
+        <html>
+        <body style="font-family:'PingFang SC','Microsoft YaHei',Arial,sans-serif;background:#f7f6f2;padding:24px 12px;margin:0;">
+          <div style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:10px;border:1px solid #e8e5de;box-shadow:0 2px 10px rgba(0,0,0,0.03);overflow:hidden;">
+            <!-- Header -->
+            <div style="background:#161719;padding:22px 24px;border-bottom:3px solid #f5b738;">
+              <h2 style="margin:0;color:#f2f2f2;font-size:17px;letter-spacing:0.04em;">
+                北京林业大学 · 校园通知监控
+              </h2>
+              <p style="margin:6px 0 0;color:#8e9399;font-size:12px;font-family:monospace;">
+                snhgn· Notice Monitor · Daily Heartbeat
+              </p>
+            </div>
+
+            <!-- Body Content -->
+            <div style="padding:24px;">
+              <div style="display:inline-block;background:rgba(16,185,129,0.1);color:#059669;border:1px solid rgba(16,185,129,0.3);padding:4px 12px;border-radius:20px;font-size:12px;font-weight:500;margin-bottom:16px;">
+                ● 今日巡检正常 · 无新增通知
+              </div>
+
+              <p style="font-size:14px;color:#333;line-height:1.7;margin:0 0 16px;">
+                监控系统已于 <b>{date.today().isoformat()}</b> 完成对各官方站点的自动抓取与去重比对，各站点暂无新发布的内容（可能处于假期或非工作日更新周期）。
+              </p>
+
+              <!-- Stats Table -->
+              <div style="background:#fcfbf9;border:1px solid #eee;border-radius:8px;padding:14px;margin-bottom:18px;">
+                <table style="width:100%;font-size:13px;color:#444;border-collapse:collapse;">
+                  <tr>
+                    <td style="padding:6px 0;color:#777;">巡检时间</td>
+                    <td style="padding:6px 0;text-align:right;font-family:monospace;color:#111;">{date.today().isoformat()} 09:00</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 0;color:#777;border-top:1px dashed #eee;">扫描有效条目</td>
+                    <td style="padding:6px 0;text-align:right;font-family:monospace;color:#111;">{total_scanned} 条</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 0;color:#777;border-top:1px dashed #eee;">今日新增通知</td>
+                    <td style="padding:6px 0;text-align:right;font-family:monospace;color:#059669;font-weight:bold;">0 条</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 0;color:#777;border-top:1px dashed #eee;">库中累计归档</td>
+                    <td style="padding:6px 0;text-align:right;font-family:monospace;color:#111;">{total_db} 条</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 0;color:#777;border-top:1px dashed #eee;">监控覆盖站点</td>
+                    <td style="padding:6px 0;text-align:right;color:#111;">{len(sites)} 个专区</td>
+                  </tr>
+                </table>
+              </div>
+
+              <!-- Sites Monitored -->
+              <div style="font-size:12.5px;color:#666;margin-bottom:14px;">
+                <b style="color:#333;">已覆盖站点清单：</b>
+                <ul style="margin:6px 0 0;padding-left:20px;font-size:12px;">
+                  {sites_list_html}
+                </ul>
+              </div>
+
+              <p style="font-size:12px;color:#888;margin:16px 0 0;border-top:1px solid #eee;padding-top:12px;line-height:1.6;">
+                如后续站点发布新通知，系统将在第一时间进行 AI 智能提炼并通过邮件推送。<br>
+                <em>Stay curious, keep building. · snhgn·</em>
+              </p>
+            </div>
+          </div>
+        </body>
+        </html>
+        """
 
     def _build_html(self, items: list[tuple[Notice, NoticeSummary]]) -> str:
         """构造 HTML 邮件正文。"""

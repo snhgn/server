@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /login
+Disallow: /dashboard
+Disallow: /settings
+Disallow: /server
+Disallow: /knowledge
+
+Sitemap: https://snhgn.me/sitemap.xml

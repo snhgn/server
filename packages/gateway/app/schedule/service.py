@@ -7,6 +7,7 @@
 - 日志只记录 user_id 与错误类别，不记录任何凭据。
 """
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -33,6 +34,20 @@ PERIOD_RANGE = {
 # per-user 并发锁 + 冷却时间戳（仅进程内，重启即失效，可接受）
 _locks: dict[int, asyncio.Lock] = {}
 _cooldowns: dict[int, float] = {}
+
+# 进程内 TTL 内存缓存：避免每次查看都走 SQLite I/O + JSON 反序列化
+# {user_id: (monotonic_ts, parsed_dict)}
+_mem_cache: dict[int, tuple[float, dict]] = {}
+_MEM_CACHE_TTL = 300.0  # 5 分钟
+
+
+def guest_user_id(student_id: str) -> int:
+    """从学号派生稳定的负整数 user_id，供访客课表缓存使用。
+
+    负值确保与数据库 AUTOINCREMENT 正整数 user_id 永不冲突。
+    """
+    h = hashlib.sha256(f"guest:{student_id}".encode()).hexdigest()
+    return -(int(h[:8], 16) % 1_000_000_000 + 1)
 
 
 class ScheduleError(Exception):
@@ -157,9 +172,15 @@ async def fetch_schedule(user_id: int, student_id: str, password: str,
     - per-user 锁保证并发重复请求只爬一次
     """
     if not force:
+        # 优先查内存缓存（0ms），再查 SQLite
+        hit = _mem_cache.get(user_id)
+        if hit and time.monotonic() - hit[0] < _MEM_CACHE_TTL:
+            return hit[1]
         row = db.get_cache(user_id)
         if row and _is_fresh(row["updated_time"]):
-            return json.loads(row["schedule_json"])
+            parsed = json.loads(row["schedule_json"])
+            _mem_cache[user_id] = (time.monotonic(), parsed)
+            return parsed
 
     last = _cooldowns.get(user_id, 0.0)
     if time.monotonic() - last < settings.SCHEDULE_COOLDOWN_SECONDS:
@@ -169,9 +190,14 @@ async def fetch_schedule(user_id: int, student_id: str, password: str,
     async with lock:
         # 加锁后再查一次：并发请求共享同一次爬取
         if not force:
+            hit = _mem_cache.get(user_id)
+            if hit and time.monotonic() - hit[0] < _MEM_CACHE_TTL:
+                return hit[1]
             row = db.get_cache(user_id)
             if row and _is_fresh(row["updated_time"]):
-                return json.loads(row["schedule_json"])
+                parsed = json.loads(row["schedule_json"])
+                _mem_cache[user_id] = (time.monotonic(), parsed)
+                return parsed
 
         _cooldowns[user_id] = time.monotonic()
         try:
@@ -190,21 +216,34 @@ async def fetch_schedule(user_id: int, student_id: str, password: str,
         updated = _now_iso()
         payload = {"semester": semester, "updated_time": updated, "courses": courses}
         db.upsert_cache(user_id, semester, json.dumps(payload, ensure_ascii=False), updated)
+        # 立即刷新内存缓存，后续查看即时生效
+        _mem_cache[user_id] = (time.monotonic(), payload)
 
-        # 同步到 courses 表 + AI 数据目录（失败不阻断主流程，由每日任务兜底重试）
-        try:
-            await asyncio.to_thread(course_context.sync_from_cache, user_id, "manual")
-        except Exception as exc:
-            logger.warning("course sync after fetch failed user=%s: %s",
-                           user_id, str(exc)[:200])
+        # 同步到 courses 表 + AI 数据目录（仅登录用户；访客跳过）
+        if user_id > 0:
+            try:
+                await asyncio.to_thread(course_context.sync_from_cache, user_id, "manual")
+            except Exception as exc:
+                logger.warning("course sync after fetch failed user=%s: %s",
+                               user_id, str(exc)[:200])
 
         return payload
 
 
 def get_current(user_id: int) -> dict | None:
-    """返回缓存课表（不论新旧）；无缓存返回 None。"""
+    """返回缓存课表（不论新旧）；无缓存返回 None。
+
+    优先查内存缓存（0ms），未命中再查 SQLite 并回填内存缓存。
+    """
+    hit = _mem_cache.get(user_id)
+    if hit and time.monotonic() - hit[0] < _MEM_CACHE_TTL:
+        return hit[1]
     row = db.get_cache(user_id)
-    return json.loads(row["schedule_json"]) if row else None
+    if not row:
+        return None
+    parsed = json.loads(row["schedule_json"])
+    _mem_cache[user_id] = (time.monotonic(), parsed)
+    return parsed
 
 
 def list_cache_stats() -> list[dict]:

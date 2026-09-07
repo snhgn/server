@@ -26,8 +26,10 @@ def _conn() -> sqlite3.Connection:
     db_dir = os.path.dirname(settings.SQLITE_DB_PATH)
     if db_dir:
         os.makedirs(db_dir, exist_ok=True)
-    conn = sqlite3.connect(settings.SQLITE_DB_PATH)
+    conn = sqlite3.connect(settings.SQLITE_DB_PATH, timeout=10.0)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout=10000")
+    conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
 

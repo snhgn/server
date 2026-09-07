@@ -177,3 +177,30 @@ async def require_admin(payload: dict = Depends(require_auth)) -> dict:
     if payload.get("role") != "admin":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin only")
     return payload
+
+
+async def optional_user(
+    request: Request,
+    cred: HTTPAuthorizationCredentials | None = Depends(security),
+) -> dict | None:
+    """可选认证：已登录返回 payload，未登录返回 None（不报 401）。
+
+    用于访客也可使用、但登录用户有额外关联的接口（如课表抓取）。
+    """
+    # 通道 1：Cookie Session
+    sid = request.cookies.get(settings.SESSION_COOKIE_NAME)
+    if sid:
+        payload = await _get_payload_from_session(sid)
+        if payload and payload.get("role") in ("user", "admin"):
+            return payload
+    # 通道 2：Bearer JWT
+    if cred:
+        try:
+            payload = decode_token(cred.credentials)
+            user = await _get_user_cached(payload.get("uid", 0))
+            if user and user.get("role") in ("user", "admin"):
+                payload["role"] = user["role"]
+                return payload
+        except Exception:
+            pass
+    return None

@@ -513,6 +513,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     success: bool
     provider: str | None = None
+    fallback_from: str | None = None  # 若发生了降级，记录原请求的 provider 名
     answer: str | None = None
     sources: list[dict] | None = None
     session_id: str | None = None
@@ -947,6 +948,10 @@ async def chat(
     answer = None
     used_provider_name: str | None = None
     built: BuiltContext | None = None
+    # 记录用户首选 provider，用于降级提示（fallback_from）
+    requested_provider = req.provider or (settings_data.get("ai_provider") or None)
+    if requested_provider == "auto":
+        requested_provider = None
     for provider in _providers_for_request(req, settings_data, g):
         try:
             if g.image_b64_list:
@@ -1005,9 +1010,12 @@ async def chat(
         mem_ops=mem_ops,
     )
 
+    # 降级检测：用户首选 provider 与实际使用的不同 → 记录 fallback_from
+    fb = requested_provider if (requested_provider and used_provider_name and requested_provider != used_provider_name) else None
     return ChatResponse(
         success=True,
         provider=used_provider_name,
+        fallback_from=fb,
         answer=answer,
         sources=g.sources or None,
         session_id=session_id,
@@ -1049,6 +1057,10 @@ async def _stream_chat_generator(
     # 2) 调用 Provider 流式输出（翻译请求优先路由到混元 MT）
     yield _sse("status", {"state": "generating"})
     used_provider_name: str | None = None
+    # 记录用户首选 provider，用于降级提示
+    requested_provider = req.provider or (settings_data.get("ai_provider") or None)
+    if requested_provider == "auto":
+        requested_provider = None
     last_err: str | None = None
     built: BuiltContext | None = None
     # 流式过滤记忆指令标签：AI 写记忆的标签不显示给用户，完整提取后写回
@@ -1132,11 +1144,13 @@ async def _stream_chat_generator(
             "stream ok", used_provider_name, username, session_id, elapsed,
             len(image_b64_list), built, answer,
         )
+        fb = requested_provider if (requested_provider and used_provider_name and requested_provider != used_provider_name) else None
         yield _sse(
             "complete",
             {
                 "finish": True,
                 "provider": used_provider_name,
+                "fallback_from": fb,
                 "session_id": session_id,
                 "sources": sources or None,
                 "files": file_meta or None,

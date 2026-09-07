@@ -1,15 +1,36 @@
 <!DOCTYPE html>
 <html lang="zh-CN" data-theme="dark">
 <head>
+  <script>((t)=>{document.documentElement.setAttribute('data-theme',t||'dark')})(localStorage.getItem('snhgn-theme'))</script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>snhgn· — Stay curious, keep building.</title>
-  <meta name="description" content="snhgn· 个人数字空间与独立产品架构 — 保持好奇，持续构建。">
+  <meta name="description" content="snhgn· 个人数字空间与独立产品架构 — 保持好奇，持续构建。AI 助手、智能课表、自托管服务与工程构建记录。">
+  <link rel="canonical" href="https://snhgn.me/">
+  <meta name="robots" content="index,follow">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="snhgn·">
+  <meta property="og:title" content="snhgn· — Stay curious, keep building.">
+  <meta property="og:description" content="个人数字空间与独立产品架构 — 保持好奇，持续构建。">
+  <meta property="og:url" content="https://snhgn.me/">
+  <meta property="og:locale" content="zh_CN">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="snhgn· — Stay curious, keep building.">
+  <meta name="twitter:description" content="个人数字空间与独立产品架构 — 保持好奇，持续构建。">
+
+  <!-- Favicon: inline SVG, no extra request -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230E1012'/%3E%3Ccircle cx='32' cy='34' r='13' fill='none' stroke='%23F5B738' stroke-width='5'/%3E%3Cline x1='45' y1='47' x2='53' y2='55' stroke='%23F5B738' stroke-width='6' stroke-linecap='round'/%3E%3Ccircle cx='50' cy='16' r='4' fill='%23F2F2F2'/%3E%3C/svg%3E">
   
-  <!-- Google Fonts: Inter & JetBrains Mono -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <!-- Fonts: 国内可达镜像（fonts.loli.net），失败时回退系统字体栈 -->
+  <link rel="preconnect" href="https://fonts.loli.net">
+  <link rel="preconnect" href="https://gstatic.loli.net" crossorigin>
+  <link rel="preload" as="style" href="https://fonts.loli.net/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="https://fonts.loli.net/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" media="print" onload="this.media='all'">
+  <noscript><link rel="stylesheet" href="https://fonts.loli.net/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"></noscript>
   
   <style>
     /* ==========================================================================
@@ -234,6 +255,16 @@
       background: var(--status-online);
       box-shadow: 0 0 8px var(--status-online-glow);
       animation: pulseStatus 2.4s infinite ease-in-out;
+    }
+
+    .nav-status-badge.offline {
+      border-color: rgba(239, 68, 68, 0.35);
+    }
+
+    .nav-status-badge.offline .status-pulse-dot {
+      background: #EF4444;
+      box-shadow: 0 0 8px rgba(239, 68, 68, 0.3);
+      animation: none;
     }
 
     .nav-menu {
@@ -871,6 +902,15 @@
       background: var(--bg-surface);
     }
 
+    .note-row-muted {
+      cursor: default;
+    }
+
+    .note-row-muted .note-title {
+      color: var(--text-subtle);
+      font-style: italic;
+    }
+
     .note-left {
       display: flex;
       align-items: baseline;
@@ -1128,6 +1168,67 @@
       color: var(--text-subtle);
     }
 
+    /* Mobile Navigation */
+    .nav-burger {
+      display: none;
+      width: 34px;
+      height: 34px;
+      border-radius: 6px;
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-surface);
+      color: var(--text-muted);
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all var(--transition-base);
+    }
+
+    .nav-burger:hover {
+      color: var(--text-main);
+      border-color: var(--border-hover);
+    }
+
+    .mobile-menu {
+      position: fixed;
+      top: 64px;
+      left: 0;
+      width: 100%;
+      background: rgba(247, 246, 242, 0.96);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border-subtle);
+      z-index: 99;
+      padding: 8px 28px 16px;
+      display: none;
+      flex-direction: column;
+    }
+
+    [data-theme="dark"] .mobile-menu {
+      background: rgba(14, 16, 18, 0.96);
+    }
+
+    .mobile-menu.open {
+      display: flex;
+    }
+
+    .mobile-menu a {
+      padding: 12px 4px;
+      font-size: 14.5px;
+      color: var(--text-muted);
+      text-decoration: none;
+      border-bottom: 1px dashed var(--border-subtle);
+      transition: color var(--transition-base);
+    }
+
+    .mobile-menu a:last-child {
+      border-bottom: none;
+    }
+
+    .mobile-menu a:hover,
+    .mobile-menu a.active {
+      color: var(--text-main);
+    }
+
     @keyframes pulseDown {
       0%, 100% {
         transform: translateY(0);
@@ -1155,6 +1256,20 @@
       to { transform: rotate(360deg); }
     }
 
+    @media (prefers-reduced-motion: reduce) {
+      html {
+        scroll-behavior: auto;
+      }
+      .status-pulse-dot,
+      .scroll-cue svg,
+      .wm-node-g-halo {
+        animation: none !important;
+      }
+      * {
+        transition-duration: 0.01ms !important;
+      }
+    }
+
     @media (max-width: 920px) {
       .spaces-grid {
         grid-template-columns: repeat(2, 1fr);
@@ -1167,6 +1282,9 @@
       }
       .nav-menu {
         display: none;
+      }
+      .nav-burger {
+        display: flex;
       }
     }
 
@@ -1184,6 +1302,7 @@
         text-indent: 0.28em;
       }
     }
+
   </style>
 </head>
 <body>
@@ -1219,7 +1338,7 @@
       <div class="nav-actions">
         <!-- ⌘K Search Trigger Button -->
         <button class="search-trigger-btn" id="search-btn" title="Quick Jumps (⌘K)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
             <circle cx="11" cy="11" r="7"></circle>
             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
           </svg>
@@ -1228,18 +1347,36 @@
         </button>
 
         <!-- Light / Dark Theme Toggle -->
-        <button class="icon-btn" id="theme-toggle" title="Switch Light / Dark Theme">
-          <svg id="sun-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <button class="icon-btn" id="theme-toggle" title="Switch Light / Dark Theme" aria-label="Switch theme">
+          <svg id="sun-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
             <circle cx="12" cy="12" r="4"></circle>
             <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
           </svg>
-          <svg id="moon-icon" style="display: none;" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <svg id="moon-icon" style="display: none;" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+        </button>
+        <!-- Mobile Burger Menu Toggle -->
+        <button class="nav-burger" id="nav-burger" title="Menu" aria-label="Open menu" aria-expanded="false">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <line x1="3" y1="6" x2="21" y2="6"></line>
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+            <line x1="3" y1="18" x2="21" y2="18"></line>
           </svg>
         </button>
       </div>
     </div>
   </header>
+
+  <!-- Mobile Navigation Panel -->
+  <nav class="mobile-menu" id="mobile-menu">
+    <a href="#hero">Home</a>
+    <a href="/ai">AI Assistant</a>
+    <a href="/schedule">Schedule</a>
+    <a href="#projects">Projects</a>
+    <a href="#notes">Notes</a>
+    <a href="#about">About</a>
+  </nav>
 
   <!-- ========================================================================
        2. FULL-SCREEN HERO SECTION (第一屏 100vh 纯粹全屏英雄页)
@@ -1247,7 +1384,7 @@
   <section class="hero-fullscreen" id="hero">
     
     <!-- Astrometric Sanctuary Background Layers -->
-    <div class="hero-bg-sanctuary">
+    <div class="hero-bg-sanctuary" aria-hidden="true">
       <div class="hero-ambient-fog"></div>
       <div class="hero-dot-matrix"></div>
       
@@ -1384,7 +1521,7 @@
             </div>
             <div class="space-footer">
               <span class="space-stat">Online Service</span>
-              <svg class="space-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <svg class="space-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                 <line x1="7" y1="17" x2="17" y2="7"></line>
                 <polyline points="7 7 17 7 17 17"></polyline>
               </svg>
@@ -1404,7 +1541,7 @@
             </div>
             <div class="space-footer">
               <span class="space-stat">Active Sync</span>
-              <svg class="space-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <svg class="space-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                 <line x1="7" y1="17" x2="17" y2="7"></line>
                 <polyline points="7 7 17 7 17 17"></polyline>
               </svg>
@@ -1423,8 +1560,8 @@
               <p class="space-desc">嵌入式系统、多智能体协作、机器人与硬件全栈构建实践沉淀。</p>
             </div>
             <div class="space-footer">
-              <span class="space-stat">8 Projects</span>
-              <svg class="space-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <span class="space-stat">8 Builds</span>
+              <svg class="space-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                 <line x1="7" y1="17" x2="17" y2="7"></line>
                 <polyline points="7 7 17 7 17 17"></polyline>
               </svg>
@@ -1432,7 +1569,7 @@
           </a>
 
           <!-- 04 Notes & About -->
-          <a href="#notes" class="space-item">
+          <a href="#about" class="space-item">
             <div>
               <div class="space-header">
                 <span class="space-idx">04</span>
@@ -1443,8 +1580,8 @@
               <p class="space-desc">论文研读、高并发架构演进心得、个人经历与开源贡献连接。</p>
             </div>
             <div class="space-footer">
-              <span class="space-stat">24 Articles</span>
-              <svg class="space-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <span class="space-stat">Manifesto</span>
+              <svg class="space-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                 <line x1="7" y1="17" x2="17" y2="7"></line>
                 <polyline points="7 7 17 7 17 17"></polyline>
               </svg>
@@ -1466,15 +1603,15 @@
             <div>
               <div class="project-status">
                 <span class="project-status-dot"></span>
-                <span>Active Build</span>
+                <span>Deployed</span>
               </div>
-              <h4 class="project-name">Multi-Agent Orchestrator</h4>
-              <p class="project-summary">基于有向无环图的分布式 AI 智能体编排与任务自主调度引擎，支持异构工具链调用。</p>
+              <h4 class="project-name">Schedule Pipeline</h4>
+              <p class="project-summary">课表全链路服务：验证码识别自动登录教务、定时抓取同步 SQLite，并向 AI 助手注入课程上下文与空闲分析。</p>
             </div>
             <div class="project-tech-stack">
               <span class="tech-pill">Python</span>
-              <span class="tech-pill">FastAPI</span>
-              <span class="tech-pill">AsyncIO</span>
+              <span class="tech-pill">ddddocr</span>
+              <span class="tech-pill">APScheduler</span>
             </div>
           </div>
 
@@ -1483,15 +1620,15 @@
             <div>
               <div class="project-status">
                 <span class="project-status-dot"></span>
-                <span>Deployed</span>
+                <span>Active Build</span>
               </div>
-              <h4 class="project-name">Embedded Robotics Gateway</h4>
-              <p class="project-summary">边缘微控制器高并发通信中枢，实现毫秒级传感器数据流聚合与执行器远程控制。</p>
+              <h4 class="project-name">AI Notice Monitor</h4>
+              <p class="project-summary">校园通知智能监控：轮询收件邮箱，AI 自动生成摘要与重要性分级，重要通知实时推送提醒。</p>
             </div>
             <div class="project-tech-stack">
-              <span class="tech-pill">C++ / Rust</span>
-              <span class="tech-pill">Protobuf</span>
-              <span class="tech-pill">RTOS</span>
+              <span class="tech-pill">Python</span>
+              <span class="tech-pill">IMAP</span>
+              <span class="tech-pill">LLM Summary</span>
             </div>
           </div>
 
@@ -1503,12 +1640,12 @@
                 <span>Production</span>
               </div>
               <h4 class="project-name">snhgn· Digital Sanctuary</h4>
-              <p class="project-summary">单色自洽、留白哲学驱动的个人私有化数字产品系统，搭配 Cloudflare 零信任隧道。</p>
+              <p class="project-summary">单色自洽、留白哲学驱动的个人私有化数字产品系统：统一认证、Memory/RAG 双引擎 AI 助手，搭配 Cloudflare 零信任隧道。</p>
             </div>
             <div class="project-tech-stack">
-              <span class="tech-pill">Design Tokens</span>
-              <span class="tech-pill">Caddy</span>
-              <span class="tech-pill">Cloudflare</span>
+              <span class="tech-pill">Vue3</span>
+              <span class="tech-pill">FastAPI</span>
+              <span class="tech-pill">Cloudflare Tunnel</span>
             </div>
           </div>
         </div>
@@ -1522,29 +1659,36 @@
         </div>
 
         <div class="note-list">
-          <a href="#notes" class="note-row">
+          <div class="note-row">
             <div class="note-left">
               <span class="note-date">2026.08.15</span>
               <span class="note-title">极简主义不仅是视觉，更是工程与生活的克制留白</span>
             </div>
             <span class="note-tag">Philosophy</span>
-          </a>
+          </div>
 
-          <a href="#notes" class="note-row">
+          <div class="note-row">
             <div class="note-left">
               <span class="note-date">2026.08.02</span>
               <span class="note-title">大模型 Agent 自主反思机制与工具调用边界探索</span>
             </div>
             <span class="note-tag">AI Engineering</span>
-          </a>
+          </div>
 
-          <a href="#notes" class="note-row">
+          <div class="note-row">
             <div class="note-left">
               <span class="note-date">2026.07.21</span>
               <span class="note-title">高并发异步事件流系统的架构演进与容灾沉淀</span>
             </div>
             <span class="note-tag">Architecture</span>
-          </a>
+          </div>
+
+          <div class="note-row note-row-muted">
+            <div class="note-left">
+              <span class="note-title">完整笔记归档整理中 · 敬请期待</span>
+            </div>
+            <span class="note-tag">Coming Soon</span>
+          </div>
         </div>
       </section>
 
@@ -1558,37 +1702,37 @@
         <div class="server-infra-card">
           <div>
             <div class="infra-col-title">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                 <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
                 <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
                 <line x1="6" y1="6" x2="6.01" y2="6"></line>
                 <line x1="6" y1="18" x2="6.01" y2="18"></line>
               </svg>
-              <span>Host Node & Hardware</span>
+              <span>Self-Hosted Node</span>
             </div>
             <div class="infra-list">
               <div class="infra-item">
-                <span class="infra-label">OS Platform</span>
-                <span class="infra-val">Ubuntu 22.04.5 LTS (x86_64)</span>
+                <span class="infra-label">Deployment</span>
+                <span class="infra-val">Docker Compose · Self-hosted</span>
               </div>
               <div class="infra-item">
-                <span class="infra-label">CPU / Compute</span>
-                <span class="infra-val">Intel i5-7200U @ 2.50GHz (4 Core)</span>
+                <span class="infra-label">Runtime</span>
+                <span class="infra-val">Linux LTS · Containerized</span>
               </div>
               <div class="infra-item">
-                <span class="infra-label">Memory / Storage</span>
-                <span class="infra-val">3.7 GiB RAM · 465 GB SSD</span>
+                <span class="infra-label">Data Layer</span>
+                <span class="infra-val">SQLite · Chroma Vector Store</span>
               </div>
               <div class="infra-item">
-                <span class="infra-label">Local Network</span>
-                <span class="infra-val">192.168.50.2 (Gigabit Ethernet)</span>
+                <span class="infra-label">Availability</span>
+                <span class="infra-val">Auto-restart · Daily Healthcheck</span>
               </div>
             </div>
           </div>
 
           <div>
             <div class="infra-col-title">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                 <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
               </svg>
               <span>Active Services & Gateway</span>
@@ -1599,16 +1743,16 @@
                 <span class="infra-val">Cloudflare Tunnel (TLS 1.3)</span>
               </div>
               <div class="infra-item">
-                <span class="infra-label">Internal Proxy</span>
-                <span class="infra-val">Caddy 2.9 (Port 8080)</span>
+                <span class="infra-label">Reverse Proxy</span>
+                <span class="infra-val">Caddy</span>
               </div>
               <div class="infra-item">
                 <span class="infra-label">API Gateway</span>
-                <span class="infra-val">Gateway (JWT/Auth Port 8001)</span>
+                <span class="infra-val">Auth + Routing (JWT / Session)</span>
               </div>
               <div class="infra-item">
                 <span class="infra-label">AI & Scheduler</span>
-                <span class="infra-val">ai-service:8000 · scheduler:8002</span>
+                <span class="infra-val">AI Service · Task Scheduler</span>
               </div>
             </div>
           </div>
@@ -1761,6 +1905,30 @@
       }
     });
 
+    // Mobile Menu Logic
+    const navBurger = document.getElementById('nav-burger');
+    const mobileMenu = document.getElementById('mobile-menu');
+
+    navBurger.addEventListener('click', () => {
+      const open = mobileMenu.classList.toggle('open');
+      navBurger.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+
+    mobileMenu.querySelectorAll('a').forEach(link => {
+      link.addEventListener('click', () => {
+        mobileMenu.classList.remove('open');
+        navBurger.setAttribute('aria-expanded', 'false');
+      });
+    });
+
+    // Platform-aware shortcut label (⌘K on macOS, Ctrl K elsewhere)
+    const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+    document.querySelectorAll('.kbd-shortcut').forEach(el => {
+      if (el.textContent.trim() === '⌘K') {
+        el.textContent = isMac ? '⌘K' : 'Ctrl K';
+      }
+    });
+
     // ⌘K Command Palette Logic
     const cmdModal = document.getElementById('cmd-modal');
     const cmdInput = document.getElementById('cmd-input');
@@ -1818,15 +1986,29 @@
       el.addEventListener('click', closeCommandPalette);
     });
 
-    // Optional Live Health Check Ping
+    // Live Health Check: drive the nav status badge from the real API
     async function checkServerHealth() {
+      const badge = document.querySelector('.nav-status-badge');
+      const text = document.getElementById('server-status-text');
       try {
-        const res = await fetch('/api/auth/verify', { method: 'GET', credentials: 'omit' });
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 8000);
+        const res = await fetch('/api/auth/verify', {
+          method: 'GET',
+          credentials: 'omit',
+          signal: controller.signal
+        });
+        clearTimeout(timer);
+        // Any HTTP response (401 included) means gateway is reachable
+        badge.classList.remove('offline');
+        text.textContent = 'Server Online';
       } catch (err) {
-        // Fallback gracefully
+        badge.classList.add('offline');
+        text.textContent = 'Server Offline';
       }
     }
     checkServerHealth();
+    setInterval(checkServerHealth, 60000);
   </script>
 </body>
 </html>

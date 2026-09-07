@@ -1,6 +1,6 @@
 # snhgn.me 服务器与项目总览
 
-最近更新：2026-08-15
+最近更新：2026-08-24
 
 ---
 
@@ -188,12 +188,15 @@ d:\project\snhgn.me\             # Vue3 + Vite + TS + Tailwind
 |------|-----|
 | URL | https://snhgn.me/login |
 | 用户名 | admin |
-| 密码 | admin123（临时验证用，建议尽快修改） |
+| 密码 | 见本机安全存储 `%TEMP%\opencode\adminpw.txt`（2026-08-24 已由弱密码 admin123 更换为 20 位随机强密码，公网登录验证通过、旧密码 401） |
 
-**修改密码命令**：
+> 密码明文不写入本文档（文档可能被截图/同步外泄）。临时文件如需保留请移至密码管理器，否则可删除；遗忘时用下方命令重置。
+
+**重置密码命令**（在能直连服务器的内网机器上执行，网线直连 192.168.50.x 网段）：
 ```bash
-docker exec gateway python /app/scripts/init_admin.py --username admin --password <新密码>
+docker exec gateway python /app/scripts/init_admin.py --username admin --password <新强密码>
 ```
+修改后请同步更新本节记录。
 
 ---
 
@@ -463,6 +466,148 @@ bash /tmp/tmp_check_routes.sh
 
 ---
 
+## 十四、首页落地页安全与体验优化（2026-08-24，本地已完成，待部署）
+
+针对 `index.html`（静态落地页，尚未上线）的优化，改动均在本地仓库：
+
+### 安全（P0）
+
+- **移除敏感基础设施信息**：公网卡片不再展示内网 IP（192.168.50.2）、CPU/内存明细、各服务真实端口拓扑，改为抽象描述（Docker Compose / Cloudflare Tunnel / Caddy 等）
+- **admin 弱密码**：`admin123` 仍未修改——本次尝试 SSH 执行改密被本机 clash TUN（fake-ip 198.18.x）劫持连接而失败。需在服务器内网机器上手动执行 `init_admin.py` 修改后回填本文档第四节
+
+### 功能修复
+
+- **状态徽章接真**：导航栏 "Server Online" 不再硬编码，改为每 60s 调 `/api/auth/verify` 探活（8s 超时），失败显示 "Server Offline" 红点
+- **死链清理**：Notes 列表由假链接（#notes 自身）改为不可点击行 + "归档整理中" 占位；Spaces 卡 "24 Articles" 改为 "Manifesto"，"8 Projects" 改为 "8 Builds"
+- **项目卡去虚构**：虚构的 Multi-Agent Orchestrator / Embedded Robotics Gateway 替换为真实的 Schedule Pipeline 与 AI Notice Monitor
+- **移动端导航**：新增汉堡菜单（≤920px 显示），替代原先直接隐藏菜单的做法
+
+### 性能与 SEO
+
+- **字体国内可达**：Google Fonts 换 fonts.loli.net 镜像 + 异步加载（media=print 技巧）+ preload + noscript 兜底
+- **SEO**：新增 canonical、Open Graph、Twitter Card、内联 SVG favicon；新增 `robots.txt`（屏蔽 /login /dashboard 等私有路径）与 `sitemap.xml`
+- **快捷键提示**：⌘K 在非 macOS 平台显示为 Ctrl K
+- **无障碍**：装饰性 SVG 加 aria-hidden、主题按钮加 aria-label、支持 prefers-reduced-motion
+
+### 新增文件
+
+| 文件 | 用途 |
+|------|------|
+| `README.md` | 说明本仓库定位及与 snhgn.me 前端仓库的关系 |
+| `robots.txt` | 爬虫规则（含私有路径屏蔽） |
+| `sitemap.xml` | 站点地图 |
+
+### 待办
+
+1. ~~修改 admin 密码~~（2026-08-24 已完成：20 位随机强密码，公网验证通过）
+2. ~~部署落地页~~（2026-08-24 已完成，见下）
+
+### 落地页部署记录（2026-08-24）
+
+**重要更正**：部署时发现 `/opt/website/web/js`、`/css` 目录为空，线上 `index.html`（56KB）实为本设计的**前一版纯静态页**——所谓 Vue3 SPA 并未部署在源站，第六节"当前网站状态"中的前端描述与实际不符。所有路径经 `try_files` 回退均返回该静态页。
+
+实际部署内容：
+
+| 文件 | 位置 | 说明 |
+|------|------|------|
+| 新版落地页 | `/opt/website/web/index.html` | 直接替换旧版；旧版备份为同目录 `index.html.bak-20260824` |
+| 样式 | `/opt/website/web/styles.css` | 新版拆分出的样式文件 |
+| robots.txt / sitemap.xml | `/opt/website/web/` | 已就位；注意公网 robots.txt 被 **Cloudflare Content Signals 功能覆盖**（返回 CF 自己的内容信号声明），如需透出需到 CF 控制台关闭 AI Crawl Control 相关开关 |
+
+Caddy 配置未改动（曾临时加过根路径 rewrite 特例，确认无 SPA 后已还原为原版并 reload）。
+
+验证结果：`/` 与 `/login` 等全部路径返回新版落地页（200）、`/styles.css` 30486 字节、`/sitemap.xml` 正常、`/api/auth/me` 401（API 通畅）。
+
+回滚方式：
+```bash
+sudo cp /opt/website/web/index.html.bak-20260824 /opt/website/web/index.html
+docker exec caddy caddy reload --config /etc/caddy/Caddyfile
+```
+
+遗留说明：~~AI Assistant / Schedule 等 Vue 页面目前不在源站上~~ → **2026-08-25 已部署**（见下）。
+
+---
+
+## 十五、Vue3 SPA 部署记录（2026-08-25）
+
+### 部署内容
+
+- 本地 `d:\project\snhgn.me` 执行 `npm run build`（vue-tsc 类型检查 + vite 构建，1.67s）
+- 产物上传 `/opt/website/web/`：SPA 入口 `index.html`(655B) + `assets/`（含 KaTeX 字体、各视图分包）+ `favicon.svg` + `images/`
+- 清理了旧的空目录 `css/`、`js/`
+- **落地页共存方案**：`landing.html` + `styles.css` 保留；Caddyfile 增加 `@site_root path /` rewrite，根路径返回静态落地页，其余路径回退 SPA `index.html`
+- 部署前备份：`/opt/snhgn/backups/web-pre-spa-*.tar.gz`
+
+### 路由分配
+
+| 路径 | 内容 |
+|------|------|
+| `/` | 静态落地页（landing.html，本仓库设计稿的新版首页） |
+| `/projects` `/about` `/login` | Vue3 SPA 公开页 |
+| `/ai` `/schedule` `/scripts` `/settings` | SPA 登录后页面 |
+| `/dashboard` `/knowledge` `/server` `/admin/scripts` | SPA admin 页面 |
+| `/api/*` | gateway 反代 |
+
+注意：SPA 自身的 Home 路由（HomeView）被落地页遮蔽——用户在 SPA 内点"首页"会看到落地页。若希望登录用户回到 SPA 首页，可后续把 SPA 的 home 路由改为独立路径。
+
+### 验证结果（公网）
+
+| 检查项 | 结果 |
+|--------|------|
+| `/` 返回落地页（hero-fullscreen + loli.net 字体标记） | ✓ |
+| `/login` `/ai` 返回 SPA HTML（引用 /assets/） | ✓ |
+| `/assets/index-DZ4438kk.js` 等静态资源 | ✓ 200 |
+| `/styles.css`（落地页样式） | ✓ 200 |
+| `/api/auth/me` 未登录 | ✓ 401 |
+| Caddy validate + reload | ✓ 无错误 |
+
+### 回滚方式
+
+```bash
+# 恢复纯静态落地页版本
+sudo tar -xzf /opt/snhgn/backups/web-pre-spa-<ts>.tar.gz -C /
+docker exec caddy caddy reload --config /etc/caddy/Caddyfile
+```
+
+---
+
+## 十六、响应速度优化（2026-08-25）
+
+### 瓶颈定位（实测数据）
+
+| 层 | 耗时 | 结论 |
+|----|------|------|
+| 源站 Caddy 响应（127.0.0.1 直连） | **1~3ms** | 服务器/Caddy 完全不是瓶颈 |
+| 公网单请求（CF 边缘→隧道→源站） | 900~1700ms | 慢在网络路径 |
+| cloudflared 注册节点 | lax05/07/11（洛杉矶） | 国内访客绕美国西海岸，单往返大几百 ms |
+| 隧道稳定性 | 偶发 502/重连（校园网 Wi-Fi 出网抖动） | HTML 不走缓存时每次都暴露此风险 |
+
+CSS/JS 本就命中 Cloudflare 边缘缓存（cf-cache-status=HIT），但 **HTML 默认不缓存**，每次导航都要穿越隧道全程。
+
+### 已实施
+
+1. **落地页 CSS 内联**：styles.css（30KB）内联进 landing.html，首屏从"HTML 往返 + CSS 往返"两个串行往返变为一个，首页总耗时 1289ms+1475ms → **721ms**
+2. **`/assets/*` 一年 immutable 缓存头**（Caddyfile）：带 hash 的 Vite 资源内容永不变化。注意当前被 CF 默认 Browser Cache TTL=4h 覆盖（见下"待办"）
+3. Caddyfile 变更已 validate + reload，无错误；仓库 `index.html` 已同步为内联版（styles.css 保留作为样式源文件）
+
+### 待办（需 Cloudflare 控制台操作）
+
+1. ~~Cache Rule：让 HTML 也进边缘缓存~~（2026-08-25 已通过 API 完成：规则 id `00721e35c3bd4a80b0ad509d93272c12`，匹配 `http.host eq snhgn.me 且路径不以 /api 开头`，Edge TTL override 10 分钟；**部署新前端后需在 CF 控制台 Purge Everything 或等 10 分钟自动过期**）
+2. ~~Browser Cache TTL 改为 Respect Existing Headers~~（2026-08-25 已通过 API 完成，zone setting `browser_cache_ttl=0`，源站 immutable 头已透出）
+3. 可选：开启 Tiered Cache 减少回源；国内访问慢的根本约束是免费版 CF 无中国节点，属架构级限制
+
+### 缓存配置注意事项
+
+- **API 响应绝不能被缓存**：缓存规则的 expression 明确排除了 `/api/*`（SSE 流式、登录态接口都是动态响应），改动该规则时务必保留此排除条件
+- 实测：`/` 首次 MISS ~1.4s（穿隧道），第二次起边缘 HIT；浏览器复用 HTTP/2 连接后体感更快
+- **部署后清缓存**：运行 `scripts/purge-cf-cache.ps1`（凭据从环境变量 `CF_API_EMAIL` / `CF_API_KEY` 读取，已写入本机用户级注册表；AI 部署时会自动调用）。手动运行方式：
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File scripts\purge-cf-cache.ps1
+  ```
+- **安全提醒**：Global API Key 曾在对话中明文传输，建议尽快到 dash.cloudflare.com/profile/api-tokens 轮换；轮换后同步更新本机环境变量
+
+---
+
 ## 九、本地代理（clash-meta）与 Gemini 接入开发记录（2026-08-10）
 
 ### 目标
@@ -639,3 +784,85 @@ cd /opt/snhgn/services/<svc> && docker compose up -d --build
 - 生成耗时约 30-90 秒，前端按钮有 loading 状态提示；单次 AI 调用上限 110s < gateway 130s，不会被网关截断
 - `/opt/snhgn/scripts/` 下 AI 生成文件为容器 root 所有，宿主删除需 docker exec 或 sudo
 - 审查 AI 的 issues 展示给管理员参考，verdict=fail 仅弹窗拦截非强制；管理员仍是最终把关人
+
+---
+
+## 十三、校园网认证探针漏检修复与自愈优化（2026-08-20）
+
+### 问题现象与根因分析
+
+- **现象**：公网访问 `https://snhgn.me` 超时/无法连接，Cloudflare Tunnel 容器日志报错 `dial tcp 198.41.xxx.xxx:7844: i/o timeout`。
+- **排查过程**：
+  1. 通过内网（`192.168.50.2`）SSH 成功连接服务器，所有 Docker 容器（gateway、caddy、ai-service 等）运行正常，服务健康端点正常。
+  2. 服务器 IPv4 出网探测 `curl http://www.baidu.com` 返回 HTTP 200，但内容为 Dr.COM 认证网关的 JS 跳转页面（`location.href="http://10.1.1.10/a79.htm..."` 与 `Authentication is required`）。
+  3. `bjfu-login.service` 一直处于 running 状态，每 5 分钟日志显示 `[INFO] 网络正常，无需认证`。
+- **根因**：
+  - `checker.py` 探针在检测 HTTP 响应时，仅在 302 重定向或 body 包含旧版特征时判定离线；
+  - 遇到 Dr.COM 返回的 **HTTP 200 + HTML/JS 跳转脚本**（无 302 Location 头）时，因未覆盖 `10.1.1.10` / `a79.htm` / `Authentication is required` / `location.href` 等特征，被判定为正常的 200 OK 连通，导致永远不触发 `login.do_login()`。
+
+### 修复方案
+
+1. **重构 `checker.py` 探针**：
+   - 引入 **HTTP 204 精准探针**（`http://connect.rom.miui.com/generate_204`、`http://cp.cloudflare.com/generate_204`）：正常连网返回 204 No Content，被网关拦截返回 200/302 + HTML 即可 100% 判定为劫持。
+   - 完善常规 HTTP 探测的关键字库：覆盖 `10.1.1.10`、`a79.htm`、`authentication is required`、`location.href`、`dr.com` 等所有劫持特征。
+   - 保持强制 IPv4 A 记录直连，防止 IPv6 逃逸。
+2. **提高自愈频率**：
+   - 将 `CHECK_INTERVAL` 由 300 秒（5 分钟）调整为 60 秒，掉线后 1 分钟内自动重登恢复，大幅缩短不可用时间。
+3. **本地单元测试固化**：
+   - 新增 `tests/test_checker.py`，模拟 Dr.COM 真实拦截响应与 204 探针，4/4 用例测试通过。
+
+### 验证结果
+
+- 触发重登后，Dr.COM 认证成功，`cloudflared` 隧道自动秒级重连 4 条链路。
+- 公网 `https://snhgn.me` 恢复 200 OK 访问，`/api/auth/me` 正常返回 401（后端路由通畅）。
+
+---
+
+## 十五、Cloudflare Tunnel QUIC 丢包与 502 Bad Gateway 根因修复（2026-08-27）
+
+### 问题现象
+公网访问 `https://snhgn.me`（及 API 端点）频繁或间歇性出现 **Cloudflare 502 Bad Gateway** 错误。
+
+### 日志排查与根因分析
+1. **本地后端服务状态**：
+   - 登录宿主机排查，`gateway`、`caddy`、`ai-service`、`scheduler` 容器均正常运行（UP >17h），直接请求本地 `127.0.0.1:8080` (Caddy) 与 `127.0.0.1:8001` (Gateway) 均秒级返回 200/401，本地并无 502。
+2. **Cloudflare Tunnel 日志**：
+   - 查看 `cloudflared` 容器日志，发现大量 QUIC 相关的超时与断连报错：
+     - `ERR Failed to dial a quic connection error="failed to dial to edge with quic: timeout: no recent network activity"`
+     - `ERR failed to accept incoming stream requests error="failed to accept QUIC stream: Application error 0x0 (remote)"`
+     - `WRN failed to serve tunnel connection error="accept stream listener encountered a failure while serving"`
+   - **根因**：`cloudflared` 默认采用基于 UDP 7844 端口的 QUIC 协议与海外 Cloudflare Edge 节点建立隧道连接。国内宽带/校园网环境对出境 UDP 存在 QoS 限速与丢包，导致 4 条 QUIC 链路周期性全部断开或陷入重连。在所有链路重连的真空期，Cloudflare CDN 无法触达源站，进而向访客返回 502 Bad Gateway。
+
+### 修复方案
+- 修改 `cloudflared` 启动命令，指定 `--protocol http2`（通过 TCP 443 端口连接 Cloudflare Edge）：
+  ```yaml
+  command: tunnel --protocol http2 --edge-ip-version 4 run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+  ```
+- TCP 连接具有内核级可靠重传与握手重试机制，对国内弱网/UDP 干扰环境有极强的抗丢包稳定性。
+
+### 验证结果
+- 服务器 `/opt/cloudflared/docker-compose.yml` 更新并完成容器重建。
+- `cloudflared` 4 条链路全部以 `protocol=http2` 毫秒级建立成功（lax08/09/10/12）。
+- 本地多次并发访问 `https://snhgn.me`、`https://snhgn.me/api/auth/verify` 测试均 100% 成功稳定响应，502 错误彻底消除。
+
+
+
+## 16. AI板块 Gemini 无法回复自动降级至智谱 (2026-08-27)
+
+### 故障现象
+用户在 AI 板块设置选用 Gemini 模型，但实际对话时，AI 每次均由智谱 GLM 模型进行回复。
+
+### 排查过程
+1. **代码逻辑审查**：
+   - 在 \packages/ai-service/app/main.py\ 的 \_providers_for_request\ 方法中，系统会根据用户设置将所选模型提供商排在首位，其他已启用提供商顺延。因此当首选模型请求抛出异常时，代码中的 \	ry/except\ 块会捕获异常并平滑切换到下个模型（即智谱 GLM）。
+2. **日志分析与 API 直连测试**：
+   - 查询 \i-service.log\，发现调用 Gemini 的 \streamGenerateContent\ 接口时始终返回 \HTTP 400 Bad Request\。
+   - 登录服务器进行 \curl\ 测试，验证请求已成功通过 W.0.0.1:7890\（Clash 代理）发往 Google，但 Google 返回了具体的错误负载：
+     \\json
+     { "error": { "code": 400, "message": "User location is not supported for the API use.", "status": "FAILED_PRECONDITION" } }
+     \3. **根因定位**：
+   - Google Gemini API (AI Studio) 实施了极其严格的 IP 地域与机房/代理风控限制。尽管我们已通过 Clash 的 \🚀节点选择\ 代理将出口定位到海外（测试过日本、美国、台湾、新加坡等多地节点），但由于该机场的 IP 属于云服务器/数据中心（如 AS46997），依然被 Google 封锁。Google 拒绝为这些已知代理 IP 提供服务，因而返回 "User location is not supported"。
+
+### 结论与后续方案
+代码服务机制（自动重试与 fallback 降级）运行完美，成功拦截了此错误并保障了服务的可用性（智谱接管）。
+当前仅靠更换普通机场节点难以突破 Gemini 的严格风控。后续如需稳定使用 Gemini，需替换为专门声明支持“Gemini 解锁”的原生 IP 节点、原生家宽代理，或者更换为代理 API 转发服务。

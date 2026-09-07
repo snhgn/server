@@ -19,7 +19,19 @@ http://snhgn.me {
         }
     }
 
-    # 静态文件 + SPA 回退（仅对静态资源启用压缩，避免缓冲 API 响应）
+    # 根路径 → 落地页（独立于 SPA 的静态首页）
+    @site_root path /
+    handle @site_root {
+        encode zstd gzip
+        rewrite * /landing.html
+        file_server
+    }
+
+    # Vite 带 hash 的静态资源 → 一年 immutable 缓存
+    @hashed_assets path /assets/*
+    header @hashed_assets Cache-Control "public, max-age=31536000, immutable"
+
+    # 其余路径 → SPA 回退（仅对静态资源启用压缩，避免缓冲 API 响应）
     handle {
         encode zstd gzip
         try_files {path} /index.html
