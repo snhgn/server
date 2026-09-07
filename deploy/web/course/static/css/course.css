@@ -184,8 +184,8 @@ button:active {
 /* ---------- 课表网格 ---------- */
 .grid {
     display: grid;
-    grid-template-columns: 32px repeat(7, minmax(0, 1fr));
-    column-gap: 4px;
+    grid-template-columns: 24px repeat(7, minmax(0, 1fr));
+    column-gap: 3px;
     row-gap: 2.5px;
     touch-action: pan-y;
     will-change: transform, opacity;
@@ -548,91 +548,141 @@ button:active {
    ============================================================ */
 @media (max-width: 767px) {
     .wrap {
-        padding: calc(10px + env(safe-area-inset-top))
-                 calc(8px + env(safe-area-inset-right))
-                 calc(36px + env(safe-area-inset-bottom))
-                 calc(8px + env(safe-area-inset-left));
+        padding: calc(3px + env(safe-area-inset-top))
+                 calc(4px + env(safe-area-inset-right))
+                 calc(4px + env(safe-area-inset-bottom))
+                 calc(4px + env(safe-area-inset-left));
     }
 
     header {
         flex-direction: column;
         align-items: stretch;
-        gap: 8px;
-        margin-bottom: 10px;
+        gap: 3px;
+        margin-bottom: 3px;
     }
 
     .header-main {
+        display: flex;
         justify-content: space-between;
-        align-items: center;
+        align-items: baseline;
+        width: 100%;
+    }
+
+    .header-title-row {
+        gap: 4px;
+        align-items: baseline;
     }
 
     h1 {
-        font-size: 20px;
+        font-size: 16px;
+        letter-spacing: -0.3px;
+        line-height: 1.15;
+    }
+
+    .author-tag {
+        display: none;
+    }
+
+    #semLabel {
+        font-size: 11px;
+        line-height: 1.15;
+        opacity: 0.85;
     }
 
     .controls {
         width: 100%;
         display: grid;
-        grid-template-columns: 1.25fr repeat(3, 1fr) auto;
-        gap: 4px;
+        grid-template-columns: minmax(0, 1.35fr) repeat(3, minmax(0, 1fr)) auto;
+        gap: 2.5px;
     }
 
     .controls select,
     .controls button {
-        padding: 6px 4px;
-        font-size: 12.5px;
+        padding: 2px 2px;
+        font-size: 11.5px;
+        height: 25px;
+        line-height: 1;
         text-align: center;
         min-width: 0;
-        border-radius: 7px;
+        border-radius: 5px;
     }
 
     #themeBtn {
-        padding: 6px 8px;
+        padding: 2px 5px;
+        height: 25px;
+        font-size: 12px;
     }
 
     .grid {
-        grid-template-columns: 28px repeat(7, minmax(0, 1fr));
-        column-gap: 2.5px;
+        grid-template-columns: 20px repeat(7, minmax(0, 1fr));
+        column-gap: 2px;
         row-gap: 2px;
     }
 
     .cell {
-        min-height: 68px;
-        padding: 1.5px;
-        border-radius: 5px;
+        min-height: clamp(38px, calc((100dvh - 110px) / 7.6), 46px);
+        padding: 1px;
+        border-radius: 4px;
     }
 
     .cell.header {
-        padding: 2px 0 2px;
+        padding: 1px 0 2px;
+        min-height: auto;
     }
 
     .cell.header .day-name {
-        font-size: 11px;
-    }
-
-    .cell.header .day-date {
-        font-size: 9.5px;
-    }
-
-    .course {
-        padding: 2.5px 3px;
-        border-radius: 3.5px;
-    }
-
-    .course-name {
-        font-size: 10.5px;
-        line-height: 1.2;
-    }
-
-    .course-location {
-        font-size: 9px;
+        font-size: 10px;
         line-height: 1.1;
     }
 
+    .cell.header .day-date {
+        font-size: 8.5px;
+        line-height: 1;
+        margin-top: 1px;
+    }
+
+    .cell.header.today .day-date {
+        padding: 1px 3px;
+        border-radius: 6px;
+    }
+
+    .cell.period {
+        font-size: 9px;
+        letter-spacing: -0.3px;
+    }
+
+    .course {
+        padding: 1.5px 2px;
+        border-radius: 3px;
+        border-left-width: 2.5px;
+    }
+
+    .course-name {
+        font-size: 9px;
+        line-height: 1.15;
+        -webkit-line-clamp: 3;
+    }
+
+    .course-location {
+        font-size: 8px;
+        line-height: 1.05;
+        margin-top: 1px;
+        -webkit-line-clamp: 1;
+    }
+
     .course-badge {
+        font-size: 7px;
+        padding: 1px 3px;
+        top: 1px;
+    }
+
+    .conflict-badge {
+        height: 12px;
+        min-width: 12px;
         font-size: 7.5px;
-        padding: 1.5px 4px;
-        top: 1.5px;
+        top: -3px;
+        right: -3px;
+        border-radius: 6px;
     }
 }
 

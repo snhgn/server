@@ -1,6 +1,7 @@
 /**
  * BJFU 课表前端系统 (VaporTang 风格复刻与移动端专属调优)
- * 支持多源数据自动解析、多周次导航、手势左右跟手滑动与平滑切换、深浅主题动态适配
+ * 采用 7 节次块（1-2, 3-4, 5, 6-7, 8-9, 10-11, 12）建模，连续节次自动合并
+ * 移动端信息栏深度压缩，确保 10-11 节晚间课程无需滑动全屏立显
  */
 (function () {
   'use strict';
@@ -25,13 +26,15 @@
     { bg: '#E8F1EE', border: '#6B968B' }
   ];
 
-  // --- 节次定义 ---
-  const PERIOD_DEFINITIONS = [
-    { label: '1-2', name: '第1-2节', start: 1, end: 2, time: '08:00 - 09:35' },
-    { label: '3-4', name: '第3-4节', start: 3, end: 4, time: '10:05 - 11:40' },
-    { label: '5-7', name: '第5-7节', start: 5, end: 7, time: '13:30 - 15:55' },
-    { label: '8-9', name: '第8-9节', start: 8, end: 9, time: '16:15 - 17:50' },
-    { label: '10-12', name: '第10-12节', start: 10, end: 12, time: '18:40 - 21:05' }
+  // --- 7 节次块定义（与教务排课一致：5节与6-7节独立，10-11节与12节独立，连续块自动合并跨行）---
+  const BLOCKS = [
+    { label: '1-2', start: 1, end: 2, time: '08:00 - 09:35' },
+    { label: '3-4', start: 3, end: 4, time: '10:05 - 11:40' },
+    { label: '5', start: 5, end: 5, time: '13:30 - 14:15' },
+    { label: '6-7', start: 6, end: 7, time: '14:20 - 15:55' },
+    { label: '8-9', start: 8, end: 9, time: '16:15 - 17:50' },
+    { label: '10-11', start: 10, end: 11, time: '18:40 - 20:15' },
+    { label: '12', start: 12, end: 12, time: '20:20 - 21:05' }
   ];
 
   const WEEKDAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
@@ -39,7 +42,6 @@
   // --- 全局状态 ---
   let rawSchedule = null;
   let allCourses = [];
-  let gridDays = [];
   let maxWeek = 20;
   let currentWeek = 1;
   let termStartDate = new Date('2026-09-07T00:00:00');
@@ -140,14 +142,6 @@
     return Array.from(new Set(weeks)).sort((a, b) => a - b);
   }
 
-  function getPeriodIndex(start, end) {
-    if (start <= 2) return 0;
-    if (start <= 4) return 1;
-    if (start <= 7) return 2;
-    if (start <= 9) return 3;
-    return 4;
-  }
-
   function computeCurrentWeek() {
     const now = new Date();
     if (Number.isNaN(termStartDate.getTime())) return 1;
@@ -157,45 +151,21 @@
     return Math.min(Math.max(1, w), maxWeek);
   }
 
-  // --- 数据转换与网格建模 ---
-  function buildGridStructure(courses) {
-    const days = [];
-    for (let d = 1; d <= 7; d++) {
-      const cells = PERIOD_DEFINITIONS.map((def, idx) => ({
-        label: def.label,
-        name: def.name,
-        period: idx + 1,
-        time: def.time,
-        courses: []
-      }));
-      days.push({ day: d, cells });
-    }
+  function courseKey(list) {
+    if (!list || !list.length) return 'EMPTY';
+    return list.map(c => [c.name, c.teacher, c.room || c.location].join('|')).join('||');
+  }
 
-    courses.forEach(c => {
-      const dayIdx = (c.day || 1) - 1;
-      if (dayIdx < 0 || dayIdx >= 7) return;
-      const periodIdx = getPeriodIndex(c.start, c.end);
-      const def = PERIOD_DEFINITIONS[periodIdx];
-      const weekList = parseWeeks(c.weeks);
-
-      days[dayIdx].cells[periodIdx].courses.push({
-        name: c.name || '未知课程',
-        teacher: c.teacher || '待定',
-        location: c.room || c.location || '待定',
-        category: (c.name || '').includes('(必修)') ? '必修' : ((c.name || '').includes('(选修)') ? '选修' : ''),
-        weeks: c.weeks || '未知',
-        week_list: weekList,
-        day: c.day,
-        periodName: def.name,
-        periodLabel: def.label,
-        periodIndex: periodIdx + 1,
-        start: c.start,
-        end: c.end,
-        time: def.time
-      });
+  function coursesInBlock(day, block, w) {
+    return allCourses.filter(c => {
+      const matchDay = (c.day === day || c.weekday === day);
+      if (!matchDay) return false;
+      const wList = c.week_list || parseWeeks(c.weeks);
+      if (!wList.includes(w)) return false;
+      const cStart = c.start ?? c.start_section ?? 1;
+      const cEnd = c.end ?? c.end_section ?? cStart;
+      return cStart <= block.end && cEnd >= block.start;
     });
-
-    return days;
   }
 
   // --- 课表渲染主入口 ---
@@ -231,37 +201,46 @@
       grid.appendChild(h);
     });
 
-    // 3. 渲染左侧节次列
-    PERIOD_DEFINITIONS.forEach((def, i) => {
+    // 3. 渲染左侧 7 个节次块
+    BLOCKS.forEach((b, i) => {
       const pCell = document.createElement('div');
       pCell.className = 'cell period';
-      pCell.innerHTML = `<span>${def.label}</span>`;
+      pCell.textContent = b.label;
       pCell.style.gridRow = String(i + 2);
       pCell.style.gridColumn = '1';
       grid.appendChild(pCell);
     });
 
-    // 4. 渲染主体网格 (7列 x 5行)
-    gridDays.forEach((dayObj, dayIdx) => {
-      dayObj.cells.forEach((cellObj, cellIdx) => {
+    // 4. 渲染主体网格 (7天 x 7节次块，连续节次相同自动跨行合并)
+    for (let day = 0; day < 7; day++) {
+      for (let bi = 0; bi < BLOCKS.length; bi++) {
+        const baseList = coursesInBlock(day + 1, BLOCKS[bi], week);
+        const baseKey = courseKey(baseList);
+        let endIdx = bi;
+
+        if (baseKey !== 'EMPTY') {
+          while (endIdx + 1 < BLOCKS.length) {
+            const nextList = coursesInBlock(day + 1, BLOCKS[endIdx + 1], week);
+            if (courseKey(nextList) !== baseKey) break;
+            endIdx += 1;
+          }
+        }
+
         const dCell = document.createElement('div');
         dCell.className = 'cell';
-        dCell.style.gridColumn = String(dayIdx + 2);
-        dCell.style.gridRow = String(cellIdx + 2);
+        dCell.style.gridColumn = String(day + 2);
+        dCell.style.gridRow = String(bi + 2) + ' / span ' + String(endIdx - bi + 1);
 
-        // 筛选当周课程
-        const activeCourses = cellObj.courses.filter(c => c.week_list.includes(week));
-
-        if (activeCourses.length > 0) {
-          const firstCourse = activeCourses[0];
+        if (baseList.length > 0) {
+          const firstCourse = baseList[0];
           const theme = getCourseColor(firstCourse.name);
-          const animDelay = ((dayIdx * 0.03) + (cellIdx * 0.03)).toFixed(2);
+          const animDelay = ((day * 0.03) + (bi * 0.03)).toFixed(2);
           const showAnim = isFirstRender || isManualSwitch;
           const animStyle = showAnim
             ? `animation: popIn 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; animation-delay: ${animDelay}s; opacity: 0;`
             : '';
 
-          const isStacked = activeCourses.length > 1;
+          const isStacked = baseList.length > 1;
           const card = document.createElement('div');
           card.className = 'course' + (isStacked ? ' stacked' : '');
           card.style.backgroundColor = theme.bg;
@@ -270,23 +249,25 @@
 
           let innerHtml = '';
           if (isStacked) {
-            innerHtml += `<div class="conflict-badge">${activeCourses.length}</div>`;
+            innerHtml += `<div class="conflict-badge">${baseList.length}</div>`;
           }
 
+          const loc = firstCourse.room || firstCourse.location;
           innerHtml += `
             <div class="course-name" style="color: ${theme.border}; filter: ${theme.textFilter};">${escapeHtml(firstCourse.name)}</div>
-            ${firstCourse.location && firstCourse.location !== '待定' ? `<div class="course-location" style="color: ${theme.border}; filter: ${theme.textFilter};">@${escapeHtml(firstCourse.location)}</div>` : ''}
-            <div class="course-meta">${escapeHtml(firstCourse.teacher)} · @${escapeHtml(firstCourse.location)}</div>
+            ${loc && loc !== '待定' ? `<div class="course-location" style="color: ${theme.border}; filter: ${theme.textFilter};">@${escapeHtml(loc)}</div>` : ''}
+            <div class="course-meta">${escapeHtml(firstCourse.teacher)} · @${escapeHtml(loc)}</div>
           `;
 
           card.innerHTML = innerHtml;
-          card.addEventListener('click', () => openCourseModal(activeCourses));
+          card.addEventListener('click', () => openCourseModal(baseList));
           dCell.appendChild(card);
         }
 
         grid.appendChild(dCell);
-      });
-    });
+        bi = endIdx;
+      }
+    }
 
     isFirstRender = false;
     isManualSwitch = false;
@@ -296,6 +277,10 @@
   function setWeek(w) {
     const target = Math.max(1, Math.min(maxWeek, w));
     if (weekSelect) weekSelect.value = target;
+    if (semLabel && rawSchedule) {
+      const semText = rawSchedule.semester || '2026-2027-1';
+      semLabel.textContent = `${semText} (第${target}周)`;
+    }
     grid.classList.add('is-switching');
     requestAnimationFrame(() => {
       render(target);
@@ -309,20 +294,13 @@
   function computeCourseProgress(courseName) {
     if (!courseName) return { percent: 0, current: 0, total: 0 };
     const sessions = [];
-    gridDays.forEach(day => {
-      day.cells.forEach(cell => {
-        cell.courses.forEach(c => {
-          if (c.name === courseName) {
-            c.week_list.forEach(w => {
-              sessions.push({
-                week: w,
-                day: c.day,
-                period: cell.period
-              });
-            });
-          }
+    allCourses.forEach(c => {
+      if (c.name === courseName) {
+        const wList = c.week_list || parseWeeks(c.weeks);
+        wList.forEach(w => {
+          sessions.push({ week: w, day: c.day || c.weekday, start: c.start });
         });
-      });
+      }
     });
 
     if (!sessions.length) return { percent: 0, current: 0, total: 0 };
@@ -346,13 +324,16 @@
       const item = document.createElement('div');
       item.className = 'modal-course-item fade-in-content';
 
+      const loc = c.room || c.location || '待定';
+      const secStart = c.start ?? c.start_section ?? 1;
+      const secEnd = c.end ?? c.end_section ?? secStart;
+
       item.innerHTML = `
         ${courses.length > 1 ? `<h3 style="margin: 0 0 10px; font-size: 16px; color: var(--accent);">${escapeHtml(c.name)}</h3>` : ''}
-        <p><strong>教 师</strong><span>${escapeHtml(c.teacher)}</span></p>
-        <p><strong>教 室</strong><span>${escapeHtml(c.location)}</span></p>
-        <p><strong>时 间</strong><span>${escapeHtml(c.periodName)} (${escapeHtml(c.time)})</span></p>
-        <p><strong>周 次</strong><span>${escapeHtml(c.weeks)}</span></p>
-        ${c.category ? `<p><strong>类 别</strong><span>${escapeHtml(c.category)}</span></p>` : ''}
+        <p><strong>教 师</strong><span>${escapeHtml(c.teacher || '待定')}</span></p>
+        <p><strong>教 室</strong><span>${escapeHtml(loc)}</span></p>
+        <p><strong>节 次</strong><span>第${secStart}-${secEnd}节</span></p>
+        <p><strong>周 次</strong><span>${escapeHtml(c.weeks || '未知')}</span></p>
         <div style="margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border-color);">
           <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 6px;">
             <span>学期进度</span>
@@ -400,7 +381,6 @@
       themeBtn.title = isDark ? '切换浅色模式' : '切换深色模式';
     }
 
-    // 重新渲染以应用适配的背景/文字明暗色
     render(parseInt(weekSelect.value, 10) || currentWeek);
   }
 
@@ -434,22 +414,18 @@
     const screenW = window.innerWidth;
     const exitX = direction === 'left' ? -screenW * 0.28 : screenW * 0.28;
 
-    // 1. 加速滑出
     grid.style.transition = 'transform 180ms ease-out, opacity 180ms ease-out';
     grid.style.transform = `translateX(${exitX}px)`;
     grid.style.opacity = '0';
 
     setTimeout(() => {
-      // 2. 瞬间重排数据并置入反方向
       setWeek(targetWeek);
       const enterX = direction === 'left' ? screenW * 0.28 : -screenW * 0.28;
       grid.style.transition = 'none';
       grid.style.transform = `translateX(${enterX}px)`;
 
-      // 触发重绘
       void grid.offsetWidth;
 
-      // 3. 带着阻尼滑入中央
       grid.style.transition = 'transform 260ms cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 260ms ease-out';
       grid.style.transform = 'translateX(0px)';
       grid.style.opacity = '1';
@@ -481,7 +457,6 @@
       const dx = touch.clientX - startX;
       const dy = touch.clientY - startY;
 
-      // 意图锁定
       if (!isHorizontalSwipe && !isVerticalScroll) {
         if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
           if (Math.abs(dx) > Math.abs(dy) * 1.25) {
@@ -497,7 +472,6 @@
         const curW = parseInt(weekSelect.value, 10);
         let dampening = 1;
 
-        // 边界弹性阻尼
         if ((curW === 1 && dx > 0) || (curW === maxWeek && dx < 0)) {
           dampening = 0.25;
         }
@@ -638,18 +612,23 @@
       }
     }
 
-    // 计算当前周
-    currentWeek = computeCurrentWeek();
+    // 计算当前周（支持 URL 传入 ?week=2 覆盖）
+    const params = new URLSearchParams(window.location.search);
+    const specifiedWeek = parseInt(params.get('week'), 10);
+    const calculatedCurrent = computeCurrentWeek();
+    currentWeek = (!Number.isNaN(specifiedWeek) && specifiedWeek >= 1 && specifiedWeek <= maxWeek)
+      ? specifiedWeek
+      : calculatedCurrent;
+
     if (weekSelect) weekSelect.value = currentWeek;
 
     // 状态标签
     if (semLabel) {
       const semText = data.semester || '2026-2027-1';
-      semLabel.textContent = `${semText} 学期 (第${currentWeek}周)`;
+      semLabel.textContent = `${semText} (第${currentWeek}周)`;
     }
 
-    // 建模并渲染
-    gridDays = buildGridStructure(allCourses);
+    // 渲染
     render(currentWeek);
   }
 
