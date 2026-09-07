@@ -31,9 +31,10 @@ http://snhgn.me {
     @hashed_assets path /assets/*
     header @hashed_assets Cache-Control "public, max-age=31536000, immutable"
 
-    # 其余路径 → SPA 回退（仅对静态资源启用压缩，避免缓冲 API 响应）
+    # 其余路径 → SPA 回退（禁用缓存保证获取最新资源）
     handle {
         encode zstd gzip
+        header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
         try_files {path} /index.html
         file_server
     }
