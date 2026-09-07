@@ -35,7 +35,7 @@ http://snhgn.me {
     handle {
         encode zstd gzip
         header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
-        try_files {path} /index.html
+        try_files {path} {path}/index.html /index.html
         file_server
     }
 }
