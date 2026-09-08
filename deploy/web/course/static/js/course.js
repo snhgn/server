@@ -593,91 +593,11 @@
     return payload;
   }
 
-  // --- 同步课表（调用后端教务抓取） ---
-  async function syncSchedule(studentId, password) {
-    const syncStatus = document.getElementById('syncStatus');
-    const syncBtn = document.getElementById('syncBtn');
-    if (syncStatus) { syncStatus.textContent = '正在同步课表，请稍候…'; syncStatus.className = 'sync-status loading'; }
-    if (syncBtn) syncBtn.disabled = true;
-
-    try {
-      const res = await fetch('/api/schedule/get', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ student_id: studentId, password: password, force: true })
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: '同步失败' }));
-        throw new Error(err.detail || err.message || '同步失败');
-      }
-
-      const data = await res.json();
-      // 持久化学号到本地
-      localStorage.setItem('bjfu-student-id', studentId);
-      localStorage.setItem('bjfu-sync-time', new Date().toISOString());
-
-      if (syncStatus) { syncStatus.textContent = '同步成功！正在刷新课表…'; syncStatus.className = 'sync-status success'; }
-
-      // 隐藏同步表单，显示课表
-      const syncPanel = document.getElementById('syncPanel');
-      if (syncPanel) syncPanel.style.display = 'none';
-      document.querySelector('header').style.display = '';
-      grid.style.display = '';
-
-      initSchedule(data);
-    } catch (e) {
-      if (syncStatus) { syncStatus.textContent = '❌ ' + e.message; syncStatus.className = 'sync-status error'; }
-    } finally {
-      if (syncBtn) syncBtn.disabled = false;
-    }
-  }
-
-  // --- 显示同步登录表单 ---
-  function showSyncForm() {
-    // 隐藏课表网格和顶部控件
-    document.querySelector('header').style.display = 'none';
-    grid.style.display = 'none';
-
-    // 创建同步面板
-    let syncPanel = document.getElementById('syncPanel');
-    if (!syncPanel) {
-      syncPanel = document.createElement('div');
-      syncPanel.id = 'syncPanel';
-      syncPanel.innerHTML = `
-        <div class="sync-card">
-          <div class="sync-icon">🌲</div>
-          <h2>BJFU 课表</h2>
-          <p class="sync-desc">输入你的教务系统学号和密码，同步你的个人课表</p>
-          <form id="syncForm" autocomplete="off">
-            <input type="text" id="syncStudentId" placeholder="学号（如 260101208）"
-                   pattern="\\d{8,}" required autocomplete="username" inputmode="numeric">
-            <input type="password" id="syncPassword" placeholder="教务系统密码"
-                   required autocomplete="current-password">
-            <button type="submit" id="syncBtn">同步课表</button>
-          </form>
-          <div id="syncStatus" class="sync-status"></div>
-          <p class="sync-hint">密码仅用于一次性登录教务系统抓取课表，不会被存储</p>
-        </div>
-      `;
-      document.querySelector('.wrap').appendChild(syncPanel);
-
-      document.getElementById('syncForm').addEventListener('submit', (e) => {
-        e.preventDefault();
-        const sid = document.getElementById('syncStudentId').value.trim();
-        const pwd = document.getElementById('syncPassword').value;
-        if (sid && pwd) syncSchedule(sid, pwd);
-      });
-    }
-    syncPanel.style.display = 'flex';
-  }
-
   function initSchedule(data) {
     if (!data || !(data.courses || data.data) ||
         ((data.courses || data.data || []).length === 0)) {
-      // 无课表数据 → 展示同步表单
-      showSyncForm();
+      // 无课表数据 → 跳转到登录页
+      window.location.replace('./login.html');
       return;
     }
 
@@ -734,3 +654,4 @@
     }
   })();
 })();
+
