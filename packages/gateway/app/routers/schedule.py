@@ -1,6 +1,7 @@
 """课表路由：/api/schedule/*
 
 - POST /get              提交学号/密码，登录教务系统抓取课表并缓存（登录用户 / 访客均可）
+                         访客首次同步时自动创建以学号为账号的访客用户并设置 Session Cookie
 - GET  /current          返回当前登录用户缓存课表
 - GET  /view/{user_id}   访客通过 user_id 查看缓存课表
 - GET  /query            访客通过学号查看缓存课表
@@ -9,12 +10,17 @@
 安全：本路由不记录密码；凭据只在请求生命周期内存在。
 所有课表 API 均附带 no-cache 头，杜绝浏览器与中间代理持久缓存旧课表。
 """
+import asyncio
 import logging
+import secrets
+import sqlite3
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 
-from ..auth import optional_user, require_admin, require_user
+from .. import sessions
+from ..auth import invalidate_session_cache, optional_user, require_admin, require_user
+from ..config import settings
 from ..schedule import service
 
 logger = logging.getLogger("gateway.schedule")
@@ -33,22 +39,87 @@ def _set_no_cache(response: Response) -> None:
     response.headers["Expires"] = "0"
 
 
+def _get_or_create_guest_user(student_id: str) -> int:
+    """按学号查找或创建访客用户，返回 user_id。
+
+    - username = student_id（学号即账号）
+    - password_hash = 随机不可用哈希（不保存真实密码，仅占位）
+    - role = 'user'
+    """
+    conn = sqlite3.connect(settings.SQLITE_DB_PATH, timeout=10.0)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            "SELECT id FROM users WHERE username=?", (student_id,)
+        ).fetchone()
+        if row:
+            return int(row["id"])
+        # 创建新用户：密码哈希设为不可逆随机串，无人能用密码登录此账号
+        fake_hash = f"$nologin${secrets.token_hex(32)}"
+        conn.execute(
+            "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+            (student_id, fake_hash, "user"),
+        )
+        conn.commit()
+        new_row = conn.execute(
+            "SELECT id FROM users WHERE username=?", (student_id,)
+        ).fetchone()
+        logger.info("Auto-created guest user: student_id=%s, user_id=%s", student_id, new_row["id"])
+        return int(new_row["id"])
+    finally:
+        conn.close()
+
+
+def _set_session_cookie(response: Response, user_id: int, request: Request) -> None:
+    """为用户创建 Server-side Session 并设置 HttpOnly Cookie。
+    若请求已携带旧 Cookie，先使旧 Session 失效（Session 旋转防 fixation）。"""
+    # 旋转旧 Session
+    old_sid = request.cookies.get(settings.SESSION_COOKIE_NAME)
+    if old_sid:
+        sessions.delete_session(old_sid)
+        invalidate_session_cache(old_sid)
+    # 创建新 Session
+    sid, _ = sessions.create_session(user_id)
+    response.set_cookie(
+        key=settings.SESSION_COOKIE_NAME,
+        value=sid,
+        max_age=settings.SESSION_EXPIRE_DAYS * 86400,
+        httponly=True,
+        samesite="lax",
+        secure=settings.SESSION_COOKIE_SECURE,
+        path="/",
+    )
+
+
 @router.post("/get")
 async def get_schedule(req: GetScheduleRequest,
+                       request: Request,
                        response: Response,
                        user: dict | None = Depends(optional_user)) -> dict:
     """抓取课表（登录用户 / 访客均可使用）。
 
-    - 登录用户：课表绑定到 user_id，同时更新 guest 映射并支持 AI 课程同步
-    - 访客：课表按学号及 guest_user_id 缓存，后续可通过 GET /query?student_id=xxx 查看
+    - 登录用户：课表绑定到 user_id
+    - 访客：自动以学号创建账号（不保存密码），设置 Session Cookie，
+      后续刷新页面通过 Cookie 直接加载自己的课表，无需额外登录
     """
     _set_no_cache(response)
     student_id = req.student_id.strip()
     if not student_id or not req.password:
         raise HTTPException(400, "请输入学号和密码")
-    uid = user["uid"] if user else service.guest_user_id(student_id)
+
+    if user:
+        uid = user["uid"]
+    else:
+        # 访客：自动创建/查找以学号为 username 的用户
+        uid = await asyncio.to_thread(_get_or_create_guest_user, student_id)
+        # 设置 Session Cookie，让用户后续免登录访问课表
+        await asyncio.to_thread(_set_session_cookie, response, uid, request)
+
     try:
-        return await service.fetch_schedule(uid, student_id, req.password, req.force)
+        result = await service.fetch_schedule(uid, student_id, req.password, req.force)
+        # 返回 user_id 给前端，方便后续直接通过 view/{user_id} 查看
+        result["user_id"] = uid
+        return result
     except service.ScheduleError as e:
         raise HTTPException(e.http_status, e.message)
 
