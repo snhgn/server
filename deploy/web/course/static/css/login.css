@@ -1,0 +1,395 @@
+/* ============================================================
+   🔐 BJFU 课表 — 登录页专属样式
+   复用 course.css 的主题变量 (--bg, --ink, --accent, etc.)
+   ============================================================ */
+
+/* --- 页面布局 --- */
+.login-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+/* --- 登录卡片 --- */
+.login-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    padding: 40px 36px 32px;
+    max-width: 400px;
+    width: 100%;
+    box-shadow: 0 12px 40px var(--shadow-color);
+    position: relative;
+    animation: cardEnter 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes cardEnter {
+    from { opacity: 0; transform: translateY(24px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* --- 品牌区 --- */
+.login-brand {
+    text-align: center;
+    margin-bottom: 28px;
+}
+
+.login-icon {
+    font-size: 52px;
+    line-height: 1;
+    margin-bottom: 10px;
+}
+
+.login-brand h1 {
+    color: var(--accent);
+    font-size: 26px;
+    font-weight: 700;
+    margin: 0 0 4px;
+    letter-spacing: -0.5px;
+}
+
+.login-subtitle {
+    color: var(--muted);
+    font-size: 13px;
+    margin: 0;
+    letter-spacing: 0.5px;
+}
+
+/* --- 表单字段 --- */
+.field {
+    margin-bottom: 16px;
+}
+
+.field label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 6px;
+}
+
+.field input[type="text"],
+.field input[type="password"] {
+    width: 100%;
+    padding: 12px 16px;
+    border: 1.5px solid var(--border-color);
+    border-radius: 12px;
+    background: var(--input-bg);
+    color: var(--ink);
+    font-size: 15px;
+    font-family: inherit;
+    box-sizing: border-box;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    outline: none;
+}
+
+.field input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(46, 125, 50, 0.12);
+}
+
+.field input::placeholder {
+    color: var(--muted);
+    opacity: 0.55;
+}
+
+/* --- 密码显示/隐藏 --- */
+.password-wrap {
+    position: relative;
+}
+
+.password-wrap input {
+    padding-right: 44px;
+}
+
+.toggle-pwd {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    padding: 8px;
+    color: var(--muted);
+    cursor: pointer;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s;
+    box-shadow: none;
+}
+
+.toggle-pwd:hover {
+    color: var(--ink);
+    border-color: transparent;
+}
+
+.toggle-pwd:active {
+    transform: translateY(-50%);
+    background: none;
+}
+
+/* --- 记住密码复选框 --- */
+.checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    margin: 18px 0 6px;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.checkbox-row input[type="checkbox"] {
+    display: none;
+}
+
+.checkmark {
+    width: 18px;
+    height: 18px;
+    border: 1.5px solid var(--border-color);
+    border-radius: 5px;
+    background: var(--input-bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+    position: relative;
+}
+
+.checkbox-row input:checked + .checkmark {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.checkbox-row input:checked + .checkmark::after {
+    content: '';
+    display: block;
+    width: 5px;
+    height: 9px;
+    border: solid #fff;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+    margin-top: -1px;
+}
+
+.checkbox-label {
+    font-size: 13px;
+    color: var(--ink);
+    font-weight: 500;
+}
+
+.checkbox-hint {
+    font-size: 11px;
+    color: var(--muted);
+    opacity: 0.7;
+}
+
+/* --- 状态消息 --- */
+.status-msg {
+    min-height: 22px;
+    font-size: 13px;
+    line-height: 1.5;
+    margin: 12px 0 4px;
+    text-align: center;
+    transition: opacity 0.2s;
+}
+
+.status-msg:empty {
+    margin: 0;
+}
+
+.status-msg.loading {
+    color: var(--accent);
+}
+
+.status-msg.success {
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.status-msg.error {
+    color: var(--error-text);
+}
+
+/* --- 提交按钮 --- */
+.submit-btn {
+    width: 100%;
+    padding: 13px 0;
+    background: var(--accent);
+    color: #ffffff;
+    border: none;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: background 0.15s ease, transform 0.1s ease, box-shadow 0.15s;
+    box-shadow: 0 4px 14px rgba(46, 125, 50, 0.3);
+    margin-top: 8px;
+}
+
+.submit-btn:hover {
+    background: #256d27;
+    box-shadow: 0 6px 20px rgba(46, 125, 50, 0.35);
+    border-color: transparent;
+}
+
+.submit-btn:active {
+    transform: scale(0.97);
+    background: #1b5e20;
+}
+
+.submit-btn:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+.submit-btn.loading {
+    background: var(--muted);
+    box-shadow: none;
+}
+
+/* --- Spinner --- */
+.spinner {
+    width: 16px;
+    height: 16px;
+    border: 2.5px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #ffffff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+}
+
+.spinner.hidden {
+    display: none;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* --- 底部信息 --- */
+.login-footer {
+    margin-top: 24px;
+    text-align: center;
+    border-top: 1px solid var(--border-color);
+    padding-top: 16px;
+}
+
+.login-footer p {
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.5;
+    margin: 2px 0;
+    opacity: 0.7;
+}
+
+/* --- 主题切换按钮 --- */
+.theme-toggle {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 4px 8px;
+    font-size: 16px;
+    cursor: pointer;
+    line-height: 1;
+    box-shadow: none;
+    transition: border-color 0.15s;
+}
+
+.theme-toggle:hover {
+    border-color: var(--accent);
+}
+
+.theme-toggle:active {
+    transform: scale(0.9);
+}
+
+/* ============================================================
+   📱 移动端适配
+   ============================================================ */
+@media (max-width: 480px) {
+    .login-wrap {
+        padding: 12px;
+        align-items: flex-start;
+        padding-top: calc(24px + env(safe-area-inset-top));
+    }
+
+    .login-card {
+        padding: 28px 22px 24px;
+        border-radius: 16px;
+    }
+
+    .login-icon {
+        font-size: 44px;
+    }
+
+    .login-brand h1 {
+        font-size: 22px;
+    }
+
+    .login-subtitle {
+        font-size: 12px;
+    }
+
+    .field label {
+        font-size: 11px;
+    }
+
+    .field input[type="text"],
+    .field input[type="password"] {
+        padding: 11px 14px;
+        font-size: 15px;
+        border-radius: 10px;
+    }
+
+    .submit-btn {
+        padding: 12px 0;
+        font-size: 15px;
+        border-radius: 10px;
+    }
+
+    .checkbox-hint {
+        display: none; /* 移动端隐藏提示文字，节省空间 */
+    }
+
+    .login-footer p {
+        font-size: 10px;
+    }
+
+    .theme-toggle {
+        top: 12px;
+        right: 12px;
+        font-size: 14px;
+        padding: 3px 6px;
+    }
+}
+
+/* 小屏手机 (<375px) */
+@media (max-width: 374px) {
+    .login-card {
+        padding: 24px 18px 20px;
+    }
+
+    .login-brand {
+        margin-bottom: 20px;
+    }
+
+    .field {
+        margin-bottom: 12px;
+    }
+}
