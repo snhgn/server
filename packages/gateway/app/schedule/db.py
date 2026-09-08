@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """schedule_cache 表读写（gateway.db）。
 
-只缓存课表数据（semester + schedule_json），绝不存学号/密码/cookie/session。
+只缓存课表数据（semester + schedule_json），绝不存密码/cookie/session。
 """
 import logging
 import os
@@ -17,8 +17,10 @@ CREATE TABLE IF NOT EXISTS schedule_cache (
     user_id       INTEGER NOT NULL UNIQUE,
     semester      TEXT NOT NULL DEFAULT '',
     schedule_json TEXT NOT NULL,
-    updated_time  TEXT NOT NULL
+    updated_time  TEXT NOT NULL,
+    student_id    TEXT NOT NULL DEFAULT ''
 );
+CREATE INDEX IF NOT EXISTS idx_schedule_student ON schedule_cache(student_id);
 """
 
 
@@ -35,35 +37,57 @@ def _conn() -> sqlite3.Connection:
 
 def init_db() -> None:
     with _conn() as conn:
-        conn.execute(SCHEMA)
+        conn.executescript(SCHEMA)
+        # 兼容旧表升级：增补 student_id 列
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(schedule_cache)").fetchall()]
+        if "student_id" not in cols:
+            try:
+                conn.execute("ALTER TABLE schedule_cache ADD COLUMN student_id TEXT NOT NULL DEFAULT ''")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_schedule_student ON schedule_cache(student_id)")
+            except Exception as e:
+                logger.warning("Failed to alter schedule_cache: %s", e)
 
 
 def get_cache(user_id: int) -> dict | None:
     with _conn() as conn:
         row = conn.execute(
-            "SELECT user_id, semester, schedule_json, updated_time"
+            "SELECT user_id, semester, schedule_json, updated_time, student_id"
             " FROM schedule_cache WHERE user_id=?",
             (user_id,),
         ).fetchone()
     return dict(row) if row else None
 
 
-def upsert_cache(user_id: int, semester: str, schedule_json: str, updated_time: str) -> None:
+def get_cache_by_student(student_id: str) -> dict | None:
+    sid = student_id.strip()
+    if not sid:
+        return None
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT user_id, semester, schedule_json, updated_time, student_id"
+            " FROM schedule_cache WHERE student_id=? ORDER BY updated_time DESC LIMIT 1",
+            (sid,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def upsert_cache(user_id: int, semester: str, schedule_json: str, updated_time: str, student_id: str = "") -> None:
     with _conn() as conn:
         conn.execute(
-            "INSERT INTO schedule_cache (user_id, semester, schedule_json, updated_time)"
-            " VALUES (?,?,?,?)"
+            "INSERT INTO schedule_cache (user_id, semester, schedule_json, updated_time, student_id)"
+            " VALUES (?,?,?,?,?)"
             " ON CONFLICT(user_id) DO UPDATE SET"
             " semester=excluded.semester, schedule_json=excluded.schedule_json,"
-            " updated_time=excluded.updated_time",
-            (user_id, semester, schedule_json, updated_time),
+            " updated_time=excluded.updated_time,"
+            " student_id=CASE WHEN excluded.student_id != '' THEN excluded.student_id ELSE schedule_cache.student_id END",
+            (user_id, semester, schedule_json, updated_time, student_id),
         )
 
 
 def list_caches() -> list[dict]:
     with _conn() as conn:
         rows = conn.execute(
-            "SELECT user_id, semester, updated_time FROM schedule_cache"
+            "SELECT user_id, semester, updated_time, student_id FROM schedule_cache"
             " ORDER BY updated_time DESC"
         ).fetchall()
     return [dict(r) for r in rows]
