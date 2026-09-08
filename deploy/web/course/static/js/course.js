@@ -553,17 +553,23 @@
   async function fetchScheduleData() {
     const params = new URLSearchParams(window.location.search);
     const user = params.get('user') || params.get('student_id');
+    const t = Date.now();
 
     const urls = [];
-    if (user) {
-      if (/^\d{8,}$/.test(user.trim())) {
-        urls.push(`/api/schedule/query?student_id=${encodeURIComponent(user.trim())}`);
+    if (user && user.trim()) {
+      const u = user.trim();
+      if (/^\d{8,}$/.test(u)) {
+        urls.push(`/api/schedule/query?student_id=${encodeURIComponent(u)}&_t=${t}`);
       }
-      urls.push(`/api/schedule/view/${encodeURIComponent(user.trim())}`);
+      urls.push(`/api/schedule/view/${encodeURIComponent(u)}?_t=${t}`);
     } else {
-      urls.push('/api/schedule/current');
-      urls.push('/api/schedule/query?student_id=260101208');
-      urls.push('/api/schedule/view/1000');
+      urls.push(`/api/schedule/current?_t=${t}`);
+      const savedSid = localStorage.getItem('bjfu-student-id');
+      if (savedSid && savedSid.trim()) {
+        urls.push(`/api/schedule/query?student_id=${encodeURIComponent(savedSid.trim())}&_t=${t}`);
+      }
+      urls.push(`/api/schedule/query?student_id=260101208&_t=${t}`);
+      urls.push(`/api/schedule/view/1000?_t=${t}`);
     }
 
     let payload = null;

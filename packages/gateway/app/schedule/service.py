@@ -215,9 +215,26 @@ async def fetch_schedule(user_id: int, student_id: str, password: str,
 
         updated = _now_iso()
         payload = {"semester": semester, "updated_time": updated, "courses": courses}
-        db.upsert_cache(user_id, semester, json.dumps(payload, ensure_ascii=False), updated)
-        # 立即刷新内存缓存，后续查看即时生效
+        
+        # 1. 写入主体缓存（记录 student_id）
+        db.upsert_cache(user_id, semester, json.dumps(payload, ensure_ascii=False), updated, student_id=student_id)
         _mem_cache[user_id] = (time.monotonic(), payload)
+
+        # 2. 如果是登录用户同步，同时写入 guest 映射，确保未登录按学号也能查到最新课表
+        g_uid = guest_user_id(student_id)
+        if g_uid != user_id:
+            db.upsert_cache(g_uid, semester, json.dumps(payload, ensure_ascii=False), updated, student_id=student_id)
+            _mem_cache[g_uid] = (time.monotonic(), payload)
+
+        # 3. 针对默认示范学生或管理员，保证 1 号用户也同步到最新学期
+        if student_id == "260101208" or user_id == 1:
+            if user_id != 1:
+                db.upsert_cache(1, semester, json.dumps(payload, ensure_ascii=False), updated, student_id=student_id)
+                _mem_cache[1] = (time.monotonic(), payload)
+                try:
+                    await asyncio.to_thread(course_context.sync_from_cache, 1, "manual")
+                except Exception:
+                    pass
 
         # 同步到 courses 表 + AI 数据目录（仅登录用户；访客跳过）
         if user_id > 0:
@@ -231,19 +248,63 @@ async def fetch_schedule(user_id: int, student_id: str, password: str,
 
 
 def get_current(user_id: int) -> dict | None:
-    """返回缓存课表（不论新旧）；无缓存返回 None。
+    """返回缓存课表；无缓存返回 None。
 
     优先查内存缓存（0ms），未命中再查 SQLite 并回填内存缓存。
+    若检测到 user_id 1 仍持有旧学期残留，自动尝试从示范学号拉取最新学期。
     """
     hit = _mem_cache.get(user_id)
     if hit and time.monotonic() - hit[0] < _MEM_CACHE_TTL:
-        return hit[1]
+        parsed = hit[1]
+        if not (user_id == 1 and parsed.get("semester") == "2025-2026-2"):
+            return parsed
+
     row = db.get_cache(user_id)
-    if not row:
+    if row:
+        parsed = json.loads(row["schedule_json"])
+        # 若是 1 号管理员但持有一年前旧课表 (2025-2026-2)，尝试借用最新学期
+        if user_id == 1 and parsed.get("semester") == "2025-2026-2":
+            fallback = get_by_student("260101208")
+            if fallback and fallback.get("semester") != "2025-2026-2":
+                db.upsert_cache(1, fallback["semester"], json.dumps(fallback, ensure_ascii=False),
+                                fallback.get("updated_time", _now_iso()), student_id="260101208")
+                _mem_cache[1] = (time.monotonic(), fallback)
+                return fallback
+        _mem_cache[user_id] = (time.monotonic(), parsed)
+        return parsed
+
+    # 若 user_id 1 暂无缓存，尝试用 260101208 垫底
+    if user_id == 1:
+        return get_by_student("260101208")
+
+    return None
+
+
+def get_by_student(student_id: str) -> dict | None:
+    """根据学号检索最新有效课表。
+
+    双重检索：
+    1. 优先根据 schedule_cache.student_id 查询最新记录
+    2. 降级查 guest_user_id(student_id)
+    """
+    sid = student_id.strip()
+    if not sid:
         return None
-    parsed = json.loads(row["schedule_json"])
-    _mem_cache[user_id] = (time.monotonic(), parsed)
-    return parsed
+
+    # 1. 查 student_id 列记录
+    row = db.get_cache_by_student(sid)
+    if row:
+        uid = row["user_id"]
+        hit = _mem_cache.get(uid)
+        if hit and time.monotonic() - hit[0] < _MEM_CACHE_TTL:
+            return hit[1]
+        parsed = json.loads(row["schedule_json"])
+        _mem_cache[uid] = (time.monotonic(), parsed)
+        return parsed
+
+    # 2. 查 guest_user_id 负数记录
+    g_uid = guest_user_id(sid)
+    return get_current(g_uid)
 
 
 def list_cache_stats() -> list[dict]:
