@@ -19,6 +19,10 @@ http://snhgn.me, :80 {
         }
     }
 
+    # /course 重定向到独立课表 /schedule
+    redir /course /schedule permanent
+    redir /course/* /schedule permanent
+
     # 根路径 → 落地页（独立于 SPA 的静态首页）
     @site_root path /
     handle @site_root {
