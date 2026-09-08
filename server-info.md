@@ -1,6 +1,6 @@
 # snhgn.me 服务器与项目总览
 
-最近更新：2026-08-24
+最近更新：2026-09-08
 
 ---
 
@@ -15,17 +15,17 @@
 | 主机名 | snhgn |
 | CPU | Intel i5-7200U @ 2.50GHz，4 核 |
 | 内存 | 3.7 GiB（Swap 3.7 GiB） |
-| 磁盘 | 465.8G SSD（LVM 根分区 454G，已用 7G） |
+| 磁盘 | 465.8G SSD（LVM 根分区 454G，已用 18G） |
 
 ### 网络
 
 | 网卡 | IP | 说明 |
 |------|-----|------|
 | enp2s0f2（有线） | 192.168.50.2/24 | SSH 管理连接 |
-| wlp3s0（无线） | 10.66.36.5/24 | 默认路由，网关 10.66.36.218 |
+| wlp3s0（无线） | 172.28.204.98/22 | 默认路由，网关 172.28.204.1 |
 
 - 家庭 NAT 环境，无公网 IP → 采用 Cloudflare Tunnel 方案
-- 默认路由：`via 10.66.36.218 dev wlp3s0`
+- 默认路由：`via 172.28.204.1 dev wlp3s0`
 - WiFi 省电已关闭（`wifi.powersave = 2`），合盖不挂起（`HandleLidSwitch=ignore`）
 
 ### 系统配置
@@ -101,21 +101,20 @@
 d:\project\server\
 ├── packages/                    # 核心服务模块
 │   ├── ai-service/              # AI 服务（GLM/Gemini + Memory + RAG）
-│   ├── gateway/                 # API 网关（JWT 认证 + 路由）
+│   ├── gateway/                 # API 网关（JWT 认证 + 路由 + 排课/识别）
 │   ├── scheduler/               # 定时任务服务
-│   ├── schedule-pipeline/       # 课表全链路（验证码识别 + 课表展示）
 │   ├── ai-notice-monitor/       # 校园通知智能监控（邮件 + AI 摘要）
 │   ├── website-deploy/          # 前端部署脚本
 │   ├── architecture/            # 架构文档
 │   └── diagnose/                # 诊断与构建脚本
 ├── deploy/                      # 顶层部署配置
-│   ├── caddy/Caddyfile          # Caddy 配置（API/静态资源路由分离）
 │   ├── cloudflared/             # Cloudflare 隧道编排
-│   ├── web/                     # 前端构建产物挂载点
-│   └── docker-compose.yml       # 网站+隧道旧编排（参考）
+│   └── web/                     # 前端构建产物挂载点
 ├── tests/                       # 临时测试脚本
-│   ├── README.md
-│   └── tmp_check_routes.sh      # 全链路验证脚本
+├── schedule_data/               # 课表/排课系统相关数据资源
+├── design_assets/               # 独立产品设计方案与素材
+├── website_source/              # 网站静态源码备份
+├── Caddyfile                    # Caddy 生产配置（API/静态资源路由分离）
 ├── docker-compose.yml           # 顶层统一编排（4 核心服务）
 ├── server-info.md               # 本文档
 └── .gitignore
