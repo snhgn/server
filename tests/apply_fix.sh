@@ -8,8 +8,8 @@ echo "=== 2. Applying new checker.py ==="
 cp /tmp/checker.py /opt/bjfu-login/src/checker.py
 chmod 644 /opt/bjfu-login/src/checker.py
 
-echo "=== 3. Updating CHECK_INTERVAL to 60 ==="
-sed -i 's/^CHECK_INTERVAL=.*/CHECK_INTERVAL=60/' /opt/bjfu-login/config/config.env
+echo "=== 3. Updating CHECK_INTERVAL to 300 ==="
+sed -i 's/^CHECK_INTERVAL=.*/CHECK_INTERVAL=300/' /opt/bjfu-login/config/config.env
 
 echo "=== 4. Testing checker ==="
 /opt/bjfu-login/venv/bin/python /opt/bjfu-login/src/checker.py
