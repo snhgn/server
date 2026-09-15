@@ -1,0 +1,121 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", Menlo,
+    Consolas, monospace;
+
+  /* ---- snhgn. Master Brand Tokens ---- */
+  --color-canvas: #fafafa;
+  --color-canvas-pure: #ffffff;
+  --color-canvas-subtle: #f4f5f6;
+  --color-canvas-muted: #eceeed;
+
+  --color-ink: #111111;
+  --color-ink-secondary: #52525b;
+  --color-ink-tertiary: #71717a;
+  --color-ink-muted: #a1a1aa;
+
+  --color-border: #e5e5e5;
+  --color-border-subtle: #f0f0f0;
+  --color-border-hover: #d4d4d8;
+
+  /* Brand Accent: Minimal Cold Slate */
+  --color-brand-accent: #7c96a8;
+  --color-brand-accent-hover: #698396;
+  --color-brand-accent-subtle: #edf3f7;
+
+  /* State indicators */
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-danger: #dc2626;
+  --color-info: #7c96a8;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  background-color: #fafafa;
+  color: #111111;
+}
+
+body {
+  background-color: #fafafa;
+  color: #111111;
+  font-family: var(--font-sans);
+  letter-spacing: -0.01em;
+  min-height: 100vh;
+}
+
+/* Subtle typography adjustments */
+h1, h2, h3, h4 {
+  letter-spacing: -0.025em;
+}
+
+/* Lightweight Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.22);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dsw-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.1) transparent;
+}
+.dsw-scroll::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.dsw-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 6px;
+}
+.dsw-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+/* Minimal Status Dot */
+.status-dot {
+  position: relative;
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+.status-dot::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 9999px;
+  background: inherit;
+  opacity: 0.35;
+}
+
+/* Subtle Organic Micro-Life Pulse */
+@keyframes subtle-pulse {
+  0%, 100% {
+    opacity: 0.85;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+
+.pulse-micro {
+  animation: subtle-pulse 4s ease-in-out infinite;
+}

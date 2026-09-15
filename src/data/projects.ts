@@ -1,0 +1,32 @@
+﻿export interface Project {
+  title: string
+  summary: string
+  stack: string[]
+  period: string
+  tag?: string
+}
+
+/** 个人工程与硬件研发经历 */
+export const projectList: Project[] = [
+  {
+    title: 'RoboMaster 机器人战队嵌入式系统',
+    summary: '负责步兵/英雄机器人电控架构设计与底层驱动开发。实现 CAN 总线多电机分布式通信、IMU 姿态解算滤波、自瞄上位机通信与双环 PID 云台跟踪控制。',
+    stack: ['STM32F4', 'FreeRTOS', 'CAN Bus', 'PID', 'AHRS'],
+    period: '2024 — Present',
+    tag: 'Robotics',
+  },
+  {
+    title: '钢球平板倾角视觉伺服控制系统',
+    summary: '基于单目视觉与经典图像处理算法的闭环控制系统。通过串口实现 60fps 实时坐标采集、卡尔曼滤波预测与板面双轴舵机 PID 动力学平衡调参。',
+    stack: ['STM32', 'OpenCV', 'C++', 'Kalman Filter', 'PID'],
+    period: '2025 — 2026',
+    tag: 'Control Systems',
+  },
+  {
+    title: 'snhgn.me 独立数字架构与自动化集群',
+    summary: '以物理 Ubuntu 服务器为核心节点，构建包含 FastAPI 网关、多用户隔离 RAG 知识库、双引擎 AI 助手、校园教务同步与自动化定时任务的私有云生产力体系。',
+    stack: ['Linux', 'Docker', 'FastAPI', 'Vue 3', 'Cloudflare'],
+    period: '2026',
+    tag: 'Infrastructure',
+  },
+]
