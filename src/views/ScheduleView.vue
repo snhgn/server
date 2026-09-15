@@ -116,8 +116,10 @@ function getDateLabel(week: number, dayIdx: number): string {
   return `${date.getMonth() + 1}/${date.getDate()}`
 }
 
-const studentId = ref('')
-const password = ref('')
+const studentId = ref(localStorage.getItem('bjfu-student-id') || '')
+const password = ref(localStorage.getItem('bjfu-student-pwd') || '')
+const rememberCredentials = ref(localStorage.getItem('bjfu-remember-credentials') === 'true')
+const syncingLatest = ref(false)
 const loading = ref(false)
 const error = ref('')
 const showForm = ref(true)
@@ -199,19 +201,66 @@ onMounted(async () => {
     }
   }
 
-  // 2. 优先尝试拉取当前登录用户 / 访客 Session 缓存的课表
+  // 2. 检查本地是否勾选了保存账号密码（明文存储）
+  const savedSid = localStorage.getItem('bjfu-student-id')
+  const savedPwd = localStorage.getItem('bjfu-student-pwd')
+  const remember = localStorage.getItem('bjfu-remember-credentials') === 'true'
+
+  if (remember && savedSid && savedPwd) {
+    studentId.value = savedSid
+    password.value = savedPwd
+    rememberCredentials.value = true
+
+    // 优先秒开展示已有缓存（极大提升首屏体验）
+    try {
+      const cached = await api.get<ScheduleData>(`/api/schedule/query?student_id=${encodeURIComponent(savedSid)}`)
+      if (cached && cached.courses) {
+        schedule.value = cached
+        showForm.value = false
+        scrollToToday()
+      }
+    } catch {
+      // 无缓存时继续实时拉取
+    }
+
+    // 每次打开网页都重新拉取最新课表覆盖原版本
+    syncingLatest.value = true
+    try {
+      const fresh = await api.post<ScheduleData>('/api/schedule/get', {
+        student_id: savedSid,
+        password: savedPwd,
+        force: true,
+      })
+      if (fresh && fresh.courses) {
+        schedule.value = fresh
+        showForm.value = false
+        scrollToToday()
+      }
+    } catch (err: any) {
+      console.warn('Auto fetch latest schedule failed:', err)
+      // 若拉取失败且此前没有成功读取到缓存，则报错并显示表单
+      if (!schedule.value) {
+        error.value = err.message || '自动拉取最新课表失败，请检查账号密码'
+        showForm.value = true
+      }
+    } finally {
+      syncingLatest.value = false
+    }
+    return
+  }
+
+  // 3. 未勾选保存账号密码：常规检查（已登录用户 / 访客 Session 缓存）
   try {
     schedule.value = await api.get<ScheduleData>('/api/schedule/current')
     showForm.value = false
     scrollToToday()
     return
   } catch {
-    // 3. 未登录状态下，优先尝试读取本设备此前保存过的学号
-    const sid = localStorage.getItem('bjfu-student-id')
-    if (sid) {
+    // 4. 读取本设备此前保存过的学号（仅学号，无密码）
+    if (savedSid) {
+      studentId.value = savedSid
       try {
-        schedule.value = await api.get<ScheduleData>(`/api/schedule/query?student_id=${encodeURIComponent(sid)}`)
-        studentId.value = sid
+        schedule.value = await api.get<ScheduleData>(`/api/schedule/query?student_id=${encodeURIComponent(savedSid)}`)
         showForm.value = false
         scrollToToday()
         return
@@ -219,7 +268,7 @@ onMounted(async () => {
         // Fallthrough
       }
     }
-    // 4. 新用户/访客且无本地学号：展示登录输入表单，严禁自动加载任何其他用户的课表！
+    // 5. 新用户/访客且无本地学号：展示登录输入表单，严禁自动加载任何其他用户的课表！
     showForm.value = true
   }
 })
@@ -241,7 +290,7 @@ async function loadDemoSchedule() {
   }
 }
 
-async function fetchSchedule(force = false) {
+async function fetchSchedule(force = true) {
   if (!studentId.value.trim() || !password.value) {
     error.value = '请输入学号和密码'
     return
@@ -254,7 +303,16 @@ async function fetchSchedule(force = false) {
       password: password.value,
       force,
     })
-    localStorage.setItem('bjfu-student-id', studentId.value.trim())
+    // 根据是否勾选“保存账号密码”进行持久化明文存储或清理
+    if (rememberCredentials.value) {
+      localStorage.setItem('bjfu-remember-credentials', 'true')
+      localStorage.setItem('bjfu-student-id', studentId.value.trim())
+      localStorage.setItem('bjfu-student-pwd', password.value)
+    } else {
+      localStorage.removeItem('bjfu-remember-credentials')
+      localStorage.removeItem('bjfu-student-pwd')
+      localStorage.setItem('bjfu-student-id', studentId.value.trim())
+    }
     showForm.value = false
     scrollToToday()
   } catch (err: any) {
@@ -457,9 +515,9 @@ function weekdayName(day: number): string {
         </button>
       </div>
       <p class="text-xs text-neutral-500 font-sans leading-relaxed mb-6">
-        输入教务学号与密码同步个人课表。密码仅在本次会话内存中使用，不落盘存储。
+        输入教务学号与密码同步个人课表。勾选保存账号密码将在本设备明文存储，并在每次打开页面时自动重新拉取最新课表覆盖原版本。
       </p>
-      <form class="space-y-4 font-mono text-xs" @submit.prevent="fetchSchedule()">
+      <form class="space-y-4 font-mono text-xs" @submit.prevent="fetchSchedule(true)">
         <div>
           <label class="block uppercase tracking-widest text-neutral-400 text-[10px] mb-1">Student ID</label>
           <input
@@ -478,6 +536,19 @@ function weekdayName(day: number): string {
             class="w-full rounded border border-[#E5E5E5] bg-[#FAFAFA] px-3 py-2 text-neutral-900 focus:border-neutral-900 focus:bg-white focus:outline-none"
           />
         </div>
+
+        <!-- 保存账号密码选项 -->
+        <div class="flex items-center justify-between text-[11px] text-neutral-600 select-none py-0.5">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input
+              v-model="rememberCredentials"
+              type="checkbox"
+              class="h-3.5 w-3.5 rounded border-[#E5E5E5] text-neutral-900 accent-neutral-900 focus:ring-0 cursor-pointer"
+            />
+            <span class="font-sans">保存账号密码（每次打开网页自动拉取最新课表）</span>
+          </label>
+        </div>
+
         <p v-if="error" class="text-red-600 text-xs">{{ error }}</p>
         <button
           type="submit"
@@ -516,8 +587,14 @@ function weekdayName(day: number): string {
             今日暂无安排课程
           </span>
         </div>
-        <div v-if="termTip" class="text-neutral-400 text-[10px] sm:text-[11px]">
-          {{ termTip }}
+        <div class="flex items-center gap-3">
+          <div v-if="syncingLatest" class="flex items-center gap-1.5 text-amber-600 text-[10px] sm:text-[11px] animate-pulse font-sans">
+            <span class="inline-block h-1.5 w-1.5 rounded-full bg-amber-500 animate-ping" />
+            正在拉取最新课表...
+          </div>
+          <div v-if="termTip" class="text-neutral-400 text-[10px] sm:text-[11px]">
+            {{ termTip }}
+          </div>
         </div>
       </div>
 
