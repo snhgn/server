@@ -1,0 +1,13 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318}\0000]
+"PowerDownPll"="0"
+"PowerSavingMode"="0"
+"EnableGreenEthernet"="0"
+"*EEE"="0"
+"AdvancedEEE"="0"
+"GigaLite"="0"
+"AutoDisableGigabit"="0"
+"DeviceSleepOnDisconnect"="0"
+"SelectiveSuspend"="0"
+"PnPCapabilities"=dword:00000018
