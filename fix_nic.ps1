@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     彻底修复 Realtek RTL8125 2.5GbE 网卡休眠与代码 45 掉盘问题
