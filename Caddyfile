@@ -1,9 +1,8 @@
-# Caddy 配置 - snhgn.me
-# Cloudflare Tunnel 将公网请求转发到本机 8080 端口（HTTP）
-# TLS 由 Cloudflare 边缘终结，Caddy 只做内部静态文件服务 + API 反向代理
-# 使用 http:// 前缀强制走 HTTP，避免 Caddy 尝试自动申请证书
+# Caddy 配置 - snhgn.me & lan.snhgn.me
+# 1. 公网访问: Cloudflare Tunnel 将公网请求转发到本机 8080 端口（HTTP）
+# 2. 内网直连: 校园网内直连 80 (HTTP) 与 443 (HTTPS，Let's Encrypt 证书)
 
-http://snhgn.me, :80 {
+(common_site) {
     root * /srv/web
     header {
         X-Content-Type-Options "nosniff"
@@ -43,3 +42,15 @@ http://snhgn.me, :80 {
         file_server
     }
 }
+
+# HTTP 站点（Cloudflare Tunnel 端口 8080 + 校园网直接 HTTP 访问端口 80）
+http://snhgn.me, :80 {
+    import common_site
+}
+
+# HTTPS 校园网内网直连（端口 443，加载 Let's Encrypt DNS-01 证书）
+https://lan.snhgn.me {
+    tls /srv/certs/live/lan.snhgn.me/fullchain.pem /srv/certs/live/lan.snhgn.me/privkey.pem
+    import common_site
+}
+
