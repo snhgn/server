@@ -116,17 +116,41 @@ function getDateLabel(week: number, dayIdx: number): string {
   return `${date.getMonth() + 1}/${date.getDate()}`
 }
 
-const studentId = ref(localStorage.getItem('bjfu-student-id') || '')
-const password = ref(localStorage.getItem('bjfu-student-pwd') || '')
-const rememberCredentials = ref(localStorage.getItem('bjfu-remember-credentials') === 'true')
+const savedSid = localStorage.getItem('bjfu-student-id') || ''
+const savedPwd = localStorage.getItem('bjfu-student-pwd') || ''
+const remember = localStorage.getItem('bjfu-remember-credentials') === 'true'
+const hasSavedCredentials = remember && !!savedSid.trim() && !!savedPwd
+
+// 尝试从本地持久化缓存立即读取已有课表（实现 0ms 秒开呈现）
+function loadCachedSchedule(): ScheduleData | null {
+  if (!savedSid.trim()) return null
+  try {
+    const raw = localStorage.getItem(`bjfu-schedule-cache-${savedSid.trim()}`) || localStorage.getItem('bjfu-schedule-cache')
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (parsed && Array.isArray(parsed.courses)) return parsed
+    }
+  } catch {}
+  return null
+}
+
+const studentId = ref(savedSid)
+const password = ref(savedPwd)
+const rememberCredentials = ref(remember)
 const syncingLatest = ref(false)
 const loading = ref(false)
 const error = ref('')
-const showForm = ref(true)
 const switching = ref(false)
-const schedule = ref<ScheduleData | null>(null)
 const detail = ref<Course | null>(null)
 const viewer = ref<'calendar' | 'time' | null>(null)
+
+// 课表初始数据：若已保存账号密码，优先从本地持久化缓存同步读取
+const schedule = ref<ScheduleData | null>(hasSavedCredentials ? loadCachedSchedule() : null)
+
+// 核心流转控制：
+// 1. 勾选了保存密码的用户：首屏直接呈现课表，绝不展示登录页，直接进入课表并在后台静默拉取
+// 2. 新用户或未勾选保存密码的用户：展示登录表单
+const showForm = ref(!hasSavedCredentials)
 
 function closeImgViewer() {
   viewer.value = null
@@ -201,44 +225,32 @@ onMounted(async () => {
     }
   }
 
-  // 2. 检查本地是否勾选了保存账号密码（明文存储）
-  const savedSid = localStorage.getItem('bjfu-student-id')
-  const savedPwd = localStorage.getItem('bjfu-student-pwd')
-  const remember = localStorage.getItem('bjfu-remember-credentials') === 'true'
-
-  if (remember && savedSid && savedPwd) {
-    studentId.value = savedSid
-    password.value = savedPwd
-    rememberCredentials.value = true
-
-    // 优先秒开展示已有缓存（极大提升首屏体验）
-    try {
-      const cached = await api.get<ScheduleData>(`/api/schedule/query?student_id=${encodeURIComponent(savedSid)}`)
-      if (cached && cached.courses) {
-        schedule.value = cached
-        showForm.value = false
-        scrollToToday()
-      }
-    } catch {
-      // 无缓存时继续实时拉取
+  // 2. 勾选了保存账号密码的用户：直接后台静默拉取最新课表，不再在登录页面流转
+  if (hasSavedCredentials) {
+    if (schedule.value) {
+      scrollToToday()
     }
 
-    // 每次打开网页都重新拉取最新课表覆盖原版本
+    // 后台静默拉取最新课表覆盖本地
     syncingLatest.value = true
     try {
       const fresh = await api.post<ScheduleData>('/api/schedule/get', {
-        student_id: savedSid,
+        student_id: savedSid.trim(),
         password: savedPwd,
         force: true,
       })
       if (fresh && fresh.courses) {
         schedule.value = fresh
+        try {
+          localStorage.setItem(`bjfu-schedule-cache-${savedSid.trim()}`, JSON.stringify(fresh))
+          localStorage.setItem('bjfu-schedule-cache', JSON.stringify(fresh))
+        } catch {}
         showForm.value = false
         scrollToToday()
       }
     } catch (err: any) {
       console.warn('Auto fetch latest schedule failed:', err)
-      // 若拉取失败且此前没有成功读取到缓存，则报错并显示表单
+      // 若拉取失败但已有缓存课表，保持展示当前课表，绝不弹回登录页面
       if (!schedule.value) {
         error.value = err.message || '自动拉取最新课表失败，请检查账号密码'
         showForm.value = true
@@ -249,28 +261,8 @@ onMounted(async () => {
     return
   }
 
-  // 3. 未勾选保存账号密码：常规检查（已登录用户 / 访客 Session 缓存）
-  try {
-    schedule.value = await api.get<ScheduleData>('/api/schedule/current')
-    showForm.value = false
-    scrollToToday()
-    return
-  } catch {
-    // 4. 读取本设备此前保存过的学号（仅学号，无密码）
-    if (savedSid) {
-      studentId.value = savedSid
-      try {
-        schedule.value = await api.get<ScheduleData>(`/api/schedule/query?student_id=${encodeURIComponent(savedSid)}`)
-        showForm.value = false
-        scrollToToday()
-        return
-      } catch {
-        // Fallthrough
-      }
-    }
-    // 5. 新用户/访客且无本地学号：展示登录输入表单，严禁自动加载任何其他用户的课表！
-    showForm.value = true
-  }
+  // 3. 新用户或未勾选保存账号密码的用户：直接展示登录表单，严禁自动加载其他课表
+  showForm.value = true
 })
 onUnmounted(() => {
   document.body.classList.remove('schedule-page')
@@ -303,15 +295,22 @@ async function fetchSchedule(force = true) {
       password: password.value,
       force,
     })
-    // 根据是否勾选“保存账号密码”进行持久化明文存储或清理
+    // 根据是否勾选“保存账号密码”进行持久化存储或清理
     if (rememberCredentials.value) {
       localStorage.setItem('bjfu-remember-credentials', 'true')
       localStorage.setItem('bjfu-student-id', studentId.value.trim())
       localStorage.setItem('bjfu-student-pwd', password.value)
+      try {
+        localStorage.setItem(`bjfu-schedule-cache-${studentId.value.trim()}`, JSON.stringify(schedule.value))
+        localStorage.setItem('bjfu-schedule-cache', JSON.stringify(schedule.value))
+      } catch {}
     } else {
       localStorage.removeItem('bjfu-remember-credentials')
       localStorage.removeItem('bjfu-student-pwd')
       localStorage.setItem('bjfu-student-id', studentId.value.trim())
+      // 未勾选保存密码时清除本地课表缓存，下次打开必须重新输入密码登录
+      localStorage.removeItem(`bjfu-schedule-cache-${studentId.value.trim()}`)
+      localStorage.removeItem('bjfu-schedule-cache')
     }
     showForm.value = false
     scrollToToday()
@@ -662,6 +661,12 @@ function weekdayName(day: number): string {
       </div>
 
     </template>
+
+    <!-- Loading placeholder for first-time auto sync without cached data -->
+    <div v-else-if="syncingLatest || loading" class="max-w-md mx-auto text-center py-20 font-mono text-xs text-neutral-400">
+      <div class="inline-block h-5 w-5 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-900 mb-3" />
+      <p class="font-sans text-neutral-600 text-sm">正在同步最新课表...</p>
+    </div>
 
     <!-- Course Detail Modal -->
     <div
