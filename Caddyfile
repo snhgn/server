@@ -43,14 +43,14 @@
     }
 }
 
-# HTTP 站点（Cloudflare Tunnel 端口 8080 + 校园网直接 HTTP 访问端口 80）
+# HTTP 站点（Cloudflare Tunnel 端口 8080 + 校园网直连 80 + FRP 中继 80/8080）
 http://snhgn.me, :80 {
     import common_site
 }
 
-# HTTPS 校园网内网直连（端口 443，加载 Let's Encrypt DNS-01 证书）
-https://lan.snhgn.me {
-    tls /srv/certs/live/lan.snhgn.me/fullchain.pem /srv/certs/live/lan.snhgn.me/privkey.pem
+# HTTPS 站点（校园网直连 lan.snhgn.me + 国内中继 cn.snhgn.me，通用 Let's Encrypt 泛域名证书）
+https://lan.snhgn.me, https://cn.snhgn.me, https://snhgn.me {
+    tls /srv/certs/live/snhgn.me/fullchain.pem /srv/certs/live/snhgn.me/privkey.pem
     import common_site
 }
 
