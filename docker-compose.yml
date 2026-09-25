@@ -90,10 +90,13 @@ services:
     restart: unless-stopped
     mem_limit: 128m
     ports:
+      - "80:80"
+      - "443:443"
       - "8080:80"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./deploy/web:/srv/web:ro
+      - ./certs:/srv/certs:ro
       - caddy_data:/data
       - caddy_config:/config
     networks:
