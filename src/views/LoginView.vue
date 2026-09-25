@@ -48,7 +48,7 @@ async function handleLogin() {
       <form class="space-y-4" @submit.prevent="handleLogin">
         <div>
           <label class="block font-mono text-[11px] uppercase tracking-widest text-neutral-400 mb-1.5">
-            Username
+            用户名
           </label>
           <input
             v-model="username"
@@ -62,7 +62,7 @@ async function handleLogin() {
 
         <div>
           <label class="block font-mono text-[11px] uppercase tracking-widest text-neutral-400 mb-1.5">
-            Password
+            密码
           </label>
           <input
             v-model="password"
@@ -83,7 +83,7 @@ async function handleLogin() {
           :disabled="loading"
           class="w-full rounded bg-neutral-900 py-2.5 font-mono text-xs text-white hover:bg-neutral-800 disabled:opacity-50 transition-colors cursor-pointer"
         >
-          {{ loading ? 'Authenticating...' : 'Enter Workspace' }}
+          {{ loading ? '正在验证...' : '进入工作区' }}
         </button>
       </form>
 

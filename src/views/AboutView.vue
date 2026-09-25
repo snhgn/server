@@ -105,7 +105,7 @@ function copyEmail() {
                 class="text-neutral-900 hover:text-neutral-500 cursor-pointer transition-colors"
                 @click="copyEmail"
               >
-                {{ emailCopied ? 'Copied ✓' : 'hello@snhgn.me' }}
+                {{ emailCopied ? '已复制邮箱 ✓' : 'hello@snhgn.me' }}
               </button>
             </div>
             <div class="flex items-center justify-between border-b border-[#E5E5E5]/60 pb-2">

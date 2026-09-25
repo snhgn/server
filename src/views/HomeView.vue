@@ -89,7 +89,7 @@ const digitalRooms = computed(() => [
           </div>
 
           <div class="mt-3 sm:mt-0 font-mono text-xs text-neutral-400 group-hover:text-neutral-900 transition-colors flex items-center gap-1 shrink-0">
-            <span>Enter</span>
+            <span>进入</span>
             <span class="transition-transform duration-200 group-hover:translate-x-1">→</span>
           </div>
         </router-link>
@@ -106,7 +106,7 @@ const digitalRooms = computed(() => [
           to="/projects"
           class="font-mono text-xs text-neutral-400 hover:text-neutral-950 transition-colors flex items-center gap-1"
         >
-          <span>All Works ({{ projectList.length }})</span>
+          <span>全部项目 ({{ projectList.length }})</span>
           <span>→</span>
         </router-link>
       </div>

@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api'
 import BrandWordmark from '@/components/BrandWordmark.vue'
+import ToolboxModal from '@/components/schedule/ToolboxModal.vue'
 
 const route = useRoute()
+const router = useRouter()
 
 interface Course {
   name: string
@@ -143,6 +145,40 @@ const error = ref('')
 const switching = ref(false)
 const detail = ref<Course | null>(null)
 const viewer = ref<'calendar' | 'time' | null>(null)
+const showToolbox = ref(false)
+
+// 个性化背景设置
+const bgConfig = ref({
+  url: localStorage.getItem('bjfu-bg-url') || '',
+  opacity: (Number(localStorage.getItem('bjfu-bg-opacity')) || 20) / 100,
+  blur: Number(localStorage.getItem('bjfu-bg-blur')) || 0,
+})
+
+function onUpdateBg(bg: { url: string; opacity: number; blur: number }) {
+  bgConfig.value = bg
+}
+
+function handleScheduleLogout() {
+  localStorage.removeItem('bjfu-remember-credentials')
+  localStorage.removeItem('bjfu-student-pwd')
+  if (studentId.value) {
+    localStorage.removeItem(`bjfu-schedule-cache-${studentId.value.trim()}`)
+  }
+  localStorage.removeItem('bjfu-schedule-cache')
+  schedule.value = null
+  password.value = ''
+  showForm.value = true
+  showToolbox.value = false
+  router.replace({ query: {} }).catch(() => {})
+}
+
+function syncUrlWithUser(sid: string) {
+  if (sid && route.query.user !== sid) {
+    router.replace({
+      query: { ...route.query, user: sid }
+    }).catch(() => {})
+  }
+}
 
 // 课表初始数据：若已保存账号密码，优先从本地持久化缓存同步读取
 const schedule = ref<ScheduleData | null>(hasSavedCredentials ? loadCachedSchedule() : null)
@@ -201,15 +237,34 @@ function changeWeek(delta: number) {
 onMounted(async () => {
   document.body.classList.add('schedule-page')
 
-  // 1. 若 URL 中明确指定了学号或用户 ID（如分享链接 ?student_id=xxx 或 ?user_id=xxx）
-  const qSid = (route.query.student_id || route.query.sid) as string | undefined
+  // 1. 若 URL 中指定了 user 或 student_id（形如 ?user=250100109 或 ?student_id=xxx）
+  const qSid = (route.query.user || route.query.student_id || route.query.sid) as string | undefined
   const qUid = (route.query.user_id || route.query.uid) as string | undefined
+
   if (qSid && qSid.trim()) {
+    const cleanSid = qSid.trim()
+    studentId.value = cleanSid
+
+    // 优先从本学号本地离线缓存读取
+    const cachedForUser = localStorage.getItem(`bjfu-schedule-cache-${cleanSid}`)
+    if (cachedForUser) {
+      try {
+        const parsed = JSON.parse(cachedForUser)
+        if (parsed && Array.isArray(parsed.courses)) {
+          schedule.value = parsed
+          showForm.value = false
+          scrollToToday()
+          syncUrlWithUser(cleanSid)
+          return
+        }
+      } catch {}
+    }
+
     try {
-      schedule.value = await api.get<ScheduleData>(`/api/schedule/query?student_id=${encodeURIComponent(qSid.trim())}`)
-      studentId.value = qSid.trim()
+      schedule.value = await api.get<ScheduleData>(`/api/schedule/query?student_id=${encodeURIComponent(cleanSid)}`)
       showForm.value = false
       scrollToToday()
+      syncUrlWithUser(cleanSid)
       return
     } catch {
       // 指定学号无课表时回退常规流程
@@ -225,10 +280,11 @@ onMounted(async () => {
     }
   }
 
-  // 2. 勾选了保存账号密码的用户：直接后台静默拉取最新课表，不再在登录页面流转
+  // 2. 勾选了保存账号密码的用户：直接后台静默拉取最新课表，并在 URL 同步 ?user=学号
   if (hasSavedCredentials) {
     if (schedule.value) {
       scrollToToday()
+      syncUrlWithUser(savedSid.trim())
     }
 
     // 后台静默拉取最新课表覆盖本地
@@ -247,6 +303,7 @@ onMounted(async () => {
         } catch {}
         showForm.value = false
         scrollToToday()
+        syncUrlWithUser(savedSid.trim())
       }
     } catch (err: any) {
       console.warn('Auto fetch latest schedule failed:', err)
@@ -314,6 +371,7 @@ async function fetchSchedule(force = true) {
     }
     showForm.value = false
     scrollToToday()
+    syncUrlWithUser(studentId.value.trim())
   } catch (err: any) {
     error.value = err.message || '获取失败，请重试'
   } finally {
@@ -424,14 +482,25 @@ function weekdayName(day: number): string {
 </script>
 
 <template>
-  <div class="py-4 sm:py-12">
+  <div class="relative min-h-[calc(100vh-8rem)] py-4 sm:py-12">
+    <!-- Custom Background Wallpaper Layer -->
+    <div
+      v-if="bgConfig.url"
+      class="fixed inset-0 pointer-events-none z-0 bg-cover bg-center transition-all duration-300"
+      :style="{
+        backgroundImage: `url(${bgConfig.url})`,
+        opacity: bgConfig.opacity,
+        filter: `blur(${bgConfig.blur}px)`,
+      }"
+    />
+
     <!-- Top Header -->
-    <header class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 border-b border-[#E5E5E5]/70 pb-3 sm:pb-6 mb-3 sm:mb-8">
+    <header class="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 border-b border-[#E5E5E5]/70 pb-3 sm:pb-6 mb-3 sm:mb-8">
       <div>
         <div class="flex items-center gap-2 font-mono text-[11px] sm:text-xs text-neutral-400 uppercase tracking-widest mb-0.5 sm:mb-1.5">
           <BrandWordmark size="xs" :animated-dot="false" />
           <span class="text-neutral-300">·</span>
-          <span>Timetable</span>
+          <span>北林课表</span>
           <span class="text-neutral-300">·</span>
           <span class="text-neutral-400 font-mono text-[10px] lowercase bg-neutral-100 px-1.5 py-0.5 rounded">v1.1.0</span>
           <span v-if="schedule" class="text-neutral-300">·</span>
@@ -471,7 +540,16 @@ function weekdayName(day: number): string {
             title="快速跳转到当天"
             @click="goToToday"
           >
-            Today
+            今天
+          </button>
+          <button
+            v-if="schedule && !showForm"
+            class="rounded border border-[#E5E5E5] bg-white px-2 sm:px-2.5 py-0.5 sm:py-1 text-neutral-600 hover:text-neutral-900 hover:border-neutral-400 disabled:opacity-50 transition-colors cursor-pointer text-[11px] sm:text-xs"
+            title="刷新最新课表"
+            :disabled="loading"
+            @click="refresh"
+          >
+            刷新
           </button>
           <button
             v-if="schedule && !showForm"
@@ -479,16 +557,15 @@ function weekdayName(day: number): string {
             title="校历与作息时间表"
             @click="viewer = 'calendar'"
           >
-            Calendar
+            校历
           </button>
           <button
             v-if="schedule && !showForm"
-            class="rounded border border-[#E5E5E5] bg-white px-2 sm:px-2.5 py-0.5 sm:py-1 text-neutral-600 hover:text-neutral-900 hover:border-neutral-400 disabled:opacity-50 transition-colors cursor-pointer text-[11px] sm:text-xs"
-            title="刷新课表"
-            :disabled="loading"
-            @click="refresh"
+            class="rounded border border-[#E5E5E5] bg-white px-2 sm:px-2.5 py-0.5 sm:py-1 text-neutral-600 hover:text-neutral-900 hover:border-neutral-400 transition-colors cursor-pointer text-[11px] sm:text-xs"
+            title="工具箱与更多功能"
+            @click="showToolbox = true"
           >
-            Sync
+            更多
           </button>
           <button
             v-if="schedule && !showForm"
@@ -520,20 +597,20 @@ function weekdayName(day: number): string {
       </p>
       <form class="space-y-4 font-mono text-xs" @submit.prevent="fetchSchedule(true)">
         <div>
-          <label class="block uppercase tracking-widest text-neutral-400 text-[10px] mb-1">Student ID</label>
+          <label class="block uppercase tracking-widest text-neutral-400 text-[10px] mb-1">教务学号</label>
           <input
             v-model="studentId"
             type="text"
-            placeholder="学号"
+            placeholder="请输入学号"
             class="w-full rounded border border-[#E5E5E5] bg-[#FAFAFA] px-3 py-2 text-neutral-900 focus:border-neutral-900 focus:bg-white focus:outline-none"
           />
         </div>
         <div>
-          <label class="block uppercase tracking-widest text-neutral-400 text-[10px] mb-1">Password</label>
+          <label class="block uppercase tracking-widest text-neutral-400 text-[10px] mb-1">教务系统密码</label>
           <input
             v-model="password"
             type="password"
-            placeholder="密码"
+            placeholder="请输入教务密码"
             class="w-full rounded border border-[#E5E5E5] bg-[#FAFAFA] px-3 py-2 text-neutral-900 focus:border-neutral-900 focus:bg-white focus:outline-none"
           />
         </div>
@@ -556,7 +633,7 @@ function weekdayName(day: number): string {
           :disabled="loading"
           class="w-full rounded bg-neutral-900 py-2.5 text-white hover:bg-neutral-800 disabled:opacity-50 transition-colors cursor-pointer"
         >
-          {{ loading ? 'Synchronizing...' : 'Sync Timetable' }}
+          {{ loading ? '正在同步...' : '同步课表' }}
         </button>
       </form>
 
@@ -679,27 +756,27 @@ function weekdayName(day: number): string {
       <div class="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl border border-[#E5E5E5]">
         <div class="flex items-center justify-between mb-4 border-b border-neutral-100 pb-3">
           <h3 class="text-sm font-medium text-neutral-900 font-sans">课程详情</h3>
-          <button class="text-neutral-400 hover:text-neutral-900 cursor-pointer" @click="detail = null">✕</button>
+          <button class="text-neutral-400 hover:text-neutral-900 cursor-pointer p-1" title="关闭" @click="detail = null">✕</button>
         </div>
         <div class="space-y-3 font-mono text-xs">
           <div>
-            <span class="text-neutral-400 block text-[10px] uppercase">Course Name</span>
+            <span class="text-neutral-400 block text-[10px] uppercase">课程名称</span>
             <span class="text-neutral-900 font-sans font-medium text-sm">{{ detail.name }}</span>
           </div>
           <div>
-            <span class="text-neutral-400 block text-[10px] uppercase">Teacher</span>
+            <span class="text-neutral-400 block text-[10px] uppercase">授课教师</span>
             <span class="text-neutral-700 font-sans">{{ detail.teacher || '—' }}</span>
           </div>
           <div>
-            <span class="text-neutral-400 block text-[10px] uppercase">Location</span>
+            <span class="text-neutral-400 block text-[10px] uppercase">上课地点</span>
             <span class="text-neutral-700">{{ detail.room || '—' }}</span>
           </div>
           <div>
-            <span class="text-neutral-400 block text-[10px] uppercase">Time & Day</span>
+            <span class="text-neutral-400 block text-[10px] uppercase">时间节次</span>
             <span class="text-neutral-700">{{ weekdayName(detail.day) }} · {{ detail.period }}</span>
           </div>
           <div>
-            <span class="text-neutral-400 block text-[10px] uppercase">Weeks</span>
+            <span class="text-neutral-400 block text-[10px] uppercase">上课周次</span>
             <span class="text-neutral-700">{{ weekCount(detail.weeks) }}</span>
           </div>
         </div>
@@ -720,17 +797,17 @@ function weekdayName(day: number): string {
               :class="viewer === 'calendar' ? 'bg-neutral-900 text-white' : 'border border-[#E5E5E5] text-neutral-600 hover:text-neutral-900'"
               @click="viewer = 'calendar'"
             >
-              School Calendar
+              校历大图
             </button>
             <button
               class="px-3 py-1 rounded transition-colors cursor-pointer"
               :class="viewer === 'time' ? 'bg-neutral-900 text-white' : 'border border-[#E5E5E5] text-neutral-600 hover:text-neutral-900'"
               @click="viewer = 'time'"
             >
-              Period Schedule
+              作息时间表
             </button>
           </div>
-          <button class="text-neutral-400 hover:text-neutral-900 cursor-pointer" @click="closeImgViewer">✕</button>
+          <button class="text-neutral-400 hover:text-neutral-900 cursor-pointer p-1" title="关闭" @click="closeImgViewer">✕</button>
         </div>
 
         <div class="overflow-auto max-h-[75vh] rounded border border-neutral-100 flex items-center justify-center bg-[#FAFAFA] p-2">
@@ -749,6 +826,17 @@ function weekdayName(day: number): string {
         </div>
       </div>
     </div>
+
+    <!-- Toolbox Modal (更多功能工具箱) -->
+    <ToolboxModal
+      :show="showToolbox"
+      :schedule="schedule"
+      :student-id="studentId"
+      @close="showToolbox = false"
+      @open-calendar="showToolbox = false; viewer = 'calendar'"
+      @logout="handleScheduleLogout"
+      @update-bg="onUpdateBg"
+    />
 
   </div>
 </template>
