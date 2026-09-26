@@ -1,16 +1,67 @@
-# Caddy 配置 - snhgn.me
-# Cloudflare Tunnel 将公网请求转发到本机 8080 端口（HTTP）
-# TLS 由 Cloudflare 边缘终止，Caddy 只做内部静态文件服务
-# 使用 http:// 前缀强制纯 HTTP，避免 Caddy 尝试自动申请证书
+# Caddy 配置 - snhgn.me & lan.snhgn.me
+# 1. 公网访问: Cloudflare Tunnel 将公网请求转发到本机 8080 端口（HTTP）
+# 2. 内网直连: 校园网内直连 80 (HTTP) 与 443 (HTTPS，Let's Encrypt 证书)
 
-http://snhgn.me, :80 {
-    encode zstd gzip
+(common_site) {
     root * /srv/web
-    try_files {path} {path}/index.html /index.html
-    file_server
     header {
         X-Content-Type-Options "nosniff"
         X-Frame-Options "DENY"
         Referrer-Policy "strict-origin-when-cross-origin"
     }
+
+    # API 反向代理到 gateway 容器（不压缩，保持 SSE 流式响应）
+    # flush_interval -1：响应字节立即转发，SSE token/心跳零缓冲
+    handle /api/* {
+        reverse_proxy gateway:8001 {
+            flush_interval -1
+        }
+    }
+
+    # /course 重定向到独立课表 /schedule
+    redir /course /schedule permanent
+    redir /course/* /schedule permanent
+
+    # 根路径 → 落地页（独立于 SPA 的静态首页）
+    @site_root path / /landing.html
+    handle @site_root {
+        encode zstd gzip
+        header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
+        rewrite * /landing.html
+        file_server
+    }
+
+    # Service Worker 及 PWA 清单文件绝对不缓存，保证客户端立刻感知到版本更新
+    @sw_files path /sw.js /manifest.webmanifest /workbox-*.js
+    handle @sw_files {
+        header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
+        file_server
+    }
+
+    # Vite 带 hash 的静态资源 → 一年 immutable 缓存
+    @hashed_assets path /assets/*
+    handle @hashed_assets {
+        header Cache-Control "public, max-age=31536000, immutable"
+        file_server
+    }
+
+    # 其余路径 → SPA 回退（禁用缓存保证获取最新资源）
+    handle {
+        encode zstd gzip
+        header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
+        try_files {path} {path}/index.html /index.html
+        file_server
+    }
 }
+
+# HTTP 站点（Cloudflare Tunnel 端口 8080 + 校园网直连 80 + FRP 中继 80/8080）
+http://snhgn.me, :80 {
+    import common_site
+}
+
+# HTTPS 站点（校园网直连 lan.snhgn.me + 国内中继 cn.snhgn.me，通用 Let's Encrypt 泛域名证书）
+https://lan.snhgn.me, https://cn.snhgn.me, https://snhgn.me {
+    tls /srv/certs/live/snhgn.me/fullchain.pem /srv/certs/live/snhgn.me/privkey.pem
+    import common_site
+}
+
