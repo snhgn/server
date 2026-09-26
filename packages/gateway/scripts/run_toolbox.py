@@ -58,7 +58,7 @@ def main():
     parser.add_argument("--grades", action="store_true", help="查询各科成绩与GPA")
     parser.add_argument("--exams", action="store_true", help="查询考试日程安排")
     parser.add_argument("--classrooms", action="store_true", help="查询空闲自习教室")
-    parser.add_argument("--building", default="001", help="教学楼编号: 001(一教), 003(二教), 014(学研)，空为全部")
+    parser.add_argument("--building", default="001", help="教学楼编号: 001(一教), 003(二教), 014(学研中心)，空为全部")
     parser.add_argument("--week", type=int, default=3, help="周次 (1-30)")
     parser.add_argument("--day", type=int, default=2, help="星期 (1-7)")
     parser.add_argument("--start-period", type=int, default=1, help="开始节次 (1-12)")
