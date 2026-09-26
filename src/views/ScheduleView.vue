@@ -59,7 +59,7 @@ const TERM_LABEL = '2026年秋季学期'
 const periodSlots = [
   { start: 1, end: 2, label: '1-2', from: 480, to: 575 },
   { start: 3, end: 4, label: '3-4', from: 590, to: 685 },
-  { start: 5, end: 5, label: '5', from: 685, to: 735 },
+  { start: 5, end: 5, label: '5', from: 690, to: 735 },
   { start: 6, end: 7, label: '6-7', from: 810, to: 905 },
   { start: 8, end: 9, label: '8-9', from: 920, to: 1015 },
   { start: 10, end: 11, label: '10-11', from: 1110, to: 1205 },
