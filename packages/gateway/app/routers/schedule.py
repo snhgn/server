@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from .. import sessions
 from ..auth import invalidate_session_cache, optional_user, require_admin, require_user
 from ..config import settings
-from ..schedule import service
+from ..schedule import service, toolbox
 
 logger = logging.getLogger("gateway.schedule")
 router = APIRouter(prefix="/api/schedule", tags=["schedule"])
@@ -31,6 +31,30 @@ class GetScheduleRequest(BaseModel):
     student_id: str
     password: str
     force: bool = True  # 同步请求默认执行真实教务拉取，避免用户提交凭据后仍读旧缓存
+
+
+class ToolboxAuthRequest(BaseModel):
+    student_id: str
+    password: str
+
+
+class GradesQueryRequest(ToolboxAuthRequest):
+    semester: str = ""
+    display_mode: str = "all"
+
+
+class ExamsQueryRequest(ToolboxAuthRequest):
+    semester: str = ""
+    category: str = ""
+
+
+class ClassroomQueryRequest(ToolboxAuthRequest):
+    semester: str = "2026-2027-1"
+    building: str = ""
+    week: int = 1
+    day: int = 1
+    start_period: int = 1
+    end_period: int = 2
 
 
 def _set_no_cache(response: Response) -> None:
@@ -167,3 +191,127 @@ def status(response: Response, _: dict = Depends(require_admin)) -> dict:
     _set_no_cache(response)
     caches = service.list_cache_stats()
     return {"total": len(caches), "caches": caches}
+
+
+# ===================== 教务工具箱 API 路由 =====================
+
+
+@router.post("/grades")
+async def get_grades(req: GradesQueryRequest, response: Response) -> dict:
+    """查询个人各学期成绩与平均学分绩点(GPA)。"""
+    _set_no_cache(response)
+    sid = req.student_id.strip()
+    if not sid or not req.password:
+        raise HTTPException(400, "请输入学号和密码")
+    try:
+        data = await asyncio.to_thread(
+            toolbox.execute_with_login,
+            sid,
+            req.password,
+            toolbox.get_grades,
+            req.semester,
+            req.display_mode,
+        )
+        return data
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        logger.error("Failed to fetch grades: %s", e)
+        raise HTTPException(502, "教务系统成绩查询暂时不可用")
+
+
+@router.post("/exams")
+async def get_exams(req: ExamsQueryRequest, response: Response) -> list:
+    """查询个人考试日程、考场与座位号。"""
+    _set_no_cache(response)
+    sid = req.student_id.strip()
+    if not sid or not req.password:
+        raise HTTPException(400, "请输入学号和密码")
+    try:
+        data = await asyncio.to_thread(
+            toolbox.execute_with_login,
+            sid,
+            req.password,
+            toolbox.get_exams,
+            req.semester,
+            req.category,
+        )
+        return data
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        logger.error("Failed to fetch exams: %s", e)
+        raise HTTPException(502, "教务系统考试查询暂时不可用")
+
+
+@router.post("/classrooms")
+async def get_free_classrooms(req: ClassroomQueryRequest, response: Response) -> list:
+    """查询指定时段空闲自习教室。"""
+    _set_no_cache(response)
+    sid = req.student_id.strip()
+    if not sid or not req.password:
+        raise HTTPException(400, "请输入学号和密码")
+    try:
+        data = await asyncio.to_thread(
+            toolbox.execute_with_login,
+            sid,
+            req.password,
+            toolbox.get_free_classrooms,
+            req.semester,
+            req.building,
+            req.week,
+            req.day,
+            req.start_period,
+            req.end_period,
+        )
+        return data
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        logger.error("Failed to fetch classrooms: %s", e)
+        raise HTTPException(502, "教务系统教室查询暂时不可用")
+
+
+@router.post("/training_plan")
+async def get_training_plan(req: ToolboxAuthRequest, response: Response) -> list:
+    """查询大学四年培养方案与必修/选修课程列表。"""
+    _set_no_cache(response)
+    sid = req.student_id.strip()
+    if not sid or not req.password:
+        raise HTTPException(400, "请输入学号和密码")
+    try:
+        data = await asyncio.to_thread(
+            toolbox.execute_with_login,
+            sid,
+            req.password,
+            toolbox.get_training_plan,
+        )
+        return data
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        logger.error("Failed to fetch training plan: %s", e)
+        raise HTTPException(502, "教务系统培养方案查询暂时不可用")
+
+
+@router.post("/level_exams")
+async def get_level_exams(req: ToolboxAuthRequest, response: Response) -> list:
+    """查询大学英语四六级等社会等级考试成绩。"""
+    _set_no_cache(response)
+    sid = req.student_id.strip()
+    if not sid or not req.password:
+        raise HTTPException(400, "请输入学号和密码")
+    try:
+        data = await asyncio.to_thread(
+            toolbox.execute_with_login,
+            sid,
+            req.password,
+            toolbox.get_level_exams,
+        )
+        return data
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        logger.error("Failed to fetch level exams: %s", e)
+        raise HTTPException(502, "教务系统等级考试查询暂时不可用")
+

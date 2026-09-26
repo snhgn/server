@@ -239,3 +239,14 @@ def get_level_exams(session: requests.Session) -> List[Dict[str, str]]:
                     "score": tds[4] if len(tds) > 4 else "",
                 })
     return results
+
+
+def execute_with_login(account: str, password: str, task_fn, *args, **kwargs):
+    """自动完成登录并调用目标抓取函数，确保 Session 生命周期安全关闭。"""
+    success, sess, reason = captcha.login(account.strip(), password)
+    if not success:
+        raise ValueError(reason or "账号或密码错误或验证码识别失败")
+    try:
+        return task_fn(sess, *args, **kwargs)
+    finally:
+        sess.close()
