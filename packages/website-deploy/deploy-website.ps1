@@ -40,15 +40,24 @@ if (-not (Test-Path $SourceDir)) {
     }
 }
 
-Write-Host "[2/4] Uploading assets to server /tmp/web/ ..." -ForegroundColor Cyan
+Write-Host "[2/4] Uploading assets and Caddyfile to server..." -ForegroundColor Cyan
 Invoke-Remote "mkdir -p /tmp/web"
 & $PSCP -batch -pw $Password -hostkey $HostKey -r "$SourceDir\*" "${User}@${Server}:/tmp/web/"
 if ($LASTEXITCODE -ne 0) { throw "pscp upload failed" }
 
-Write-Host "[3/4] Replacing website files on server..." -ForegroundColor Cyan
-Invoke-Remote "echo $Password | sudo -S bash -c 'rm -rf /opt/website/web/* && cp -r /tmp/web/* /opt/website/web/'"
+$caddySource = "$PSScriptRoot\deploy\Caddyfile"
+if (-not (Test-Path $caddySource)) {
+    $caddySource = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) "Caddyfile"
+}
+if (Test-Path $caddySource) {
+    & $PSCP -batch -pw $Password -hostkey $HostKey "$caddySource" "${User}@${Server}:/tmp/Caddyfile"
+    if ($LASTEXITCODE -ne 0) { throw "pscp upload Caddyfile failed" }
+}
+
+Write-Host "[3/4] Replacing website files and reloading Caddy on server..." -ForegroundColor Cyan
+Invoke-Remote "echo $Password | sudo -S bash -c 'rm -rf /opt/website/web/* && cp -r /tmp/web/* /opt/website/web/ && (test -f /tmp/Caddyfile && cp /tmp/Caddyfile /opt/website/Caddyfile || true) && docker exec caddy caddy reload --config /etc/caddy/Caddyfile'"
 
 Write-Host "[4/4] Verifying..." -ForegroundColor Cyan
-Invoke-Remote "curl -s -o /dev/null -w 'home -> HTTP %{http_code}`n' http://127.0.0.1:8080"
+Invoke-Remote "curl -s -I http://127.0.0.1:8080 | head -n 10"
 
 Write-Host "Deploy finished successfully! Access at: https://snhgn.me" -ForegroundColor Green

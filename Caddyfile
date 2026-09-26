@@ -23,9 +23,10 @@
     redir /course/* /schedule permanent
 
     # 根路径 → 落地页（独立于 SPA 的静态首页）
-    @site_root path /
+    @site_root path / /landing.html
     handle @site_root {
         encode zstd gzip
+        header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
         rewrite * /landing.html
         file_server
     }
