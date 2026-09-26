@@ -37,6 +37,15 @@ const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '�
 const showWeekend = ref(localStorage.getItem('bjfu-show-weekend') !== 'false')
 const colorfulCards = ref(localStorage.getItem('bjfu-colorful-cards') !== 'false')
 const showCourseTime = ref(localStorage.getItem('bjfu-show-course-time') === 'true')
+const slotTimeFormat = ref<'start' | 'range'>(
+  (localStorage.getItem('bjfu-slot-time-format') || 'start') as 'start' | 'range'
+)
+
+function formatSlotMinute(min: number): string {
+  const h = String(Math.floor(min / 60)).padStart(2, '0')
+  const m = String(min % 60).padStart(2, '0')
+  return `${h}:${m}`
+}
 
 const displayedWeekdays = computed(() => {
   return showWeekend.value ? weekdays : weekdays.slice(0, 5)
@@ -236,10 +245,14 @@ function onUpdateAppearance(pref: {
   themeMode: string
   colorfulCards: boolean
   showCourseTime: boolean
+  slotTimeFormat?: 'start' | 'range'
 }) {
   showWeekend.value = pref.showWeekend
   colorfulCards.value = pref.colorfulCards
   showCourseTime.value = pref.showCourseTime
+  if (pref.slotTimeFormat) {
+    slotTimeFormat.value = pref.slotTimeFormat
+  }
 }
 
 function handleScheduleLogout() {
@@ -1412,7 +1425,11 @@ function deleteCustomEvent(id: string) {
         >
           <div
             class="grid gap-0.5 sm:gap-1.5"
-            :class="showWeekend ? 'grid-cols-[40px_repeat(7,1fr)] sm:grid-cols-[56px_repeat(7,1fr)] min-w-[580px] sm:min-w-[800px]' : 'grid-cols-[40px_repeat(5,1fr)] sm:grid-cols-[56px_repeat(5,1fr)] min-w-[460px] sm:min-w-[650px]'"
+            :class="[
+              slotTimeFormat === 'range'
+                ? (showWeekend ? 'grid-cols-[46px_repeat(7,1fr)] sm:grid-cols-[70px_repeat(7,1fr)] min-w-[600px] sm:min-w-[820px]' : 'grid-cols-[46px_repeat(5,1fr)] sm:grid-cols-[70px_repeat(5,1fr)] min-w-[480px] sm:min-w-[670px]')
+                : (showWeekend ? 'grid-cols-[40px_repeat(7,1fr)] sm:grid-cols-[56px_repeat(7,1fr)] min-w-[580px] sm:min-w-[800px]' : 'grid-cols-[40px_repeat(5,1fr)] sm:grid-cols-[56px_repeat(5,1fr)] min-w-[460px] sm:min-w-[650px]')
+            ]"
           >
             
             <!-- Column Headers: Weekdays & Dates -->
@@ -1439,9 +1456,23 @@ function deleteCustomEvent(id: string) {
               <!-- Period Label Column -->
               <div class="sticky left-0 z-10 flex flex-col items-center justify-center p-0.5 sm:p-2 rounded-l bg-[#FAFAFA] font-mono text-[9px] sm:text-[11px] text-neutral-500 border border-neutral-100 border-r-[#E5E5E5]/50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.03)]">
                 <span class="font-semibold text-neutral-700 text-[9px] sm:text-[11px]">{{ slot.label }}</span>
-                <span class="text-[7.5px] sm:text-[9px] text-neutral-400 mt-0.5 whitespace-nowrap scale-90 sm:scale-100 origin-center">
-                  {{ String(Math.floor(slot.from/60)).padStart(2,'0') }}:{{ String(slot.from%60).padStart(2,'0') }}
-                </span>
+                <template v-if="slotTimeFormat === 'range'">
+                  <!-- Mobile compact stacked time -->
+                  <div class="sm:hidden flex flex-col items-center text-[7px] text-neutral-400 mt-0.5 leading-tight tracking-tight">
+                    <span>{{ formatSlotMinute(slot.from) }}</span>
+                    <span class="text-[6px] text-neutral-300 leading-none my-[0.5px]">-</span>
+                    <span>{{ formatSlotMinute(slot.to) }}</span>
+                  </div>
+                  <!-- Desktop inline time -->
+                  <span class="hidden sm:inline text-[9px] text-neutral-400 mt-0.5 whitespace-nowrap tracking-tighter scale-95 origin-center">
+                    {{ formatSlotMinute(slot.from) }} - {{ formatSlotMinute(slot.to) }}
+                  </span>
+                </template>
+                <template v-else>
+                  <span class="text-[7.5px] sm:text-[9px] text-neutral-400 mt-0.5 whitespace-nowrap scale-90 sm:scale-100 origin-center">
+                    {{ formatSlotMinute(slot.from) }}
+                  </span>
+                </template>
               </div>
 
               <!-- Days Grid Cells for this Period Slot -->

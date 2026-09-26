@@ -60,7 +60,7 @@ const emit = defineEmits<{
   (e: 'openCalendar'): void
   (e: 'logout'): void
   (e: 'updateBg', bg: { url: string; opacity: number; blur: number }): void
-  (e: 'updateAppearance', pref: { showWeekend: boolean; themeMode: string; colorfulCards: boolean; showCourseTime: boolean }): void
+  (e: 'updateAppearance', pref: { showWeekend: boolean; themeMode: string; colorfulCards: boolean; showCourseTime: boolean; slotTimeFormat: 'start' | 'range' }): void
   (e: 'openAddEvent'): void
   (e: 'deleteCustomEvent', id: string): void
 }>()
@@ -845,6 +845,7 @@ const showWeekend = ref(localStorage.getItem('bjfu-show-weekend') !== 'false')
 const themeMode = ref<ThemeMode>((localStorage.getItem('bjfu-theme-mode') || 'auto') as ThemeMode)
 const colorfulCards = ref(localStorage.getItem('bjfu-colorful-cards') !== 'false')
 const showCourseTime = ref(localStorage.getItem('bjfu-show-course-time') === 'true')
+const slotTimeFormat = ref<'start' | 'range'>((localStorage.getItem('bjfu-slot-time-format') || 'start') as 'start' | 'range')
 
 function onThemeChange(mode: ThemeMode) {
   themeMode.value = mode
@@ -864,16 +865,23 @@ function onCourseTimeChange() {
   emitAppearance()
 }
 
+function onSlotTimeFormatChange(fmt: 'start' | 'range') {
+  slotTimeFormat.value = fmt
+  emitAppearance()
+}
+
 function emitAppearance() {
   localStorage.setItem('bjfu-show-weekend', String(showWeekend.value))
   localStorage.setItem('bjfu-theme-mode', themeMode.value)
   localStorage.setItem('bjfu-colorful-cards', String(colorfulCards.value))
   localStorage.setItem('bjfu-show-course-time', String(showCourseTime.value))
+  localStorage.setItem('bjfu-slot-time-format', slotTimeFormat.value)
   emit('updateAppearance', {
     showWeekend: showWeekend.value,
     themeMode: themeMode.value,
     colorfulCards: colorfulCards.value,
     showCourseTime: showCourseTime.value,
+    slotTimeFormat: slotTimeFormat.value,
   })
 }
 
@@ -2664,21 +2672,31 @@ async function saveMonitor() {
 
     <!-- 9. 外观设置 -->
     <div v-if="activeTool === 'appearance'" class="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4" @click.self="activeTool = 'none'">
-      <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl border border-[#E5E5E5] space-y-4 max-h-[85vh] overflow-y-auto text-xs">
-        <div class="flex items-center justify-between border-b border-neutral-100 pb-3">
-          <div>
-            <h3 class="text-base font-medium text-neutral-900 font-sans">外观设置</h3>
-            <p class="text-[11px] text-neutral-400 font-mono">Appearance & Display Preferences</p>
+      <div class="w-full max-w-md rounded-xl bg-white dark:bg-[#1a1d21] p-5 sm:p-6 shadow-2xl border border-[#E5E5E5] dark:border-neutral-700 space-y-4 max-h-[90vh] overflow-y-auto text-xs animate-in fade-in zoom-in-95 duration-150">
+        <div class="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-800 pb-3">
+          <div class="flex items-center gap-2">
+            <span class="h-2 w-2 rounded-full bg-emerald-500" />
+            <div>
+              <h3 class="text-base font-medium text-neutral-900 dark:text-white font-sans">外观设置</h3>
+              <p class="text-[11px] text-neutral-400 font-mono">Appearance & Display Preferences</p>
+            </div>
           </div>
-          <button class="text-neutral-400 hover:text-neutral-900 cursor-pointer" @click="activeTool = 'none'">✕</button>
+          <button
+            type="button"
+            class="text-neutral-400 hover:text-neutral-900 dark:hover:text-white cursor-pointer p-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+            @click="activeTool = 'none'"
+          >
+            ✕
+          </button>
         </div>
 
         <div class="space-y-4">
           <!-- 主题模式 -->
           <div>
-            <label class="block text-neutral-600 mb-1.5 font-medium">主题模式</label>
+            <label class="block text-neutral-600 dark:text-neutral-300 mb-1.5 font-medium">主题模式</label>
             <div class="grid grid-cols-3 gap-2">
               <button
+                type="button"
                 class="py-2 border rounded-lg text-center cursor-pointer transition-colors"
                 :class="themeMode === 'auto' ? 'border-neutral-900 bg-neutral-900 text-white font-medium shadow-xs dark:bg-white dark:text-neutral-950 dark:border-white' : 'border-[#E5E5E5] text-neutral-700 hover:border-neutral-400 dark:bg-[#1a1d21] dark:border-[#2e333b] dark:text-neutral-300 dark:hover:border-neutral-400'"
                 @click="onThemeChange('auto')"
@@ -2686,6 +2704,7 @@ async function saveMonitor() {
                 跟随系统
               </button>
               <button
+                type="button"
                 class="py-2 border rounded-lg text-center cursor-pointer transition-colors"
                 :class="themeMode === 'light' ? 'border-neutral-900 bg-neutral-900 text-white font-medium shadow-xs dark:bg-white dark:text-neutral-950 dark:border-white' : 'border-[#E5E5E5] text-neutral-700 hover:border-neutral-400 dark:bg-[#1a1d21] dark:border-[#2e333b] dark:text-neutral-300 dark:hover:border-neutral-400'"
                 @click="onThemeChange('light')"
@@ -2693,6 +2712,7 @@ async function saveMonitor() {
                 浅色模式
               </button>
               <button
+                type="button"
                 class="py-2 border rounded-lg text-center cursor-pointer transition-colors"
                 :class="themeMode === 'dark' ? 'border-neutral-900 bg-neutral-900 text-white font-medium shadow-xs dark:bg-white dark:text-neutral-950 dark:border-white' : 'border-[#E5E5E5] text-neutral-700 hover:border-neutral-400 dark:bg-[#1a1d21] dark:border-[#2e333b] dark:text-neutral-300 dark:hover:border-neutral-400'"
                 @click="onThemeChange('dark')"
@@ -2702,49 +2722,78 @@ async function saveMonitor() {
             </div>
           </div>
 
+          <!-- 节次栏时间显示格式 -->
+          <div>
+            <label class="block text-neutral-600 dark:text-neutral-300 mb-1.5 font-medium">节次栏时间显示</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                class="py-2 px-2.5 border rounded-lg text-center cursor-pointer transition-colors"
+                :class="slotTimeFormat === 'start' ? 'border-neutral-900 bg-neutral-900 text-white font-medium shadow-xs dark:bg-white dark:text-neutral-950 dark:border-white' : 'border-[#E5E5E5] text-neutral-700 hover:border-neutral-400 dark:bg-[#1a1d21] dark:border-[#2e333b] dark:text-neutral-300 dark:hover:border-neutral-400'"
+                @click="onSlotTimeFormatChange('start')"
+              >
+                <div class="font-medium text-xs">仅上课时间</div>
+                <div class="text-[10px] opacity-75 mt-0.5 font-mono">如 08:00</div>
+              </button>
+              <button
+                type="button"
+                class="py-2 px-2.5 border rounded-lg text-center cursor-pointer transition-colors"
+                :class="slotTimeFormat === 'range' ? 'border-neutral-900 bg-neutral-900 text-white font-medium shadow-xs dark:bg-white dark:text-neutral-950 dark:border-white' : 'border-[#E5E5E5] text-neutral-700 hover:border-neutral-400 dark:bg-[#1a1d21] dark:border-[#2e333b] dark:text-neutral-300 dark:hover:border-neutral-400'"
+                @click="onSlotTimeFormatChange('range')"
+              >
+                <div class="font-medium text-xs">上课 - 下课时间</div>
+                <div class="text-[10px] opacity-75 mt-0.5 font-mono">如 08:00 - 09:35</div>
+              </button>
+            </div>
+          </div>
+
           <!-- 课表显示周末 -->
-          <label class="flex items-center justify-between p-3 border border-[#E5E5E5] rounded-xl cursor-pointer hover:bg-neutral-50/50 transition-colors">
+          <label class="flex items-center justify-between p-3 border border-[#E5E5E5] dark:border-neutral-700/80 rounded-xl cursor-pointer hover:bg-neutral-50/50 dark:hover:bg-neutral-800/40 transition-colors">
             <div>
-              <div class="font-medium text-neutral-800">显示周末 (周六与周日)</div>
-              <div class="text-[10px] text-neutral-400">关闭后仅显示周一至周五 5 天，视图更宽敞</div>
+              <div class="font-medium text-neutral-800 dark:text-neutral-200">显示周末 (周六与周日)</div>
+              <div class="text-[10px] text-neutral-400 dark:text-neutral-500">关闭后仅显示周一至周五 5 天，视图更宽敞</div>
             </div>
             <input
               v-model="showWeekend"
               type="checkbox"
-              class="h-4 w-4 accent-neutral-900 cursor-pointer"
+              class="h-4 w-4 accent-neutral-900 dark:accent-white cursor-pointer"
               @change="onWeekendChange"
             />
           </label>
 
           <!-- 彩色课程卡片 -->
-          <label class="flex items-center justify-between p-3 border border-[#E5E5E5] rounded-xl cursor-pointer hover:bg-neutral-50/50 transition-colors">
+          <label class="flex items-center justify-between p-3 border border-[#E5E5E5] dark:border-neutral-700/80 rounded-xl cursor-pointer hover:bg-neutral-50/50 dark:hover:bg-neutral-800/40 transition-colors">
             <div>
-              <div class="font-medium text-neutral-800">多彩课程卡片</div>
-              <div class="text-[10px] text-neutral-400">为不同课程分配不同优雅莫兰迪配色，便于区分识别</div>
+              <div class="font-medium text-neutral-800 dark:text-neutral-200">多彩课程卡片</div>
+              <div class="text-[10px] text-neutral-400 dark:text-neutral-500">为不同课程分配不同优雅莫兰迪配色，便于区分识别</div>
             </div>
             <input
               v-model="colorfulCards"
               type="checkbox"
-              class="h-4 w-4 accent-neutral-900 cursor-pointer"
+              class="h-4 w-4 accent-neutral-900 dark:accent-white cursor-pointer"
               @change="onColorfulChange"
             />
           </label>
 
           <!-- 课程时间显示 -->
-          <label class="flex items-center justify-between p-3 border border-[#E5E5E5] rounded-xl cursor-pointer hover:bg-neutral-50/50 transition-colors">
+          <label class="flex items-center justify-between p-3 border border-[#E5E5E5] dark:border-neutral-700/80 rounded-xl cursor-pointer hover:bg-neutral-50/50 dark:hover:bg-neutral-800/40 transition-colors">
             <div>
-              <div class="font-medium text-neutral-800">卡片内显示具体节次时间</div>
-              <div class="text-[10px] text-neutral-400">在课程方块内直接展示如 08:00 - 09:35</div>
+              <div class="font-medium text-neutral-800 dark:text-neutral-200">卡片内显示具体节次时间</div>
+              <div class="text-[10px] text-neutral-400 dark:text-neutral-500">在课程方块内直接展示如 08:00 - 09:35</div>
             </div>
             <input
               v-model="showCourseTime"
               type="checkbox"
-              class="h-4 w-4 accent-neutral-900 cursor-pointer"
+              class="h-4 w-4 accent-neutral-900 dark:accent-white cursor-pointer"
               @change="onCourseTimeChange"
             />
           </label>
 
-          <button class="w-full py-2.5 bg-neutral-900 text-white rounded-lg cursor-pointer hover:bg-neutral-800 font-medium transition-colors" @click="saveAppearance">
+          <button
+            type="button"
+            class="w-full py-2.5 bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 rounded-lg cursor-pointer hover:bg-neutral-800 dark:hover:bg-neutral-100 font-medium transition-colors shadow-xs"
+            @click="saveAppearance"
+          >
             完成并保存偏好
           </button>
         </div>
