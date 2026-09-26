@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api'
 import BrandWordmark from '@/components/BrandWordmark.vue'
 import ToolboxModal from '@/components/schedule/ToolboxModal.vue'
+import { processImageFile } from '@/utils/image'
 
 const route = useRoute()
 const router = useRouter()
@@ -170,11 +171,63 @@ const bgConfig = ref({
   blur: Number(localStorage.getItem('bjfu-bg-blur')) || 0,
 })
 
+const toolboxInitialTool = ref<string>('none')
+const isPageDraggingImage = ref(false)
+let dragCounter = 0
+
 function onUpdateBg(bg: { url: string; opacity: number; blur: number }) {
   bgConfig.value = {
     url: bg.url,
-    opacity: bg.opacity / 100,
+    opacity: bg.opacity > 1 ? bg.opacity / 100 : bg.opacity,
     blur: bg.blur,
+  }
+}
+
+function onWindowDragEnter(e: DragEvent) {
+  if (e.dataTransfer?.types.includes('Files')) {
+    e.preventDefault()
+    dragCounter++
+    isPageDraggingImage.value = true
+  }
+}
+
+function onWindowDragOver(e: DragEvent) {
+  if (e.dataTransfer?.types.includes('Files')) {
+    e.preventDefault()
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'copy'
+    }
+    isPageDraggingImage.value = true
+  }
+}
+
+function onWindowDragLeave(e: DragEvent) {
+  e.preventDefault()
+  dragCounter--
+  if (dragCounter <= 0) {
+    dragCounter = 0
+    isPageDraggingImage.value = false
+  }
+}
+
+async function onWindowDrop(e: DragEvent) {
+  e.preventDefault()
+  dragCounter = 0
+  isPageDraggingImage.value = false
+  const file = e.dataTransfer?.files?.[0]
+  if (file && file.type.startsWith('image/')) {
+    try {
+      const dataUrl = await processImageFile(file)
+      localStorage.setItem('bjfu-bg-url', dataUrl)
+      bgConfig.value.url = dataUrl
+      // 唤起背景设置弹窗以便用户直接微调不透明度和模糊度
+      toolboxInitialTool.value = 'background'
+      showToolbox.value = true
+    } catch (err: any) {
+      if (typeof window !== 'undefined') {
+        window.alert(err.message || '图片导入失败')
+      }
+    }
   }
 }
 
@@ -599,6 +652,10 @@ onMounted(async () => {
   }
 
   window.addEventListener('keydown', onKeydown)
+  window.addEventListener('dragenter', onWindowDragEnter)
+  window.addEventListener('dragover', onWindowDragOver)
+  window.addEventListener('dragleave', onWindowDragLeave)
+  window.addEventListener('drop', onWindowDrop)
 })
 
 function onKeydown(e: KeyboardEvent) {
@@ -613,6 +670,10 @@ function onKeydown(e: KeyboardEvent) {
 onUnmounted(() => {
   document.body.classList.remove('schedule-page')
   window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('dragenter', onWindowDragEnter)
+  window.removeEventListener('dragover', onWindowDragOver)
+  window.removeEventListener('dragleave', onWindowDragLeave)
+  window.removeEventListener('drop', onWindowDrop)
 })
 
 async function loadDemoSchedule() {
@@ -1857,6 +1918,24 @@ function deleteCustomEvent(id: string) {
       </div>
     </div>
 
+    <!-- Full-screen Desktop Drag & Drop Background Overlay -->
+    <div
+      v-if="isPageDraggingImage"
+      class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-none transition-all duration-200"
+    >
+      <div class="p-8 rounded-2xl bg-white/95 dark:bg-neutral-900/95 border-2 border-dashed border-emerald-500 shadow-2xl flex flex-col items-center gap-3 text-center scale-105 animate-in zoom-in-95 duration-200 max-w-sm mx-4">
+        <div class="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-300 flex items-center justify-center text-3xl shadow-xs animate-bounce">
+          🖼️
+        </div>
+        <div class="text-base font-semibold text-neutral-900 dark:text-white font-sans">
+          释放图片以设置为课表背景
+        </div>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 font-sans leading-relaxed">
+          松开鼠标即可自动导入并设置为个性化背景，可在弹窗中自由调节不透明度与模糊度
+        </p>
+      </div>
+    </div>
+
     <!-- Toolbox Modal (更多功能工具箱) -->
     <ToolboxModal
       :show="showToolbox"
@@ -1864,7 +1943,8 @@ function deleteCustomEvent(id: string) {
       :student-id="studentId"
       :password="password"
       :custom-events="customEvents"
-      @close="showToolbox = false"
+      :initial-tool="toolboxInitialTool as any"
+      @close="showToolbox = false; toolboxInitialTool = 'none'"
       @open-calendar="showToolbox = false; viewer = 'calendar'"
       @logout="handleScheduleLogout"
       @update-bg="onUpdateBg"

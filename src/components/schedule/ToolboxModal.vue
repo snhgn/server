@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { api } from '@/api'
 import { applyTheme, type ThemeMode } from '@/utils/theme'
+import { processImageFile } from '@/utils/image'
 
 function showAlert(msg: string) {
   if (typeof window !== 'undefined') {
@@ -51,6 +52,7 @@ const props = defineProps<{
   studentId: string
   password?: string
   customEvents?: CustomScheduleEvent[]
+  initialTool?: ActiveTool
 }>()
 
 const emit = defineEmits<{
@@ -691,18 +693,133 @@ watch(activeTool, (tool) => {
   }
 })
 
-// ================= 背景设置 (纯前端直接可用) =================
+// ================= 背景设置 (支持拖拽上传与即时调节) =================
 const bgUrl = ref(localStorage.getItem('bjfu-bg-url') || '')
 const bgOpacity = ref(Number(localStorage.getItem('bjfu-bg-opacity')) || 20)
 const bgBlur = ref(Number(localStorage.getItem('bjfu-bg-blur')) || 0)
 
+const isBgDragging = ref(false)
+const bgUploadLoading = ref(false)
+const bgUploadError = ref('')
+const bgFileInputRef = ref<HTMLInputElement | null>(null)
+const showUrlInput = ref(false)
+const customUrlInput = ref('')
+
+watch(
+  () => props.show,
+  (val) => {
+    if (val) {
+      bgUrl.value = localStorage.getItem('bjfu-bg-url') || ''
+      bgOpacity.value = Number(localStorage.getItem('bjfu-bg-opacity')) || 20
+      bgBlur.value = Number(localStorage.getItem('bjfu-bg-blur')) || 0
+      if (props.initialTool) {
+        activeTool.value = props.initialTool
+      }
+    }
+  }
+)
+
+watch(
+  () => props.initialTool,
+  (val) => {
+    if (val) {
+      activeTool.value = val
+    }
+  }
+)
+
+async function handleBgFile(file: File) {
+  bgUploadLoading.value = true
+  bgUploadError.value = ''
+  try {
+    const dataUrl = await processImageFile(file)
+    bgUrl.value = dataUrl
+  } catch (err: any) {
+    bgUploadError.value = err.message || '图片导入失败，请重试'
+    showAlert(bgUploadError.value)
+  } finally {
+    bgUploadLoading.value = false
+    isBgDragging.value = false
+  }
+}
+
+function onBgFileInputChange(e: Event) {
+  const target = e.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (file) {
+    handleBgFile(file)
+  }
+  if (target) target.value = ''
+}
+
+function triggerBgFileInput() {
+  bgFileInputRef.value?.click()
+}
+
+function onBgDragOver(e: DragEvent) {
+  e.preventDefault()
+  if (e.dataTransfer) {
+    e.dataTransfer.dropEffect = 'copy'
+  }
+  isBgDragging.value = true
+}
+
+function onBgDragLeave(e: DragEvent) {
+  e.preventDefault()
+  const currentTarget = e.currentTarget as HTMLElement | null
+  const relatedTarget = e.relatedTarget as HTMLElement | null
+  if (!currentTarget || !relatedTarget || !currentTarget.contains(relatedTarget)) {
+    isBgDragging.value = false
+  }
+}
+
+function onBgDrop(e: DragEvent) {
+  e.preventDefault()
+  isBgDragging.value = false
+  const file = e.dataTransfer?.files?.[0]
+  if (file) {
+    handleBgFile(file)
+  }
+}
+
+function onBgPaste(e: ClipboardEvent) {
+  const items = e.clipboardData?.items
+  if (!items) return
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].type.startsWith('image/')) {
+      const file = items[i].getAsFile()
+      if (file) {
+        e.preventDefault()
+        handleBgFile(file)
+        break
+      }
+    }
+  }
+}
+
+function applyCustomUrl() {
+  if (!customUrlInput.value.trim()) return
+  bgUrl.value = customUrlInput.value.trim()
+  customUrlInput.value = ''
+  showUrlInput.value = false
+}
+
+function setBgPreset(opacity: number, blur: number) {
+  bgOpacity.value = opacity
+  bgBlur.value = blur
+}
+
 function saveBg() {
-  localStorage.setItem('bjfu-bg-url', bgUrl.value.trim())
-  localStorage.setItem('bjfu-bg-opacity', String(bgOpacity.value))
-  localStorage.setItem('bjfu-bg-blur', String(bgBlur.value))
+  try {
+    localStorage.setItem('bjfu-bg-url', bgUrl.value.trim())
+    localStorage.setItem('bjfu-bg-opacity', String(bgOpacity.value))
+    localStorage.setItem('bjfu-bg-blur', String(bgBlur.value))
+  } catch {
+    showAlert('本地存储空间不足，已尝试应用背景但可能无法持久保存')
+  }
   emit('updateBg', {
     url: bgUrl.value.trim(),
-    opacity: bgOpacity.value / 100,
+    opacity: bgOpacity.value,
     blur: bgBlur.value,
   })
   activeTool.value = 'none'
@@ -712,24 +829,15 @@ function clearBg() {
   bgUrl.value = ''
   bgOpacity.value = 20
   bgBlur.value = 0
-  saveBg()
-}
-
-function handleFileUpload(e: Event) {
-  const target = e.target as HTMLInputElement
-  const file = target.files?.[0]
-  if (!file) return
-  if (file.size > 4 * 1024 * 1024) {
-    showAlert('图片大小不能超过 4MB')
-    return
-  }
-  const reader = new FileReader()
-  reader.onload = () => {
-    if (typeof reader.result === 'string') {
-      bgUrl.value = reader.result
-    }
-  }
-  reader.readAsDataURL(file)
+  localStorage.removeItem('bjfu-bg-url')
+  localStorage.setItem('bjfu-bg-opacity', '20')
+  localStorage.setItem('bjfu-bg-blur', '0')
+  emit('updateBg', {
+    url: '',
+    opacity: 20,
+    blur: 0,
+  })
+  activeTool.value = 'none'
 }
 
 // ================= 外观设置 =================
@@ -2282,47 +2390,271 @@ async function saveMonitor() {
     </div>
 
 
-    <!-- 8. 设置课表背景 (纯前端完全可用) -->
-    <div v-if="activeTool === 'background'" class="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4" @click.self="activeTool = 'none'">
-      <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl border border-[#E5E5E5] space-y-4 max-h-[85vh] overflow-y-auto text-xs">
-        <div class="flex items-center justify-between border-b border-neutral-100 pb-3">
-          <div>
-            <h3 class="text-base font-medium text-neutral-900 font-sans">设置课表背景</h3>
-            <p class="text-[11px] text-neutral-400 font-mono">Custom Timetable Background</p>
+    <!-- 8. 设置课表背景 (支持拖拽上传与实时调节) -->
+    <div
+      v-if="activeTool === 'background'"
+      class="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4"
+      @click.self="activeTool = 'none'"
+      @paste="onBgPaste"
+    >
+      <div class="w-full max-w-md rounded-xl bg-white dark:bg-[#1a1d21] p-5 sm:p-6 shadow-2xl border border-[#E5E5E5] dark:border-neutral-700 space-y-4 max-h-[90vh] overflow-y-auto text-xs animate-in fade-in zoom-in-95 duration-150">
+        <!-- 弹窗标题 -->
+        <div class="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-800 pb-3">
+          <div class="flex items-center gap-2">
+            <span class="h-2 w-2 rounded-full bg-emerald-500" />
+            <div>
+              <h3 class="text-base font-medium text-neutral-900 dark:text-white font-sans">设置课表背景</h3>
+              <p class="text-[11px] text-neutral-400 font-mono">Custom Timetable Background</p>
+            </div>
           </div>
-          <button class="text-neutral-400 hover:text-neutral-900 cursor-pointer" @click="activeTool = 'none'">✕</button>
+          <button
+            type="button"
+            class="text-neutral-400 hover:text-neutral-900 dark:hover:text-white cursor-pointer p-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+            @click="activeTool = 'none'"
+          >
+            ✕
+          </button>
         </div>
 
         <div class="space-y-4">
+          <!-- 电脑端直接拖入上传区域 (Drop Zone) -->
           <div>
-            <label class="block text-neutral-600 mb-1">图片地址 (URL) 或上传本地图片</label>
-            <input v-model="bgUrl" placeholder="https://example.com/wallpaper.jpg" class="w-full border border-[#E5E5E5] rounded px-3 py-2 bg-white text-xs" />
-            <div class="mt-2">
-              <input type="file" accept="image/*" class="text-xs text-neutral-500" @change="handleFileUpload" />
+            <div class="flex items-center justify-between text-neutral-600 dark:text-neutral-300 font-medium mb-1.5">
+              <span>背景图片</span>
+              <span class="text-[10px] font-mono text-neutral-400">支持拖入 / 粘贴图片</span>
+            </div>
+
+            <!-- 隐藏的 File Input -->
+            <input
+              ref="bgFileInputRef"
+              type="file"
+              accept="image/*"
+              class="hidden"
+              @change="onBgFileInputChange"
+            />
+
+            <!-- 拖拽感应与预览容器 -->
+            <div
+              class="relative rounded-xl border-2 border-dashed transition-all duration-150 overflow-hidden cursor-pointer select-none group"
+              :class="[
+                isBgDragging
+                  ? 'border-emerald-500 bg-emerald-50/80 dark:bg-emerald-950/40 ring-4 ring-emerald-500/15 scale-[1.01]'
+                  : bgUrl
+                    ? 'border-neutral-200 dark:border-neutral-700 hover:border-neutral-400 dark:hover:border-neutral-500 bg-neutral-50 dark:bg-neutral-800/40'
+                    : 'border-neutral-300 dark:border-neutral-700 bg-neutral-50/60 dark:bg-neutral-800/30 hover:border-emerald-400 hover:bg-emerald-50/20 dark:hover:bg-emerald-950/20'
+              ]"
+              @dragover="onBgDragOver"
+              @dragenter="onBgDragOver"
+              @dragleave="onBgDragLeave"
+              @drop="onBgDrop"
+              @click="triggerBgFileInput"
+            >
+              <!-- 拖拽悬停状态提示 -->
+              <div
+                v-if="isBgDragging"
+                class="py-10 px-4 flex flex-col items-center justify-center text-center gap-2 pointer-events-none"
+              >
+                <div class="w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 dark:text-emerald-300 flex items-center justify-center text-2xl animate-bounce">
+                  📥
+                </div>
+                <div class="font-medium text-emerald-700 dark:text-emerald-300 text-sm">松开鼠标即可完成上传</div>
+                <div class="text-[11px] text-emerald-600/80 dark:text-emerald-400/80 font-mono">自动无损压缩优化</div>
+              </div>
+
+              <!-- 已设置背景时的实时预览状态 -->
+              <div v-else-if="bgUrl" class="relative group/preview">
+                <!-- 模拟课表背景效果的预览框 -->
+                <div class="relative h-40 w-full overflow-hidden bg-neutral-900/10 dark:bg-black/20 flex items-center justify-center">
+                  <div
+                    class="absolute inset-0 bg-cover bg-center transition-all duration-200"
+                    :style="{
+                      backgroundImage: `url(${bgUrl})`,
+                      opacity: bgOpacity / 100,
+                      filter: `blur(${bgBlur}px)`
+                    }"
+                  />
+                  <!-- 预览前景微拟课表格子标签 -->
+                  <div class="relative z-10 px-3 py-1.5 rounded-lg bg-white/75 dark:bg-neutral-900/75 backdrop-blur-md border border-white/60 dark:border-neutral-700/60 shadow-xs flex items-center gap-2 text-[11px] text-neutral-800 dark:text-neutral-200 pointer-events-none">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 shadow-xs" />
+                    <span>课表背景实时预览</span>
+                  </div>
+                </div>
+
+                <!-- 浮层快捷操作按钮 -->
+                <div class="p-2.5 bg-white/95 dark:bg-[#1c2026]/95 border-t border-neutral-100 dark:border-neutral-800 flex items-center justify-between gap-2">
+                  <div class="text-[11px] text-neutral-500 dark:text-neutral-400 flex items-center gap-1 truncate">
+                    <span>💡 点击或将新图片拖入可直接更换</span>
+                  </div>
+                  <div class="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      class="px-2.5 py-1 rounded bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200 text-[11px] font-medium cursor-pointer transition-colors"
+                      @click.stop="triggerBgFileInput"
+                    >
+                      更换
+                    </button>
+                    <button
+                      type="button"
+                      class="px-2.5 py-1 rounded border border-red-200 hover:bg-red-50 dark:border-red-900/60 dark:hover:bg-red-950/40 text-red-600 dark:text-red-400 text-[11px] cursor-pointer transition-colors"
+                      @click.stop="bgUrl = ''"
+                    >
+                      移除
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 未上传背景时的初始空状态 -->
+              <div v-else class="py-9 px-4 flex flex-col items-center justify-center text-center gap-2">
+                <div class="w-11 h-11 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 flex items-center justify-center text-xl group-hover:scale-110 group-hover:bg-emerald-50 group-hover:text-emerald-600 dark:group-hover:bg-emerald-950/50 dark:group-hover:text-emerald-400 transition-all">
+                  <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <div>
+                  <div class="font-medium text-neutral-800 dark:text-neutral-200 text-xs">
+                    点击选择图片，或直接将图片拖拽至此处
+                  </div>
+                  <div class="text-[11px] text-neutral-400 dark:text-neutral-500 mt-0.5">
+                    支持电脑端拖入、剪贴板粘贴 (Ctrl+V) · JPG/PNG/WebP
+                  </div>
+                </div>
+                <div class="inline-flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded font-mono">
+                  <span>⚡ 自动智能轻量压缩</span>
+                </div>
+              </div>
+
+              <!-- 上传中 Loading 遮罩 -->
+              <div
+                v-if="bgUploadLoading"
+                class="absolute inset-0 bg-white/85 dark:bg-neutral-900/85 backdrop-blur-xs flex flex-col items-center justify-center gap-2 z-20 pointer-events-none"
+              >
+                <div class="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                <span class="text-xs text-neutral-700 dark:text-neutral-300 font-medium">正在优化并导入图片...</span>
+              </div>
+            </div>
+
+            <!-- 网络图片地址折叠输入 -->
+            <div class="mt-2 text-right">
+              <button
+                type="button"
+                class="text-[11px] text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white underline underline-offset-2 cursor-pointer font-mono inline-flex items-center gap-1"
+                @click="showUrlInput = !showUrlInput"
+              >
+                <span>{{ showUrlInput ? '收起 URL 输入' : '或输入网络图片链接 →' }}</span>
+              </button>
+            </div>
+
+            <div v-if="showUrlInput" class="mt-1.5 p-2.5 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50/70 dark:bg-neutral-800/40 space-y-2 animate-in fade-in duration-150">
+              <input
+                v-model="customUrlInput"
+                type="url"
+                placeholder="https://example.com/wallpaper.jpg"
+                class="w-full border border-neutral-300 dark:border-neutral-700 rounded px-2.5 py-1.5 bg-white dark:bg-neutral-800 text-xs text-neutral-900 dark:text-white focus:outline-none focus:border-neutral-900 dark:focus:border-white font-mono"
+                @keyup.enter="applyCustomUrl"
+              />
+              <div class="flex justify-end gap-1.5">
+                <button
+                  type="button"
+                  class="px-2.5 py-1 rounded bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 text-[11px] font-medium hover:bg-neutral-800 dark:hover:bg-neutral-100 cursor-pointer"
+                  @click="applyCustomUrl"
+                >
+                  确定使用链接
+                </button>
+              </div>
             </div>
           </div>
 
+          <!-- 视觉效果快捷预设 -->
           <div>
-            <div class="flex justify-between text-neutral-600 mb-1">
+            <div class="text-[10px] text-neutral-400 uppercase tracking-wider font-mono mb-1.5">效果预设</div>
+            <div class="grid grid-cols-4 gap-1.5 font-mono text-[10px]">
+              <button
+                type="button"
+                class="py-1 rounded border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 text-center cursor-pointer transition-colors"
+                @click="setBgPreset(15, 0)"
+              >
+                通透清新
+              </button>
+              <button
+                type="button"
+                class="py-1 rounded border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 text-center cursor-pointer transition-colors"
+                @click="setBgPreset(25, 0)"
+              >
+                默认微透
+              </button>
+              <button
+                type="button"
+                class="py-1 rounded border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 text-center cursor-pointer transition-colors"
+                @click="setBgPreset(30, 6)"
+              >
+                柔和磨砂
+              </button>
+              <button
+                type="button"
+                class="py-1 rounded border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 text-center cursor-pointer transition-colors"
+                @click="setBgPreset(55, 0)"
+              >
+                沉浸壁纸
+              </button>
+            </div>
+          </div>
+
+          <!-- 透明度调节滑块 -->
+          <div>
+            <div class="flex justify-between text-neutral-700 dark:text-neutral-300 mb-1">
               <span>背景不透明度:</span>
-              <span class="font-mono">{{ bgOpacity }}%</span>
+              <span class="font-mono font-medium">{{ bgOpacity }}%</span>
             </div>
-            <input v-model.number="bgOpacity" type="range" min="5" max="100" class="w-full accent-neutral-900" />
+            <input
+              v-model.number="bgOpacity"
+              type="range"
+              min="5"
+              max="100"
+              class="w-full accent-neutral-900 dark:accent-white cursor-pointer"
+            />
+            <div class="flex justify-between text-[10px] text-neutral-400 font-mono mt-0.5">
+              <span>5% (微弱)</span>
+              <span>50%</span>
+              <span>100% (完全不透)</span>
+            </div>
           </div>
 
+          <!-- 模糊度调节滑块 -->
           <div>
-            <div class="flex justify-between text-neutral-600 mb-1">
+            <div class="flex justify-between text-neutral-700 dark:text-neutral-300 mb-1">
               <span>高斯模糊度:</span>
-              <span class="font-mono">{{ bgBlur }}px</span>
+              <span class="font-mono font-medium">{{ bgBlur }}px</span>
             </div>
-            <input v-model.number="bgBlur" type="range" min="0" max="20" class="w-full accent-neutral-900" />
+            <input
+              v-model.number="bgBlur"
+              type="range"
+              min="0"
+              max="20"
+              class="w-full accent-neutral-900 dark:accent-white cursor-pointer"
+            />
+            <div class="flex justify-between text-[10px] text-neutral-400 font-mono mt-0.5">
+              <span>0px (原图清晰)</span>
+              <span>10px</span>
+              <span>20px (强磨砂)</span>
+            </div>
           </div>
 
-          <div class="flex gap-2 pt-2">
-            <button class="flex-1 py-2 bg-neutral-900 text-white rounded cursor-pointer hover:bg-neutral-800" @click="saveBg">
-              应用背景
+          <!-- 底部操作按钮 -->
+          <div class="flex items-center gap-2 pt-3 border-t border-neutral-100 dark:border-neutral-800">
+            <button
+              type="button"
+              class="flex-1 py-2 bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 rounded-lg cursor-pointer hover:bg-neutral-800 dark:hover:bg-neutral-100 font-medium transition-colors shadow-xs"
+              @click="saveBg"
+            >
+              应用并保存背景
             </button>
-            <button class="px-4 py-2 border border-[#E5E5E5] text-neutral-600 rounded cursor-pointer hover:border-neutral-400" @click="clearBg">
+            <button
+              v-if="bgUrl"
+              type="button"
+              class="px-4 py-2 border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 rounded-lg cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+              @click="clearBg"
+            >
               清除背景
             </button>
           </div>
