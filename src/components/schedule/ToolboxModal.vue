@@ -660,6 +660,8 @@ watch(activeTool, (tool) => {
     if (!trainingPlan.value.length && effectivePassword.value) {
       fetchTrainingPlan()
     }
+  } else if (tool === 'share_friends') {
+    fetchMyShareCode()
   }
 })
 
@@ -876,35 +878,140 @@ function downloadICS() {
   URL.revokeObjectURL(url)
 }
 
-// ================= 好友与共享 =================
-interface Friend {
+// ================= 4位邀请码与共享课表 =================
+interface SharedFriend {
   name: string
-  studentId: string
+  code: string
+  semester?: string
+  coursesCount?: number
 }
-const friends = ref<Friend[]>([])
-try {
-  friends.value = JSON.parse(localStorage.getItem('bjfu-friends') || '[]')
-} catch {}
-const newFriendName = ref('')
-const newFriendId = ref('')
 
-function addFriend() {
-  if (!newFriendName.value.trim() || !newFriendId.value.trim()) {
-    showAlert('请填写好友姓名和学号')
+const myShareCode = ref('')
+const myOwnerName = ref(localStorage.getItem('bjfu-share-nickname') || '')
+const isGeneratingCode = ref(false)
+const copySuccess = ref(false)
+const shareError = ref('')
+
+const inputFriendCode = ref('')
+const inputFriendName = ref('')
+const isAddingFriend = ref(false)
+const addFriendError = ref('')
+
+const sharedFriends = ref<SharedFriend[]>([])
+try {
+  const rawShared = localStorage.getItem('bjfu-shared-friends')
+  if (rawShared) {
+    sharedFriends.value = JSON.parse(rawShared)
+  }
+} catch {}
+
+async function fetchMyShareCode() {
+  if (!props.studentId) return
+  try {
+    const res = await api.get<{ has_code: boolean; code?: string; owner_name?: string }>(
+      `/api/schedule/share/my?student_id=${encodeURIComponent(props.studentId)}`
+    )
+    if (res && res.has_code && res.code) {
+      myShareCode.value = res.code
+      if (res.owner_name && !myOwnerName.value) {
+        myOwnerName.value = res.owner_name
+      }
+    }
+  } catch {}
+}
+
+async function createOrRegenerateCode(regenerate: boolean = false) {
+  if (!props.studentId) {
+    showAlert('请先获取或导入个人课表后再生成邀请码')
     return
   }
-  friends.value.push({
-    name: newFriendName.value.trim(),
-    studentId: newFriendId.value.trim(),
-  })
-  localStorage.setItem('bjfu-friends', JSON.stringify(friends.value))
-  newFriendName.value = ''
-  newFriendId.value = ''
+  isGeneratingCode.value = true
+  shareError.value = ''
+  try {
+    const res = await api.post<{ code: string; owner_name: string; share_url: string }>(
+      '/api/schedule/share/create',
+      {
+        student_id: props.studentId,
+        owner_name: myOwnerName.value.trim(),
+        regenerate,
+      }
+    )
+    myShareCode.value = res.code
+    localStorage.setItem('bjfu-share-nickname', myOwnerName.value.trim())
+    if (regenerate) {
+      showAlert(`已成功生成全新 4 位邀请码：${res.code}`)
+    }
+  } catch (err: any) {
+    shareError.value = err.message || '生成邀请码失败'
+  } finally {
+    isGeneratingCode.value = false
+  }
+}
+
+async function copyShareLink() {
+  if (!myShareCode.value) return
+  const url = `${window.location.origin}/schedule?code=${myShareCode.value}`
+  try {
+    await navigator.clipboard.writeText(url)
+    copySuccess.value = true
+    setTimeout(() => {
+      copySuccess.value = false
+    }, 2000)
+  } catch {
+    showAlert(`分享链接为：${url}`)
+  }
+}
+
+async function copyShareCodeOnly() {
+  if (!myShareCode.value) return
+  try {
+    await navigator.clipboard.writeText(myShareCode.value)
+    showAlert(`已复制邀请码：${myShareCode.value}`)
+  } catch {}
+}
+
+async function addFriendByCode() {
+  const code = inputFriendCode.value.trim().toUpperCase()
+  if (!code || code.length !== 4) {
+    addFriendError.value = '请输入标准的 4 位邀请码 (例如: 8K2M)'
+    return
+  }
+  if (code === myShareCode.value) {
+    addFriendError.value = '不能绑定自己的邀请码'
+    return
+  }
+  if (sharedFriends.value.some((f) => f.code === code)) {
+    addFriendError.value = '该邀请码已在好友列表中'
+    return
+  }
+
+  isAddingFriend.value = true
+  addFriendError.value = ''
+  try {
+    const res = await api.get<{ code: string; owner_name: string; semester: string; courses: any[] }>(
+      `/api/schedule/share/${encodeURIComponent(code)}`
+    )
+    const displayName = inputFriendName.value.trim() || res.owner_name || '同学'
+    sharedFriends.value.push({
+      name: displayName,
+      code: res.code,
+      semester: res.semester,
+      coursesCount: res.courses?.length || 0,
+    })
+    localStorage.setItem('bjfu-shared-friends', JSON.stringify(sharedFriends.value))
+    inputFriendCode.value = ''
+    inputFriendName.value = ''
+    showAlert(`成功绑定好友【${displayName}】的共享课表！`)
+  } catch (err: any) {
+    addFriendError.value = err.message || '邀请码不存在或已失效'
+  } finally {
+    isAddingFriend.value = false
+  }
 }
 
 function removeFriend(idx: number) {
-  friends.value.splice(idx, 1)
-  localStorage.setItem('bjfu-friends', JSON.stringify(friends.value))
+  sharedFriends.value.splice(idx, 1)
+  localStorage.setItem('bjfu-shared-friends', JSON.stringify(sharedFriends.value))
 }
 
 // 模拟成绩出分监控
@@ -1897,43 +2004,170 @@ function saveMonitor() {
       </div>
     </div>
 
-    <!-- 6. 共享课表 / 好友列表弹窗 -->
+    <!-- 6. 共享课表 / 好友列表弹窗 (4位邀请码系统) -->
     <div v-if="activeTool === 'share_friends'" class="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4" @click.self="activeTool = 'none'">
-      <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl border border-[#E5E5E5] space-y-4 max-h-[85vh] overflow-y-auto text-xs">
+      <div class="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl border border-[#E5E5E5] space-y-4 max-h-[85vh] overflow-y-auto text-xs">
         <div class="flex items-center justify-between border-b border-neutral-100 pb-3">
           <div>
-            <h3 class="text-base font-medium text-neutral-900 font-sans">好友与共享课表</h3>
-            <p class="text-[11px] text-neutral-400 font-mono">Friend Timetables & Binding</p>
+            <h3 class="text-base font-medium text-neutral-900 font-sans">共享课表与好友</h3>
+            <p class="text-[11px] text-neutral-400 font-mono">4-Digit Invite Code Schedule Sharing</p>
           </div>
-          <button class="text-neutral-400 hover:text-neutral-900 cursor-pointer" @click="activeTool = 'none'">✕</button>
+          <button class="text-neutral-400 hover:text-neutral-900 cursor-pointer text-sm" @click="activeTool = 'none'">✕</button>
         </div>
 
-        <div class="space-y-3">
-          <div class="grid grid-cols-2 gap-2">
-            <input v-model="newFriendName" placeholder="好友备注 (例如: 张三)" class="border border-[#E5E5E5] rounded px-2.5 py-1.5 bg-white" />
-            <input v-model="newFriendId" placeholder="好友学号" class="border border-[#E5E5E5] rounded px-2.5 py-1.5 bg-white" />
+        <!-- 隐私保护提示 -->
+        <div class="p-2.5 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-800 text-[11px] flex items-start gap-2">
+          <span class="text-emerald-600 font-bold shrink-0 mt-0.5">🔒</span>
+          <span>专属4位邀请码系统：不公开、不绑定真实学号，好友凭邀请码即可安全查看共享课表。</span>
+        </div>
+
+        <!-- 模块一：我的课表邀请码 -->
+        <div class="p-3.5 border border-[#E5E5E5] rounded-xl bg-[#FAFAFA] space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="font-medium text-neutral-800">我的共享邀请码</span>
+            <span v-if="myShareCode" class="text-[10px] text-neutral-400 font-mono">Code: {{ myShareCode }}</span>
           </div>
-          <button class="w-full py-2 bg-neutral-900 text-white rounded cursor-pointer hover:bg-neutral-800" @click="addFriend">
-            + 添加好友绑定
+
+          <div v-if="myShareCode" class="space-y-2.5">
+            <div class="flex items-center justify-between bg-white border border-[#E5E5E5] rounded-lg p-2.5">
+              <div>
+                <div class="text-[10px] text-neutral-400">专属 4 位课表邀请码</div>
+                <div class="font-mono text-xl font-bold tracking-widest text-neutral-900">{{ myShareCode }}</div>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  class="px-2.5 py-1.5 rounded-lg border border-[#E5E5E5] hover:border-neutral-400 text-neutral-700 text-xs cursor-pointer transition-colors"
+                  @click="copyShareCodeOnly"
+                >
+                  仅复制码
+                </button>
+                <button
+                  type="button"
+                  class="px-3 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white font-medium text-xs cursor-pointer transition-colors"
+                  @click="copyShareLink"
+                >
+                  {{ copySuccess ? '已复制！' : '复制分享链接' }}
+                </button>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <input
+                v-model="myOwnerName"
+                placeholder="我的展示昵称 (例如: 小张)"
+                class="flex-1 border border-[#E5E5E5] rounded-lg px-2.5 py-1.5 bg-white text-xs"
+              />
+              <button
+                type="button"
+                class="px-3 py-1.5 border border-[#E5E5E5] hover:border-neutral-400 rounded-lg text-neutral-600 text-xs cursor-pointer transition-colors whitespace-nowrap"
+                :disabled="isGeneratingCode"
+                @click="createOrRegenerateCode(false)"
+              >
+                保存昵称
+              </button>
+              <button
+                type="button"
+                class="px-2.5 py-1.5 border border-red-200 text-red-600 hover:bg-red-50 rounded-lg text-xs cursor-pointer transition-colors whitespace-nowrap"
+                :disabled="isGeneratingCode"
+                @click="createOrRegenerateCode(true)"
+              >
+                重新生成
+              </button>
+            </div>
+          </div>
+
+          <div v-else class="text-center py-2 space-y-2">
+            <p class="text-neutral-500 text-[11px]">
+              生成专属 4 位邀请码后，朋友只需输入这 4 位码或打开链接即可查看您的课表。
+            </p>
+            <button
+              type="button"
+              class="w-full py-2 bg-neutral-900 text-white rounded-lg hover:bg-neutral-800 cursor-pointer font-medium transition-colors"
+              :disabled="isGeneratingCode"
+              @click="createOrRegenerateCode(false)"
+            >
+              {{ isGeneratingCode ? '正在生成邀请码...' : '一键生成我的 4 位共享邀请码' }}
+            </button>
+          </div>
+
+          <div v-if="shareError" class="text-red-500 text-[11px]">{{ shareError }}</div>
+        </div>
+
+        <!-- 模块二：输入好友邀请码绑定 -->
+        <div class="p-3.5 border border-[#E5E5E5] rounded-xl bg-white space-y-2.5">
+          <span class="font-medium text-neutral-800">绑定好友的共享课表</span>
+          <div class="grid grid-cols-2 gap-2">
+            <input
+              v-model="inputFriendCode"
+              placeholder="4位邀请码 (如 8K2M)"
+              maxlength="4"
+              class="border border-[#E5E5E5] rounded-lg px-2.5 py-1.5 bg-white uppercase font-mono text-center font-bold tracking-widest text-xs"
+              @input="inputFriendCode = inputFriendCode.toUpperCase()"
+            />
+            <input
+              v-model="inputFriendName"
+              placeholder="好友备注 (选填)"
+              class="border border-[#E5E5E5] rounded-lg px-2.5 py-1.5 bg-white text-xs"
+            />
+          </div>
+
+          <div v-if="addFriendError" class="text-red-500 text-[11px]">{{ addFriendError }}</div>
+
+          <button
+            type="button"
+            class="w-full py-2 bg-neutral-900 text-white rounded-lg cursor-pointer hover:bg-neutral-800 font-medium transition-colors disabled:opacity-50"
+            :disabled="isAddingFriend"
+            @click="addFriendByCode"
+          >
+            {{ isAddingFriend ? '正在校验邀请码...' : '+ 导入并绑定好友课表' }}
           </button>
         </div>
 
-        <div class="divide-y divide-neutral-100 border border-[#E5E5E5] rounded-lg">
-          <div v-if="!friends.length" class="text-center py-6 text-neutral-400">
-            暂无已绑定的好友
+        <!-- 模块三：已绑定的好友列表 -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between text-neutral-500 text-[11px]">
+            <span>已保存的好友课表：</span>
+            <span>共 {{ sharedFriends.length }} 位</span>
           </div>
-          <div v-for="(f, idx) in friends" :key="f.studentId" class="flex items-center justify-between p-3 bg-white">
-            <div>
-              <span class="font-medium text-neutral-900">{{ f.name }}</span>
-              <span class="font-mono text-neutral-400 text-[11px] ml-2">({{ f.studentId }})</span>
+
+          <div class="divide-y divide-neutral-100 border border-[#E5E5E5] rounded-xl overflow-hidden bg-white">
+            <div v-if="!sharedFriends.length" class="text-center py-6 text-neutral-400">
+              暂无已绑定的好友，输入好友的 4 位邀请码即可一键添加
             </div>
-            <div class="flex items-center gap-2">
-              <a :href="`/schedule?user=${f.studentId}`" target="_blank" class="text-neutral-600 hover:text-neutral-950 underline">
-                查看课表 →
-              </a>
-              <button class="text-neutral-400 hover:text-red-600 cursor-pointer" @click="removeFriend(idx)">
-                ✕
-              </button>
+            <div
+              v-for="(f, idx) in sharedFriends"
+              :key="f.code"
+              class="flex items-center justify-between p-3 bg-white hover:bg-neutral-50/60 transition-colors"
+            >
+              <div>
+                <div class="font-medium text-neutral-900 flex items-center gap-1.5">
+                  <span>{{ f.name }}</span>
+                  <span class="font-mono text-[9px] px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-600">
+                    码: {{ f.code }}
+                  </span>
+                </div>
+                <div class="text-[10px] text-neutral-400 font-mono mt-0.5">
+                  {{ f.semester ? `${f.semester} · ` : '' }}{{ f.coursesCount ? `${f.coursesCount} 门课` : '可查看' }}
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <a
+                  :href="`/schedule?code=${f.code}`"
+                  target="_blank"
+                  class="text-neutral-900 hover:text-black font-medium underline text-xs"
+                >
+                  查看课表 →
+                </a>
+                <button
+                  type="button"
+                  class="text-neutral-300 hover:text-red-600 cursor-pointer p-1 transition-colors"
+                  title="移除好友"
+                  @click="removeFriend(idx)"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
           </div>
         </div>

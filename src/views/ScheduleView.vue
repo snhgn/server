@@ -195,7 +195,51 @@ function handleScheduleLogout() {
   router.replace({ query: {} }).catch(() => {})
 }
 
+const isViewingShared = ref(false)
+const sharedCode = ref('')
+const sharedOwnerName = ref('')
+const sharedSaveSuccess = ref(false)
+
+function saveFriendFromShared() {
+  if (!sharedCode.value) return
+  try {
+    const list = JSON.parse(localStorage.getItem('bjfu-shared-friends') || '[]')
+    if (!list.some((f: any) => f.code === sharedCode.value)) {
+      list.push({
+        name: sharedOwnerName.value || '同学',
+        code: sharedCode.value,
+        semester: schedule.value?.semester || '',
+        coursesCount: schedule.value?.courses?.length || 0,
+      })
+      localStorage.setItem('bjfu-shared-friends', JSON.stringify(list))
+    }
+    sharedSaveSuccess.value = true
+    setTimeout(() => {
+      sharedSaveSuccess.value = false
+    }, 2500)
+  } catch {}
+}
+
+function backToMySchedule() {
+  isViewingShared.value = false
+  sharedCode.value = ''
+  sharedOwnerName.value = ''
+  router.replace({ query: {} }).catch(() => {})
+  const mySched = loadCachedSchedule()
+  if (mySched) {
+    schedule.value = mySched
+    showForm.value = false
+    if (savedSid.trim()) {
+      syncUrlWithUser(savedSid.trim())
+    }
+  } else {
+    showForm.value = true
+    schedule.value = null
+  }
+}
+
 function syncUrlWithUser(sid: string) {
+  if (isViewingShared.value) return
   if (sid && route.query.user !== sid) {
     router.replace({
       query: { ...route.query, user: sid }
@@ -430,6 +474,27 @@ function changeWeek(delta: number) {
 
 onMounted(async () => {
   document.body.classList.add('schedule-page')
+
+  // 0. 优先检测是否传入了 4 位共享课表邀请码 (?code=XXXX 或 ?share=XXXX)
+  const qCode = (route.query.code || route.query.share) as string | undefined
+  if (qCode && qCode.trim()) {
+    const code = qCode.trim().toUpperCase()
+    try {
+      const shared = await api.get<any>(`/api/schedule/share/${encodeURIComponent(code)}`)
+      if (shared && Array.isArray(shared.courses)) {
+        schedule.value = shared
+        isViewingShared.value = true
+        sharedCode.value = code
+        sharedOwnerName.value = shared.owner_name || '同学'
+        showForm.value = false
+        scrollToToday()
+        return
+      }
+    } catch (err: any) {
+      console.warn('Failed to load shared schedule via code:', err)
+      error.value = '该 4 位邀请码不存在或已失效'
+    }
+  }
 
   // 1. 若 URL 中指定了 user 或本地有保存的学号
   const qSid = (route.query.user || route.query.student_id || route.query.sid) as string | undefined
@@ -844,6 +909,34 @@ function weekdayName(day: number): string {
         </div>
       </div>
     </header>
+
+    <!-- 正在查看共享课表横幅 (4位邀请码访问) -->
+    <div
+      v-if="isViewingShared"
+      class="relative z-10 mb-4 sm:mb-6 p-3 sm:p-3.5 rounded-xl bg-neutral-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-sm"
+    >
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="text-sm">🔗</span>
+        <span class="font-medium text-xs sm:text-sm">正在查看【{{ sharedOwnerName }}】的共享课表</span>
+        <span class="font-mono text-[10px] bg-white/20 text-white px-2 py-0.5 rounded tracking-wider">邀请码: {{ sharedCode }}</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <button
+          type="button"
+          class="px-2.5 py-1 bg-white text-neutral-900 rounded-lg text-xs font-medium hover:bg-neutral-100 cursor-pointer transition-colors"
+          @click="saveFriendFromShared"
+        >
+          {{ sharedSaveSuccess ? '✓ 已保存到好友列表' : '+ 存入我的好友课表' }}
+        </button>
+        <button
+          type="button"
+          class="text-neutral-300 hover:text-white text-xs cursor-pointer underline ml-1 transition-colors"
+          @click="backToMySchedule"
+        >
+          返回我的个人课表
+        </button>
+      </div>
+    </div>
 
     <!-- First Visit / Sync Form -->
     <section v-if="showForm" class="max-w-md mx-auto rounded-lg border border-[#E5E5E5] bg-white p-6 sm:p-8 shadow-[0_1px_3px_rgba(0,0,0,0.02)] my-4 sm:my-8">
