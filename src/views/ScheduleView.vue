@@ -695,7 +695,7 @@ function weekdayName(day: number): string {
           <span class="text-neutral-300">·</span>
           <span>北林课表</span>
           <span class="text-neutral-300">·</span>
-          <span class="text-neutral-400 font-mono text-[10px] lowercase bg-neutral-100 px-1.5 py-0.5 rounded">v1.4.0</span>
+          <span class="text-neutral-400 font-mono text-[10px] lowercase bg-neutral-100 px-1.5 py-0.5 rounded">v1.4.1</span>
           <span v-if="schedule" class="text-neutral-300">·</span>
           <span v-if="schedule" class="text-neutral-600 font-sans font-normal">{{ semesterLabel(schedule.semester) }}</span>
         </div>

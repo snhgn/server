@@ -335,11 +335,62 @@ async function fetchTrainingPlan(_force = false) {
   }
 }
 
+const planSearchQuery = ref('')
+const planCollapsedTerms = ref<Record<string, boolean>>({})
+
+function formatTermName(rawTerm: string): string {
+  if (!rawTerm || !rawTerm.trim() || rawTerm === 'unknown') return '其他 / 未指定学期'
+  const t = rawTerm.trim()
+  if (/^\d+$/.test(t)) {
+    const num = parseInt(t, 10)
+    const gradeMap: Record<number, string> = {
+      1: '第 1 学期 (大一上)',
+      2: '第 2 学期 (大一下)',
+      3: '第 3 学期 (大二上)',
+      4: '第 4 学期 (大二下)',
+      5: '第 5 学期 (大三上)',
+      6: '第 6 学期 (大三下)',
+      7: '第 7 学期 (大四上)',
+      8: '第 8 学期 (大四下)',
+    }
+    return gradeMap[num] || `第 ${num} 学期`
+  }
+  const matchNum = t.match(/^第\s*(\d+)\s*学期$/)
+  if (matchNum) {
+    const num = parseInt(matchNum[1], 10)
+    const gradeMap: Record<number, string> = {
+      1: '第 1 学期 (大一上)',
+      2: '第 2 学期 (大一下)',
+      3: '第 3 学期 (大二上)',
+      4: '第 4 学期 (大二下)',
+      5: '第 5 学期 (大三上)',
+      6: '第 6 学期 (大三下)',
+      7: '第 7 学期 (大四上)',
+      8: '第 8 学期 (大四下)',
+    }
+    return gradeMap[num] || t
+  }
+  if (/^\d{4}-\d{4}-[123]$/.test(t)) {
+    const parts = t.split('-')
+    const subTerm = parts[2] === '1' ? '秋季 (第1学期)' : parts[2] === '2' ? '春季 (第2学期)' : `第${parts[2]}学期`
+    return `${parts[0]}-${parts[1]} 学年 ${subTerm}`
+  }
+  return t
+}
+
+interface PlanSemesterGroup {
+  termKey: string
+  displayName: string
+  courses: TrainingPlanItem[]
+  totalCredits: number
+  courseCount: number
+}
+
 const planCategories = computed(() => {
   if (!trainingPlan.value.length) return []
   const set = new Set<string>()
   trainingPlan.value.forEach((item) => {
-    const key = item.attribute || item.term || '其他'
+    const key = item.attribute?.trim() || '其他'
     if (key) set.add(key)
   })
   return [...set]
@@ -350,12 +401,93 @@ const planTotalCredits = computed(() => {
 })
 
 const filteredPlanCourses = computed(() => {
-  if (selectedPlanCategory.value === 'all') return trainingPlan.value
-  return trainingPlan.value.filter((item) => {
-    const key = item.attribute || item.term || '其他'
-    return key === selectedPlanCategory.value
+  let list = trainingPlan.value
+  if (selectedPlanCategory.value !== 'all') {
+    list = list.filter((item) => (item.attribute?.trim() || '其他') === selectedPlanCategory.value)
+  }
+  if (planSearchQuery.value.trim()) {
+    const q = planSearchQuery.value.trim().toLowerCase()
+    list = list.filter((item) =>
+      item.name.toLowerCase().includes(q) ||
+      item.code.toLowerCase().includes(q) ||
+      (item.dept && item.dept.toLowerCase().includes(q))
+    )
+  }
+  return list
+})
+
+const planSemesterGroups = computed<PlanSemesterGroup[]>(() => {
+  const groups: Record<string, TrainingPlanItem[]> = {}
+  
+  filteredPlanCourses.value.forEach((course) => {
+    const key = (course.term && course.term.trim()) ? course.term.trim() : 'unknown'
+    if (!groups[key]) groups[key] = []
+    groups[key].push(course)
+  })
+
+  // 按学期自然时间递增排序
+  const sortedKeys = Object.keys(groups).sort((a, b) => {
+    if (a === 'unknown' || !a) return 1
+    if (b === 'unknown' || !b) return -1
+    if (/^\d{4}-\d{4}-\d$/.test(a) && /^\d{4}-\d{4}-\d$/.test(b)) {
+      return a.localeCompare(b)
+    }
+    const numA = parseInt(a.replace(/\D/g, ''), 10)
+    const numB = parseInt(b.replace(/\D/g, ''), 10)
+    if (!isNaN(numA) && !isNaN(numB) && numA !== numB) {
+      return numA - numB
+    }
+    return a.localeCompare(b, 'zh-CN')
+  })
+
+  return sortedKeys.map((key) => {
+    const list = groups[key]
+    const credits = Math.round(list.reduce((sum, c) => sum + (c.credit || 0), 0) * 10) / 10
+    return {
+      termKey: key,
+      displayName: formatTermName(key === 'unknown' ? '' : key),
+      courses: list,
+      totalCredits: credits,
+      courseCount: list.length,
+    }
   })
 })
+
+function toggleTermCollapse(termKey: string) {
+  planCollapsedTerms.value[termKey] = !planCollapsedTerms.value[termKey]
+}
+
+function isTermCollapsed(termKey: string) {
+  return !!planCollapsedTerms.value[termKey]
+}
+
+const areAllTermsCollapsed = computed(() => {
+  if (!planSemesterGroups.value.length) return false
+  return planSemesterGroups.value.every((g) => isTermCollapsed(g.termKey))
+})
+
+function toggleAllTermsCollapse() {
+  const target = !areAllTermsCollapsed.value
+  const newMap: Record<string, boolean> = {}
+  planSemesterGroups.value.forEach((g) => {
+    newMap[g.termKey] = target
+  })
+  planCollapsedTerms.value = newMap
+}
+
+function getAttributeBadgeClass(attr?: string) {
+  if (!attr) return 'bg-neutral-100 text-neutral-600'
+  if (attr.includes('必修') || attr.includes('核心')) {
+    return 'bg-blue-50 text-blue-700 border border-blue-200/60'
+  }
+  if (attr.includes('选修')) {
+    return 'bg-emerald-50 text-emerald-700 border border-emerald-200/60'
+  }
+  if (attr.includes('实践') || attr.includes('实验') || attr.includes('实习') || attr.includes('论文') || attr.includes('设计')) {
+    return 'bg-amber-50 text-amber-700 border border-amber-200/60'
+  }
+  return 'bg-neutral-100 text-neutral-600'
+}
 
 // ================= 4. 空闲教室查询 =================
 interface FreeRoom {
@@ -1184,11 +1316,11 @@ function saveMonitor() {
 
     <!-- 3. 培养方案弹窗 -->
     <div v-if="activeTool === 'training'" class="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4" @click.self="activeTool = 'none'">
-      <div class="w-full max-w-xl rounded-xl bg-white p-6 shadow-2xl border border-[#E5E5E5] space-y-4 max-h-[85vh] flex flex-col overflow-hidden text-xs">
+      <div class="w-full max-w-2xl sm:max-w-3xl rounded-xl bg-white p-5 sm:p-6 shadow-2xl border border-[#E5E5E5] space-y-4 max-h-[88vh] flex flex-col overflow-hidden text-xs">
         <div class="flex items-center justify-between border-b border-neutral-100 pb-3">
           <div>
             <h3 class="text-base font-medium text-neutral-900 font-sans">培养方案与课程进度</h3>
-            <p class="text-[11px] text-neutral-400 font-mono">Curriculum Plan & Graduation Credits</p>
+            <p class="text-[11px] text-neutral-400 font-mono">Curriculum Plan & Graduation Credits (By Semester)</p>
           </div>
           <button class="text-neutral-400 hover:text-neutral-900 cursor-pointer" @click="activeTool = 'none'">✕</button>
         </div>
@@ -1213,18 +1345,55 @@ function saveMonitor() {
           </div>
         </div>
 
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <span class="text-neutral-500">方案总学分要求:</span>
-            <span class="font-bold text-neutral-900 font-mono">{{ planTotalCredits }} 学分 ({{ trainingPlan.length }} 门)</span>
+        <!-- 控制栏与概览 -->
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-neutral-50/80 p-3 rounded-xl border border-neutral-100">
+          <div class="space-y-0.5">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-neutral-500 font-mono text-[11px]">方案要求:</span>
+              <span class="font-bold text-neutral-900 font-mono text-xs">{{ planTotalCredits }} 学分</span>
+              <span class="text-neutral-400 font-mono text-[11px]">({{ trainingPlan.length }} 门课程 / {{ planSemesterGroups.length }} 个学期)</span>
+            </div>
+            <div v-if="filteredPlanCourses.length !== trainingPlan.length" class="text-[10px] text-blue-600 font-mono">
+              当前筛选显示: {{ filteredPlanCourses.length }} 门课程
+            </div>
           </div>
-          <div class="flex items-center gap-2">
-            <select v-model="selectedPlanCategory" class="border border-[#E5E5E5] rounded px-2 py-1 bg-white text-xs">
+
+          <div class="flex flex-wrap items-center gap-2">
+            <!-- 搜索框 -->
+            <div class="relative">
+              <input
+                v-model="planSearchQuery"
+                type="text"
+                placeholder="搜索课程/代码/学院..."
+                class="w-32 sm:w-38 px-2.5 py-1 text-xs border border-[#E5E5E5] rounded-lg bg-white focus:outline-none focus:border-neutral-900"
+              />
+              <button
+                v-if="planSearchQuery"
+                class="absolute right-1.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700 text-[10px] cursor-pointer"
+                @click="planSearchQuery = ''"
+              >
+                ✕
+              </button>
+            </div>
+
+            <!-- 分类下拉 -->
+            <select v-model="selectedPlanCategory" class="border border-[#E5E5E5] rounded-lg px-2 py-1 bg-white text-xs text-neutral-700 cursor-pointer">
               <option value="all">全部分类</option>
               <option v-for="c in planCategories" :key="c" :value="c">{{ c }}</option>
             </select>
+
+            <!-- 全部折叠/展开 -->
             <button
-              class="px-2.5 py-1 border border-[#E5E5E5] rounded hover:border-neutral-400 bg-white cursor-pointer flex items-center gap-1 disabled:opacity-50"
+              v-if="planSemesterGroups.length"
+              class="px-2.5 py-1 border border-[#E5E5E5] rounded-lg hover:border-neutral-400 bg-white text-neutral-700 cursor-pointer text-xs flex items-center gap-1 transition-colors"
+              @click="toggleAllTermsCollapse"
+            >
+              <span>{{ areAllTermsCollapsed ? '全部展开' : '全部折叠' }}</span>
+            </button>
+
+            <!-- 刷新方案 -->
+            <button
+              class="px-2.5 py-1 border border-[#E5E5E5] rounded-lg hover:border-neutral-400 bg-white text-neutral-700 cursor-pointer flex items-center gap-1 disabled:opacity-50 text-xs transition-colors"
               :disabled="planLoading"
               @click="fetchTrainingPlan(true)"
             >
@@ -1239,45 +1408,92 @@ function saveMonitor() {
           <button class="px-2 py-0.5 bg-red-600 text-white rounded text-[11px] cursor-pointer" @click="fetchTrainingPlan(true)">重试</button>
         </div>
 
-        <!-- 课程方案表格 -->
-        <div class="flex-1 overflow-y-auto space-y-2">
+        <!-- 学期可折叠列表 -->
+        <div class="flex-1 overflow-y-auto space-y-3 pr-0.5">
           <div v-if="planLoading && !trainingPlan.length" class="py-12 text-center text-neutral-400 space-y-2">
             <div class="inline-block animate-spin text-lg">⏳</div>
-            <div>正在拉取培养方案全部学期课程及学分属性...</div>
+            <div>正在拉取培养方案各学期课程及学分属性...</div>
           </div>
 
-          <div v-else-if="filteredPlanCourses.length" class="border border-[#E5E5E5] rounded-lg overflow-hidden">
-            <table class="w-full text-left text-xs font-mono">
-              <thead class="bg-[#FAFAFA] border-b border-[#E5E5E5] text-neutral-500 text-[11px]">
-                <tr>
-                  <th class="p-2.5 font-normal">课程名称</th>
-                  <th class="p-2.5 font-normal">建议学期</th>
-                  <th class="p-2.5 font-normal">课程性质</th>
-                  <th class="p-2.5 font-normal">开课单位</th>
-                  <th class="p-2.5 font-normal text-right">学分/学时</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-neutral-100">
-                <tr v-for="item in filteredPlanCourses" :key="item.code + item.name" class="hover:bg-neutral-50/70 transition-colors">
-                  <td class="p-2.5 font-sans font-medium text-neutral-900">
-                    <div>{{ item.name }}</div>
-                    <div class="text-[10px] text-neutral-400 font-mono">{{ item.code }}</div>
-                  </td>
-                  <td class="p-2.5 text-neutral-500 text-[11px]">{{ item.term || '—' }}</td>
-                  <td class="p-2.5">
-                    <span class="px-1.5 py-0.5 bg-neutral-100 text-neutral-600 rounded text-[10px]">{{ item.attribute || '其他' }}</span>
-                  </td>
-                  <td class="p-2.5 text-neutral-400 text-[11px]">{{ item.dept || '—' }}</td>
-                  <td class="p-2.5 text-right font-medium text-neutral-900">
-                    {{ item.credit }} 分 <span class="text-neutral-400 font-normal">({{ item.hours }}h)</span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+          <div v-else-if="planSemesterGroups.length" class="space-y-3">
+            <div
+              v-for="group in planSemesterGroups"
+              :key="group.termKey"
+              class="border border-[#E5E5E5] rounded-xl overflow-hidden bg-white shadow-xs transition-all"
+            >
+              <!-- 学期可折叠头部 -->
+              <div
+                class="flex items-center justify-between px-3.5 py-2.5 bg-neutral-50/90 hover:bg-neutral-100/90 cursor-pointer select-none transition-colors"
+                :class="{ 'border-b border-neutral-200/80': !isTermCollapsed(group.termKey) }"
+                @click="toggleTermCollapse(group.termKey)"
+              >
+                <div class="flex items-center gap-2">
+                  <span
+                    class="inline-block text-[10px] text-neutral-400 transition-transform duration-200"
+                    :class="{ 'rotate-90': !isTermCollapsed(group.termKey) }"
+                  >
+                    ▶
+                  </span>
+                  <span class="font-medium text-neutral-900 text-xs sm:text-sm font-sans">
+                    {{ group.displayName }}
+                  </span>
+                  <span class="text-[11px] text-neutral-400 font-mono">
+                    ({{ group.courseCount }} 门)
+                  </span>
+                </div>
+
+                <div class="flex items-center gap-2.5">
+                  <span class="text-[11px] text-neutral-600 font-mono bg-white px-2 py-0.5 rounded border border-neutral-200/70">
+                    学分小计: <strong class="text-neutral-900">{{ group.totalCredits }}</strong>
+                  </span>
+                  <span class="text-[11px] text-neutral-400 hover:text-neutral-700">
+                    {{ isTermCollapsed(group.termKey) ? '展开' : '收起' }}
+                  </span>
+                </div>
+              </div>
+
+              <!-- 学期课程表格（折叠时隐藏） -->
+              <div v-show="!isTermCollapsed(group.termKey)" class="overflow-x-auto">
+                <table class="w-full text-left text-xs font-mono">
+                  <thead class="bg-[#FAFAFA] border-b border-neutral-100 text-neutral-500 text-[11px]">
+                    <tr>
+                      <th class="p-2.5 font-normal">课程名称</th>
+                      <th class="p-2.5 font-normal">课程性质</th>
+                      <th class="p-2.5 font-normal">开课单位</th>
+                      <th class="p-2.5 font-normal text-right">学分 / 学时</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-neutral-100">
+                    <tr
+                      v-for="item in group.courses"
+                      :key="item.code + item.name"
+                      class="hover:bg-neutral-50/70 transition-colors"
+                    >
+                      <td class="p-2.5 font-sans font-medium text-neutral-900">
+                        <div>{{ item.name }}</div>
+                        <div class="text-[10px] text-neutral-400 font-mono">{{ item.code }}</div>
+                      </td>
+                      <td class="p-2.5">
+                        <span
+                          class="px-1.5 py-0.5 rounded text-[10px] font-sans"
+                          :class="getAttributeBadgeClass(item.attribute)"
+                        >
+                          {{ item.attribute || '其他' }}
+                        </span>
+                      </td>
+                      <td class="p-2.5 text-neutral-400 text-[11px]">{{ item.dept || '—' }}</td>
+                      <td class="p-2.5 text-right font-medium text-neutral-900 font-mono">
+                        {{ item.credit }} 分 <span class="text-neutral-400 font-normal">({{ item.hours }}h)</span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
 
           <div v-else-if="!planLoading" class="text-center py-10 text-neutral-400">
-            暂无培养方案数据，请点击上方“刷新方案”
+            {{ planSearchQuery || selectedPlanCategory !== 'all' ? '未找到符合筛选条件的课程' : '暂无培养方案数据，请点击上方“刷新方案”' }}
           </div>
         </div>
       </div>
