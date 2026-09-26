@@ -497,11 +497,12 @@ interface FreeRoom {
   raw: string
   capacity: string
   building: string
+  short_building?: string
 }
 
 const classroomBuilding = ref('')
 const currentSystemWeek = Math.min(
-  20,
+  30,
   Math.max(1, Math.floor((Date.now() - new Date('2026-09-07T00:00:00').getTime()) / 86400000 / 7) + 1)
 )
 const classroomWeek = ref(currentSystemWeek)
@@ -519,7 +520,32 @@ const classroomPeriodMap: Record<string, [number, number]> = {
   '12': [12, 12],
   '1-4': [1, 4],
   '6-9': [6, 9],
+  '10-12': [10, 12],
   '1-12': [1, 12],
+}
+
+function formatRoomCapacity(cap?: string) {
+  if (!cap) return '可自习'
+  if (cap.includes('/')) {
+    const [total, exam] = cap.split('/')
+    return `${total} 座 (考位 ${exam})`
+  }
+  return `${cap} 座`
+}
+
+function getBuildingTag(room: FreeRoom) {
+  if (room.short_building) return room.short_building
+  if (room.building) {
+    if (room.building.includes('一教')) return '一教'
+    if (room.building.includes('二教')) return '二教'
+    if (room.building.includes('学研')) return '学研中心'
+  }
+  if (room.name.includes('一教')) return '一教'
+  if (room.name.includes('二教')) return '二教'
+  if (room.name.includes('学研') || room.name.startsWith('A') || room.name.startsWith('B') || room.name.startsWith('C')) {
+    return '学研中心'
+  }
+  return '教学区'
 }
 
 const freeClassrooms = ref<FreeRoom[]>([])
@@ -1569,19 +1595,16 @@ function saveMonitor() {
           <div>
             <label class="block text-neutral-500 mb-1">教学楼</label>
             <select v-model="classroomBuilding" class="w-full border border-[#E5E5E5] rounded px-2.5 py-1.5 bg-white text-xs">
-              <option value="">全部教学楼</option>
-              <option value="003">第二教学楼 (二教)</option>
+              <option value="">全部教学楼 (一教/二教/学研)</option>
               <option value="001">第一教学楼 (一教)</option>
-              <option value="014">学研大厦</option>
-              <option value="004">主楼</option>
-              <option value="006">森工楼</option>
-              <option value="007">生物楼</option>
+              <option value="003">第二教学楼 (二教)</option>
+              <option value="014">学研中心 (学研大厦)</option>
             </select>
           </div>
           <div>
             <label class="block text-neutral-500 mb-1">周次</label>
             <select v-model.number="classroomWeek" class="w-full border border-[#E5E5E5] rounded px-2.5 py-1.5 bg-white text-xs">
-              <option v-for="w in 20" :key="w" :value="w">第 {{ w }} 周 {{ w === currentSystemWeek ? '(本周)' : '' }}</option>
+              <option v-for="w in 30" :key="w" :value="w">第 {{ w }} 周 {{ w === currentSystemWeek ? '(本周)' : '' }}</option>
             </select>
           </div>
           <div>
@@ -1604,11 +1627,12 @@ function saveMonitor() {
               <option value="5">5 节 (11:30 - 12:15)</option>
               <option value="6-7">6-7 节 (13:30 - 15:05)</option>
               <option value="8-9">8-9 节 (15:20 - 16:55)</option>
-              <option value="10-11">10-11 节 (18:30 - 20:05)</option>
-              <option value="12">12 节 (20:10 - 20:55)</option>
+              <option value="10-11">10-11 节 (18:50 - 20:25)</option>
+              <option value="12">12 节 (20:30 - 21:15)</option>
               <option value="1-4">上午全段 (1-4 节)</option>
               <option value="6-9">下午全段 (6-9 节)</option>
-              <option value="1-12">全天空闲 (1-12 节)</option>
+              <option value="10-12">晚上全段 (10-12 节)</option>
+              <option value="1-12">全天 (1-12 节)</option>
             </select>
           </div>
         </div>
@@ -1647,10 +1671,17 @@ function saveMonitor() {
                 class="p-2.5 border border-[#E5E5E5] rounded-lg bg-[#FAFAFA] flex items-center justify-between hover:border-neutral-400 transition-colors"
               >
                 <div>
-                  <div class="font-medium text-neutral-900">{{ r.name }}</div>
-                  <div class="text-[10px] text-neutral-400 font-mono">{{ r.capacity ? `${r.capacity} 座` : '可自习' }}</div>
+                  <div class="flex items-center gap-1.5">
+                    <span class="font-medium text-neutral-900 text-xs">{{ r.name }}</span>
+                    <span class="text-[9px] px-1.5 py-0.5 rounded bg-neutral-200 text-neutral-600 font-sans">
+                      {{ getBuildingTag(r) }}
+                    </span>
+                  </div>
+                  <div class="text-[10px] text-neutral-400 font-mono mt-0.5">
+                    {{ formatRoomCapacity(r.capacity) }}
+                  </div>
                 </div>
-                <span class="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded text-[10px] font-medium">空闲</span>
+                <span class="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded text-[10px] font-medium shrink-0">空闲</span>
               </div>
             </div>
 
