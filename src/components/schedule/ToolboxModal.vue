@@ -18,6 +18,25 @@ interface Course {
   period: string
   start: number
   end: number
+  id?: string
+  isCustom?: boolean
+  color?: string
+  note?: string
+}
+
+interface CustomScheduleEvent {
+  id: string
+  name: string
+  room?: string
+  teacher?: string
+  day: number
+  start: number
+  end: number
+  period: string
+  weeks: string
+  color?: string
+  note?: string
+  isCustom?: boolean
 }
 
 interface ScheduleData {
@@ -31,6 +50,7 @@ const props = defineProps<{
   schedule: ScheduleData | null
   studentId: string
   password?: string
+  customEvents?: CustomScheduleEvent[]
 }>()
 
 const emit = defineEmits<{
@@ -39,6 +59,8 @@ const emit = defineEmits<{
   (e: 'logout'): void
   (e: 'updateBg', bg: { url: string; opacity: number; blur: number }): void
   (e: 'updateAppearance', pref: { showWeekend: boolean; themeMode: string; colorfulCards: boolean; showCourseTime: boolean }): void
+  (e: 'openAddEvent'): void
+  (e: 'deleteCustomEvent', id: string): void
 }>()
 
 type ActiveTool =
@@ -53,6 +75,7 @@ type ActiveTool =
   | 'appearance'
   | 'export_ics'
   | 'grade_monitor'
+  | 'custom_schedule'
 
 const activeTool = ref<ActiveTool>('none')
 
@@ -814,9 +837,9 @@ function generateICS(): string {
           `DTSTAMP:${dateStr}T${times.start}Z`,
           `DTSTART;TZID=Asia/Shanghai:${dateStr}T${times.start}`,
           `DTEND;TZID=Asia/Shanghai:${dateStr}T${times.end}`,
-          `SUMMARY:${c.name}`,
-          `LOCATION:${c.room || '待定'}`,
-          `DESCRIPTION:教师: ${c.teacher || '—'}\\n节次: ${c.period}\\n第${w}周`,
+          `SUMMARY:${c.isCustom ? `[日程] ${c.name}` : c.name}`,
+          `LOCATION:${c.room || (c.isCustom ? '无地点' : '待定')}`,
+          `DESCRIPTION:${c.isCustom ? `事项: ${c.name}\\n节次: ${c.period}\\n第${w}周${c.note ? `\\n备注: ${c.note}` : ''}` : `教师: ${c.teacher || '—'}\\n节次: ${c.period}\\n第${w}周`}`,
           'STATUS:CONFIRMED',
           'END:VEVENT'
         )
@@ -1237,6 +1260,18 @@ async function saveMonitor() {
               </svg>
               <span class="font-medium text-neutral-800">共享课表</span>
               <span class="text-[10px] text-neutral-400 mt-0.5">好友课表绑定</span>
+            </button>
+
+            <!-- 自定义安排 -->
+            <button
+              class="flex flex-col items-center justify-center p-3 rounded-lg border border-[#E5E5E5] bg-[#FAFAFA] hover:bg-neutral-100 hover:border-neutral-400 transition-all text-center cursor-pointer group"
+              @click="activeTool = 'custom_schedule'"
+            >
+              <svg class="w-5 h-5 text-neutral-700 mb-1.5 group-hover:scale-105 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span class="font-medium text-neutral-800">自定义安排</span>
+              <span class="text-[10px] text-neutral-400 mt-0.5">空闲时间规划</span>
             </button>
 
 
@@ -2512,6 +2547,97 @@ async function saveMonitor() {
           </svg>
           <span>{{ monitorLoading ? '正在保存并发送测试邮件...' : '保存监控设置 (自动发送测试邮件)' }}</span>
         </button>
+      </div>
+    </div>
+
+    <!-- 11. 自定义日程安排管理弹窗 -->
+    <div v-if="activeTool === 'custom_schedule'" class="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4" @click.self="activeTool = 'none'">
+      <div class="w-full max-w-lg rounded-xl bg-white dark:bg-[#1a1d21] p-6 shadow-2xl border border-[#E5E5E5] dark:border-neutral-700 space-y-4 max-h-[85vh] flex flex-col overflow-hidden text-xs">
+        <div class="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-800 pb-3">
+          <div class="flex items-center gap-2">
+            <span class="h-2 w-2 rounded-full bg-emerald-500" />
+            <div>
+              <h3 class="text-base font-medium text-neutral-900 dark:text-white font-sans">自定义日程管理</h3>
+              <p class="text-[11px] text-neutral-400 font-mono">Custom Schedule Events</p>
+            </div>
+          </div>
+          <button class="text-neutral-400 hover:text-neutral-900 dark:hover:text-white cursor-pointer" @click="activeTool = 'none'">✕</button>
+        </div>
+
+        <div class="flex items-center justify-between">
+          <div class="text-neutral-500 dark:text-neutral-400 font-mono text-[11px]">
+            已添加 {{ props.customEvents?.length || 0 }} 项个人时间安排
+          </div>
+          <button
+            type="button"
+            class="px-3 py-1.5 rounded-lg bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 font-medium hover:bg-neutral-800 dark:hover:bg-neutral-100 cursor-pointer flex items-center gap-1 transition-colors shadow-xs"
+            @click="activeTool = 'none'; emit('openAddEvent')"
+          >
+            <span class="font-bold text-xs">+</span>
+            <span>新建时间安排</span>
+          </button>
+        </div>
+
+        <!-- 列表区域 -->
+        <div class="flex-1 overflow-y-auto space-y-2.5 pr-0.5">
+          <template v-if="props.customEvents && props.customEvents.length > 0">
+            <div
+              v-for="ev in props.customEvents"
+              :key="ev.id"
+              class="p-3 rounded-lg border border-neutral-200/90 dark:border-neutral-700/80 bg-neutral-50/60 dark:bg-neutral-800/40 flex items-start justify-between gap-3 hover:border-neutral-300 dark:hover:border-neutral-600 transition-colors"
+            >
+              <div class="space-y-1 flex-1 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="font-medium text-sm text-neutral-900 dark:text-white font-sans truncate">{{ ev.name }}</span>
+                  <span class="px-1.5 py-0.2 rounded text-[10px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 font-mono">
+                    {{ ['周一', '周二', '周三', '周四', '周五', '周六', '周日'][ev.day - 1] || `周${ev.day}` }}
+                  </span>
+                  <span class="px-1.5 py-0.2 rounded text-[10px] bg-neutral-200/80 text-neutral-700 dark:bg-neutral-700 dark:text-neutral-300 font-mono">
+                    {{ ev.period }}
+                  </span>
+                </div>
+                <div class="flex items-center gap-3 text-neutral-500 dark:text-neutral-400 font-mono text-[11px] flex-wrap">
+                  <span v-if="ev.room">📍 {{ ev.room }}</span>
+                  <span>🗓️ 第 {{ ev.weeks }} 周</span>
+                </div>
+                <div v-if="ev.note" class="text-neutral-600 dark:text-neutral-300 font-sans text-[11px] bg-white dark:bg-neutral-800 p-1.5 rounded border border-neutral-100 dark:border-neutral-700/60 line-clamp-2">
+                  {{ ev.note }}
+                </div>
+              </div>
+
+              <div class="flex items-center shrink-0 pt-0.5">
+                <button
+                  type="button"
+                  class="px-2 py-1 rounded text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/50 cursor-pointer font-mono text-[11px] transition-colors"
+                  title="删除此项安排"
+                  @click="emit('deleteCustomEvent', ev.id)"
+                >
+                  删除
+                </button>
+              </div>
+            </div>
+          </template>
+
+          <div v-else class="text-center py-12 text-neutral-400 dark:text-neutral-500 space-y-3">
+            <div class="text-3xl">🗓️</div>
+            <div class="text-xs">暂无自定义时间安排</div>
+            <p class="text-[11px] text-neutral-400 max-w-xs mx-auto leading-relaxed">
+              可以在课表空闲格子上直接点击“+ 安排”，或点击上方按钮进行规划。
+            </p>
+          </div>
+        </div>
+
+        <!-- 底部提示 -->
+        <div class="pt-3 border-t border-neutral-100 dark:border-neutral-800 flex items-center justify-between text-[11px] text-neutral-400 font-mono">
+          <span>提示: 自建日程独立存储，教务刷新不丢失</span>
+          <button
+            type="button"
+            class="px-3 py-1 rounded bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 cursor-pointer"
+            @click="activeTool = 'none'"
+          >
+            关闭
+          </button>
+        </div>
       </div>
     </div>
 

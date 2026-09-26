@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api'
 import BrandWordmark from '@/components/BrandWordmark.vue'
@@ -17,6 +17,14 @@ interface Course {
   period: string
   start: number
   end: number
+  id?: string
+  isCustom?: boolean
+  color?: string
+  note?: string
+}
+interface CustomScheduleEvent extends Course {
+  id: string
+  isCustom: true
 }
 interface ScheduleData {
   semester: string
@@ -595,7 +603,8 @@ onMounted(async () => {
 
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
-    if (showWeekPicker.value) showWeekPicker.value = false
+    if (showCustomEventModal.value) showCustomEventModal.value = false
+    else if (showWeekPicker.value) showWeekPicker.value = false
     else if (viewer.value) viewer.value = null
     else if (detail.value) detail.value = null
   }
@@ -673,9 +682,67 @@ async function refresh() {
   }
 }
 
+// ================= 自定义时间安排系统 (空闲时段添加日程) =================
+function getCustomEventsStorageKey(): string {
+  const sid = studentId.value?.trim()
+  return sid ? `bjfu-custom-events-${sid}` : 'bjfu-custom-events'
+}
+
+function loadCustomEvents(): CustomScheduleEvent[] {
+  if (typeof localStorage === 'undefined') return []
+  const key = getCustomEventsStorageKey()
+  try {
+    let raw = localStorage.getItem(key)
+    if (!raw && key !== 'bjfu-custom-events') {
+      raw = localStorage.getItem('bjfu-custom-events')
+      if (raw) {
+        localStorage.setItem(key, raw)
+      }
+    }
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) return parsed
+    }
+  } catch (e) {
+    console.error('Failed to load custom events:', e)
+  }
+  return []
+}
+
+const customEvents = ref<CustomScheduleEvent[]>(loadCustomEvents())
+
+function saveCustomEventsToStorage() {
+  if (typeof localStorage === 'undefined') return
+  const key = getCustomEventsStorageKey()
+  try {
+    localStorage.setItem(key, JSON.stringify(customEvents.value))
+    localStorage.setItem('bjfu-custom-events', JSON.stringify(customEvents.value))
+  } catch (e) {
+    console.error('Failed to save custom events:', e)
+  }
+}
+
+// 监听学号变动时同步切换该用户的自定义日程
+watch(studentId, () => {
+  customEvents.value = loadCustomEvents()
+})
+
+const combinedCourses = computed<Course[]>(() => {
+  const official = schedule.value?.courses ?? []
+  return [...official, ...customEvents.value]
+})
+
+const combinedSchedule = computed<ScheduleData | null>(() => {
+  if (!schedule.value) return null
+  return {
+    ...schedule.value,
+    courses: combinedCourses.value,
+  }
+})
+
 const weekCourses = computed<Course[]>(() => {
   const week = currentWeek.value
-  return (schedule.value?.courses ?? []).filter((c) => {
+  return combinedCourses.value.filter((c) => {
     if (!showWeekend.value && c.day > 5) return false
     const list = parseWeeks(c.weeks)
     return list === null || list.includes(week)
@@ -685,7 +752,7 @@ const weekCourses = computed<Course[]>(() => {
 const hasHiddenWeekendCourses = computed(() => {
   if (showWeekend.value) return false
   const week = currentWeek.value
-  return (schedule.value?.courses ?? []).some((c) => {
+  return combinedCourses.value.some((c) => {
     if (c.day <= 5) return false
     const list = parseWeeks(c.weeks)
     return list === null || list.includes(week)
@@ -723,7 +790,7 @@ const todayState = computed<TodayState>(() => {
 
   // 严格以实际当前真实周数判断，不受页面选中的浏览周数影响
   const realWeek = systemWeek()
-  const todayCourses = (schedule.value?.courses ?? [])
+  const todayCourses = combinedCourses.value
     .filter((c) => {
       const list = parseWeeks(c.weeks)
       const matchesWeek = list === null || list.includes(realWeek)
@@ -735,7 +802,7 @@ const todayState = computed<TodayState>(() => {
     const b = periodSlots[blockOf(c.start) - 1]
     return mins >= b.from && mins < b.to
   })
-  if (ongoing) return { type: 'ongoing', course: ongoing, label: '正在进行' }
+  if (ongoing) return { type: 'ongoing', course: ongoing, label: ongoing.isCustom ? '日程进行中' : '正在进行' }
 
   const next = todayCourses.find((c) => {
     const b = periodSlots[blockOf(c.start) - 1]
@@ -745,9 +812,13 @@ const todayState = computed<TodayState>(() => {
     const b = periodSlots[blockOf(next.start) - 1]
     const h = Math.floor(b.from / 60)
     const mm = b.from % 60
-    return { type: 'next', course: next, label: `下一节 ${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}` }
+    return {
+      type: 'next',
+      course: next,
+      label: `${next.isCustom ? '下个安排' : '下一节'} ${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`,
+    }
   }
-  return { type: 'none', course: null, label: '今日暂无课程' }
+  return { type: 'none', course: null, label: '今日暂无课程安排' }
 })
 
 interface PlacedCourse extends Course {
@@ -762,32 +833,47 @@ const placedCourses = computed<PlacedCourse[]>(() => {
     groups.set(key, idx + 1)
     return {
       ...c,
-      key: `${c.day}-${c.start}-${c.name}-${i}`,
+      key: c.id ? `custom-${c.id}` : `${c.day}-${c.start}-${c.name}-${i}`,
       stackIndex: idx,
     }
   })
 })
 
+function isCellFree(day: number, slotBlock: number): boolean {
+  return !weekCourses.value.some((c) => c.day === day && blockOf(c.start) === slotBlock)
+}
+
 const COLOR_PALETTES = [
-  { lightBg: '#EEF2FF', lightBorder: '#C7D2FE', lightText: '#3730A3', darkBg: 'rgba(99, 102, 241, 0.18)', darkBorder: 'rgba(129, 140, 248, 0.45)', darkText: '#C7D2FE' }, // Indigo
-  { lightBg: '#ECFDF5', lightBorder: '#A7F3D0', lightText: '#065F46', darkBg: 'rgba(16, 185, 129, 0.18)', darkBorder: 'rgba(52, 211, 153, 0.45)', darkText: '#A7F3D0' }, // Emerald
-  { lightBg: '#F0F9FF', lightBorder: '#BAE6FD', lightText: '#0369A1', darkBg: 'rgba(14, 165, 233, 0.18)', darkBorder: 'rgba(56, 189, 248, 0.45)', darkText: '#BAE6FD' }, // Sky
-  { lightBg: '#FDF4FF', lightBorder: '#F5D0FE', lightText: '#86198F', darkBg: 'rgba(217, 70, 239, 0.18)', darkBorder: 'rgba(232, 121, 249, 0.45)', darkText: '#F5D0FE' }, // Fuchsia
-  { lightBg: '#FFFBEB', lightBorder: '#FDE68A', lightText: '#92400E', darkBg: 'rgba(245, 158, 11, 0.18)', darkBorder: 'rgba(251, 191, 36, 0.45)', darkText: '#FDE68A' }, // Amber
-  { lightBg: '#F5F3FF', lightBorder: '#DDD6FE', lightText: '#5B21B6', darkBg: 'rgba(139, 92, 246, 0.18)', darkBorder: 'rgba(167, 139, 250, 0.45)', darkText: '#DDD6FE' }, // Violet
-  { lightBg: '#FFF1F2', lightBorder: '#FECDD3', lightText: '#9F1239', darkBg: 'rgba(244, 63, 94, 0.18)', darkBorder: 'rgba(251, 113, 133, 0.45)', darkText: '#FECDD3' }, // Rose
-  { lightBg: '#F0FDFA', lightBorder: '#99F6E4', lightText: '#115E59', darkBg: 'rgba(20, 184, 166, 0.18)', darkBorder: 'rgba(45, 212, 191, 0.45)', darkText: '#99F6E4' }, // Teal
+  { name: 'Indigo', label: '靛蓝', lightBg: '#EEF2FF', lightBorder: '#C7D2FE', lightText: '#3730A3', darkBg: 'rgba(99, 102, 241, 0.18)', darkBorder: 'rgba(129, 140, 248, 0.45)', darkText: '#C7D2FE' },
+  { name: 'Emerald', label: '薄荷绿', lightBg: '#ECFDF5', lightBorder: '#A7F3D0', lightText: '#065F46', darkBg: 'rgba(16, 185, 129, 0.18)', darkBorder: 'rgba(52, 211, 153, 0.45)', darkText: '#A7F3D0' },
+  { name: 'Sky', label: '晴空蓝', lightBg: '#F0F9FF', lightBorder: '#BAE6FD', lightText: '#0369A1', darkBg: 'rgba(14, 165, 233, 0.18)', darkBorder: 'rgba(56, 189, 248, 0.45)', darkText: '#BAE6FD' },
+  { name: 'Fuchsia', label: '紫晶', lightBg: '#FDF4FF', lightBorder: '#F5D0FE', lightText: '#86198F', darkBg: 'rgba(217, 70, 239, 0.18)', darkBorder: 'rgba(232, 121, 249, 0.45)', darkText: '#F5D0FE' },
+  { name: 'Amber', label: '暖琥珀', lightBg: '#FFFBEB', lightBorder: '#FDE68A', lightText: '#92400E', darkBg: 'rgba(245, 158, 11, 0.18)', darkBorder: 'rgba(251, 191, 36, 0.45)', darkText: '#FDE68A' },
+  { name: 'Violet', label: '罗兰紫', lightBg: '#F5F3FF', lightBorder: '#DDD6FE', lightText: '#5B21B6', darkBg: 'rgba(139, 92, 246, 0.18)', darkBorder: 'rgba(167, 139, 250, 0.45)', darkText: '#DDD6FE' },
+  { name: 'Rose', label: '落霞红', lightBg: '#FFF1F2', lightBorder: '#FECDD3', lightText: '#9F1239', darkBg: 'rgba(244, 63, 94, 0.18)', darkBorder: 'rgba(251, 113, 133, 0.45)', darkText: '#FECDD3' },
+  { name: 'Teal', label: '青石色', lightBg: '#F0FDFA', lightBorder: '#99F6E4', lightText: '#115E59', darkBg: 'rgba(20, 184, 166, 0.18)', darkBorder: 'rgba(45, 212, 191, 0.45)', darkText: '#99F6E4' },
 ]
 
-function getCourseCardStyle(courseName: string): Record<string, string> {
-  if (!colorfulCards.value) return {}
-  let hash = 0
-  for (let i = 0; i < courseName.length; i++) {
-    hash = (hash << 5) - hash + courseName.charCodeAt(i)
-    hash |= 0
+function getCourseCardStyle(c: Course | string, customColor?: string): Record<string, string> {
+  const name = typeof c === 'string' ? c : c.name
+  const color = typeof c === 'string' ? customColor : c.color
+  const isCustom = typeof c === 'string' ? false : !!c.isCustom
+
+  if (!colorfulCards.value && !isCustom) return {}
+
+  let idx = 0
+  if (color) {
+    const found = COLOR_PALETTES.findIndex((p) => p.name.toLowerCase() === color.toLowerCase())
+    idx = found !== -1 ? found : Number(color) || 0
+  } else {
+    let hash = 0
+    for (let i = 0; i < name.length; i++) {
+      hash = (hash << 5) - hash + name.charCodeAt(i)
+      hash |= 0
+    }
+    idx = Math.abs(hash) % COLOR_PALETTES.length
   }
-  const idx = Math.abs(hash) % COLOR_PALETTES.length
-  const p = COLOR_PALETTES[idx]
+  const p = COLOR_PALETTES[idx % COLOR_PALETTES.length]
   return {
     '--card-l-bg': p.lightBg,
     '--card-l-border': p.lightBorder,
@@ -810,6 +896,171 @@ function slotTimeOf(period: number): string {
 
 function weekdayName(day: number): string {
   return weekdays[day - 1] ?? ''
+}
+
+// ---- 自定义日程模态框表单与操作 ----
+const QUICK_ACTIVITIES = [
+  '自习',
+  '组会',
+  '考研备战',
+  '健身运动',
+  '社团活动',
+  '科研实验',
+  '学科竞赛',
+  '兼职实习',
+  '答辩报告',
+  '志愿服务',
+]
+
+const showCustomEventModal = ref(false)
+const editingEventId = ref<string | null>(null)
+
+interface CustomEventForm {
+  name: string
+  room: string
+  teacher: string
+  day: number
+  slotIndex: number
+  weekType: 'current' | 'all' | 'odd' | 'even' | 'custom'
+  customWeeksInput: string
+  color: string
+  note: string
+}
+
+const customForm = ref<CustomEventForm>({
+  name: '',
+  room: '',
+  teacher: '个人安排',
+  day: 1,
+  slotIndex: 0,
+  weekType: 'all',
+  customWeeksInput: '',
+  color: 'Emerald',
+  note: '',
+})
+
+function openAddCustomEventModal(preDay?: number, preSlotBlock?: number) {
+  editingEventId.value = null
+  const defaultDay = preDay ?? (nowDay.value <= (showWeekend.value ? 7 : 5) ? nowDay.value : 1)
+  const defaultSlotIdx = preSlotBlock !== undefined ? preSlotBlock - 1 : 0
+
+  customForm.value = {
+    name: '',
+    room: '',
+    teacher: '个人安排',
+    day: defaultDay,
+    slotIndex: Math.max(0, Math.min(periodSlots.length - 1, defaultSlotIdx)),
+    weekType: 'all',
+    customWeeksInput: `1-${Math.max(16, TOTAL_WEEKS)}`,
+    color: 'Emerald',
+    note: '',
+  }
+  showCustomEventModal.value = true
+}
+
+function openEditCustomEventModal(ev: CustomScheduleEvent) {
+  editingEventId.value = ev.id
+  const sIdx = blockOf(ev.start) - 1
+  let wType: 'current' | 'all' | 'odd' | 'even' | 'custom' = 'custom'
+  if (ev.weeks === '1-16' || ev.weeks === '1-20' || ev.weeks === `1-${TOTAL_WEEKS}`) {
+    wType = 'all'
+  } else if (ev.weeks === String(currentWeek.value)) {
+    wType = 'current'
+  }
+
+  customForm.value = {
+    name: ev.name,
+    room: ev.room || '',
+    teacher: ev.teacher || '个人安排',
+    day: ev.day,
+    slotIndex: Math.max(0, Math.min(periodSlots.length - 1, sIdx)),
+    weekType: wType,
+    customWeeksInput: ev.weeks,
+    color: ev.color || 'Emerald',
+    note: ev.note || '',
+  }
+  showCustomEventModal.value = true
+}
+
+function setWeekType(type: 'current' | 'all' | 'odd' | 'even' | 'custom') {
+  customForm.value.weekType = type
+  if (type === 'current') {
+    customForm.value.customWeeksInput = `${currentWeek.value}`
+  } else if (type === 'all') {
+    customForm.value.customWeeksInput = `1-${Math.max(16, TOTAL_WEEKS)}`
+  } else if (type === 'odd') {
+    const odds: number[] = []
+    for (let w = 1; w <= Math.max(16, TOTAL_WEEKS); w += 2) odds.push(w)
+    customForm.value.customWeeksInput = odds.join(',')
+  } else if (type === 'even') {
+    const evens: number[] = []
+    for (let w = 2; w <= Math.max(16, TOTAL_WEEKS); w += 2) evens.push(w)
+    customForm.value.customWeeksInput = evens.join(',')
+  }
+}
+
+function saveCustomEvent() {
+  if (!customForm.value.name.trim()) return
+
+  const slot = periodSlots[customForm.value.slotIndex]
+  let weeksVal = customForm.value.customWeeksInput.trim()
+  if (customForm.value.weekType === 'current') {
+    weeksVal = `${currentWeek.value}`
+  } else if (customForm.value.weekType === 'all') {
+    weeksVal = `1-${Math.max(16, TOTAL_WEEKS)}`
+  }
+  if (!weeksVal) weeksVal = `1-${Math.max(16, TOTAL_WEEKS)}`
+
+  if (editingEventId.value) {
+    const idx = customEvents.value.findIndex((e) => e.id === editingEventId.value)
+    if (idx !== -1) {
+      customEvents.value[idx] = {
+        ...customEvents.value[idx],
+        name: customForm.value.name.trim(),
+        room: customForm.value.room.trim() || '',
+        teacher: customForm.value.teacher.trim() || '个人安排',
+        day: customForm.value.day,
+        start: slot.start,
+        end: slot.end,
+        period: `${slot.label}节`,
+        weeks: weeksVal,
+        color: customForm.value.color,
+        note: customForm.value.note.trim() || '',
+        isCustom: true,
+      }
+    }
+  } else {
+    const newEvent: CustomScheduleEvent = {
+      id: `ev_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      name: customForm.value.name.trim(),
+      room: customForm.value.room.trim() || '',
+      teacher: customForm.value.teacher.trim() || '个人安排',
+      day: customForm.value.day,
+      start: slot.start,
+      end: slot.end,
+      period: `${slot.label}节`,
+      weeks: weeksVal,
+      color: customForm.value.color,
+      note: customForm.value.note.trim() || '',
+      isCustom: true,
+    }
+    customEvents.value.push(newEvent)
+  }
+
+  saveCustomEventsToStorage()
+  showCustomEventModal.value = false
+  if (detail.value && detail.value.isCustom) {
+    detail.value = null
+  }
+}
+
+function deleteCustomEvent(id: string) {
+  if (typeof window !== 'undefined' && !window.confirm('确定要删除这条日程安排吗？')) {
+    return
+  }
+  customEvents.value = customEvents.value.filter((e) => e.id !== id)
+  saveCustomEventsToStorage()
+  detail.value = null
 }
 </script>
 
@@ -877,6 +1128,16 @@ function weekdayName(day: number): string {
 
         <!-- Actions -->
         <div class="flex items-center gap-1.5 font-mono text-xs">
+          <button
+            v-if="schedule && !showForm"
+            type="button"
+            class="rounded border border-emerald-300 bg-emerald-50/70 text-emerald-800 hover:bg-emerald-100 hover:border-emerald-400 dark:bg-emerald-950/40 dark:border-emerald-700/60 dark:text-emerald-300 dark:hover:bg-emerald-900/50 px-2 sm:px-2.5 py-0.5 sm:py-1 transition-colors cursor-pointer text-[11px] sm:text-xs font-medium flex items-center gap-1"
+            title="添加自定义时间安排"
+            @click="openAddCustomEventModal()"
+          >
+            <span class="font-bold text-xs leading-none">+</span>
+            <span>安排</span>
+          </button>
           <button
             v-if="schedule && !showForm"
             class="rounded border border-[#E5E5E5] bg-white px-2 sm:px-2.5 py-0.5 sm:py-1 text-neutral-600 hover:text-neutral-900 hover:border-neutral-400 transition-colors cursor-pointer text-[11px] sm:text-xs font-medium"
@@ -1126,31 +1387,62 @@ function weekdayName(day: number): string {
               <div
                 v-for="d in daysCount"
                 :key="`${sIdx}-${d}`"
-                class="relative rounded border border-neutral-100 min-h-[50px] sm:min-h-[72px] bg-white p-0.5 sm:p-1"
+                class="relative rounded border border-neutral-100 min-h-[50px] sm:min-h-[72px] bg-white p-0.5 sm:p-1 group transition-colors"
+                :class="{
+                  'hover:border-dashed hover:border-emerald-400/80 hover:bg-emerald-50/20 dark:hover:bg-emerald-950/10 cursor-pointer': isCellFree(d, sIdx + 1),
+                }"
+                @click="isCellFree(d, sIdx + 1) && openAddCustomEventModal(d, sIdx + 1)"
               >
                 <!-- Placed course in this cell -->
                 <template v-for="c in placedCourses" :key="c.key">
                   <div
                     v-if="c.day === d && blockOf(c.start) === sIdx + 1"
-                    class="rounded border p-1 sm:p-1.5 transition-all cursor-pointer h-full flex flex-col justify-between overflow-hidden"
-                    :class="colorfulCards ? 'course-card-colorful' : 'course-card-default border-[#E5E5E5] bg-[#FAFAFA] hover:bg-neutral-100 hover:border-neutral-400'"
-                    :style="getCourseCardStyle(c.name)"
-                    @click="detail = c"
+                    class="rounded border p-1 sm:p-1.5 transition-all cursor-pointer h-full flex flex-col justify-between overflow-hidden relative select-none"
+                    :class="[
+                      c.isCustom
+                        ? 'border-emerald-300/80 dark:border-emerald-700/60 shadow-xs'
+                        : '',
+                      colorfulCards || c.isCustom
+                        ? 'course-card-colorful'
+                        : 'course-card-default border-[#E5E5E5] bg-[#FAFAFA] hover:bg-neutral-100 hover:border-neutral-400',
+                    ]"
+                    :style="getCourseCardStyle(c)"
+                    @click.stop="detail = c"
                   >
                     <div>
-                      <div class="font-medium text-neutral-900 font-sans line-clamp-2 leading-tight sm:leading-snug text-[9.5px] sm:text-xs">
-                        {{ c.name }}
+                      <div class="flex items-start justify-between gap-0.5">
+                        <div class="font-medium text-neutral-900 font-sans line-clamp-2 leading-tight sm:leading-snug text-[9.5px] sm:text-xs">
+                          {{ c.name }}
+                        </div>
+                        <span
+                          v-if="c.isCustom"
+                          class="px-1 py-0.2 rounded text-[7.5px] sm:text-[8px] bg-emerald-600/10 text-emerald-700 dark:bg-emerald-400/20 dark:text-emerald-300 font-sans font-medium shrink-0 leading-tight"
+                          title="自定义时间安排"
+                        >
+                          日程
+                        </span>
                       </div>
                       <div v-if="showCourseTime" class="text-[7.5px] sm:text-[9px] opacity-75 font-mono mt-0.5">
                         {{ slotTimeOf(c.start) }}
                       </div>
                     </div>
                     <div class="font-mono text-[8px] sm:text-[10px] text-neutral-500 mt-0.5 sm:mt-1 flex items-center justify-between gap-0.5">
-                      <span class="truncate">{{ c.room || '待定' }}</span>
+                      <span class="truncate">{{ c.room || (c.isCustom ? '无地点' : '待定') }}</span>
                       <span class="text-neutral-400 shrink-0 hidden sm:inline">{{ weekCount(c.weeks) }}</span>
                     </div>
                   </div>
                 </template>
+
+                <!-- Free cell hover prompt: + 安排 -->
+                <div
+                  v-if="isCellFree(d, sIdx + 1)"
+                  class="w-full h-full min-h-[46px] sm:min-h-[66px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none select-none"
+                >
+                  <span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-50/90 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[10px] sm:text-xs font-sans shadow-xs scale-90 sm:scale-95">
+                    <span class="font-bold text-xs leading-none">+</span>
+                    <span>安排</span>
+                  </span>
+                </div>
               </div>
             </template>
 
@@ -1172,32 +1464,57 @@ function weekdayName(day: number): string {
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-xs p-4"
       @click.self="detail = null"
     >
-      <div class="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl border border-[#E5E5E5]">
-        <div class="flex items-center justify-between mb-4 border-b border-neutral-100 pb-3">
-          <h3 class="text-sm font-medium text-neutral-900 font-sans">课程详情</h3>
-          <button class="text-neutral-400 hover:text-neutral-900 cursor-pointer p-1" title="关闭" @click="detail = null">✕</button>
+      <div class="w-full max-w-sm rounded-lg bg-white dark:bg-[#1a1d21] p-6 shadow-xl border border-[#E5E5E5] dark:border-neutral-700">
+        <div class="flex items-center justify-between mb-4 border-b border-neutral-100 dark:border-neutral-800 pb-3">
+          <div class="flex items-center gap-2">
+            <span v-if="detail.isCustom" class="px-1.5 py-0.5 rounded text-[10px] font-sans font-medium bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">自建日程</span>
+            <h3 class="text-sm font-medium text-neutral-900 dark:text-white font-sans">{{ detail.isCustom ? '日程安排详情' : '课程详情' }}</h3>
+          </div>
+          <button class="text-neutral-400 hover:text-neutral-900 dark:hover:text-white cursor-pointer p-1" title="关闭" @click="detail = null">✕</button>
         </div>
         <div class="space-y-3 font-mono text-xs">
           <div>
-            <span class="text-neutral-400 block text-[10px] uppercase">课程名称</span>
-            <span class="text-neutral-900 font-sans font-medium text-sm">{{ detail.name }}</span>
+            <span class="text-neutral-400 block text-[10px] uppercase">{{ detail.isCustom ? '事项名称' : '课程名称' }}</span>
+            <span class="text-neutral-900 dark:text-white font-sans font-medium text-sm">{{ detail.name }}</span>
           </div>
           <div>
-            <span class="text-neutral-400 block text-[10px] uppercase">授课教师</span>
-            <span class="text-neutral-700 font-sans">{{ detail.teacher || '—' }}</span>
+            <span class="text-neutral-400 block text-[10px] uppercase">{{ detail.isCustom ? '发起人/参与者' : '授课教师' }}</span>
+            <span class="text-neutral-700 dark:text-neutral-300 font-sans">{{ detail.teacher || '—' }}</span>
           </div>
           <div>
-            <span class="text-neutral-400 block text-[10px] uppercase">上课地点</span>
-            <span class="text-neutral-700">{{ detail.room || '—' }}</span>
+            <span class="text-neutral-400 block text-[10px] uppercase">{{ detail.isCustom ? '安排地点' : '上课地点' }}</span>
+            <span class="text-neutral-700 dark:text-neutral-300">{{ detail.room || '—' }}</span>
           </div>
           <div>
             <span class="text-neutral-400 block text-[10px] uppercase">时间节次</span>
-            <span class="text-neutral-700">{{ weekdayName(detail.day) }} · {{ detail.period }}</span>
+            <span class="text-neutral-700 dark:text-neutral-300">{{ weekdayName(detail.day) }} · {{ detail.period }}</span>
           </div>
           <div>
-            <span class="text-neutral-400 block text-[10px] uppercase">上课周次</span>
-            <span class="text-neutral-700">{{ weekCount(detail.weeks) }}</span>
+            <span class="text-neutral-400 block text-[10px] uppercase">适用周次</span>
+            <span class="text-neutral-700 dark:text-neutral-300">{{ weekCount(detail.weeks) }}</span>
           </div>
+          <div v-if="detail.note">
+            <span class="text-neutral-400 block text-[10px] uppercase">详细备注</span>
+            <p class="text-neutral-700 dark:text-neutral-300 font-sans text-xs whitespace-pre-wrap bg-neutral-50 dark:bg-neutral-800/60 p-2.5 rounded border border-neutral-100 dark:border-neutral-700/80 mt-1">{{ detail.note }}</p>
+          </div>
+        </div>
+
+        <!-- 自建日程：编辑与删除按钮 -->
+        <div v-if="detail.isCustom && detail.id" class="mt-5 pt-3.5 border-t border-neutral-100 dark:border-neutral-800 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            class="px-3 py-1.5 rounded border border-red-200 dark:border-red-800/60 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 text-xs font-mono cursor-pointer transition-colors"
+            @click="deleteCustomEvent(detail.id)"
+          >
+            删除安排
+          </button>
+          <button
+            type="button"
+            class="px-3.5 py-1.5 rounded bg-neutral-900 text-white hover:bg-neutral-800 dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-100 text-xs font-mono font-medium cursor-pointer transition-colors"
+            @click="openEditCustomEventModal(detail as CustomScheduleEvent)"
+          >
+            编辑修改
+          </button>
         </div>
       </div>
     </div>
@@ -1319,17 +1636,241 @@ function weekdayName(day: number): string {
       </div>
     </div>
 
+    <!-- Add / Edit Custom Event Modal (添加/修改日程安排弹窗) -->
+    <div
+      v-if="showCustomEventModal"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4"
+      @click.self="showCustomEventModal = false"
+    >
+      <div class="w-full max-w-md rounded-xl bg-white dark:bg-[#1a1d21] p-5 sm:p-6 shadow-2xl border border-[#E5E5E5] dark:border-neutral-700 max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
+        <div class="flex items-center justify-between pb-3 border-b border-neutral-100 dark:border-neutral-800 mb-4">
+          <div class="flex items-center gap-2">
+            <span class="h-2 w-2 rounded-full bg-emerald-500" />
+            <h3 class="text-sm font-medium text-neutral-900 dark:text-white font-sans">
+              {{ editingEventId ? '编辑时间安排' : '新建时间安排' }}
+            </h3>
+            <span class="text-[11px] font-mono text-neutral-400">Custom Schedule</span>
+          </div>
+          <button
+            type="button"
+            class="text-neutral-400 hover:text-neutral-900 dark:hover:text-white cursor-pointer p-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+            title="关闭"
+            @click="showCustomEventModal = false"
+          >
+            ✕
+          </button>
+        </div>
+
+        <form class="space-y-4 text-xs font-sans" @submit.prevent="saveCustomEvent">
+          <!-- 事项名称 -->
+          <div>
+            <label class="block text-neutral-500 dark:text-neutral-400 font-mono text-[10px] uppercase mb-1">
+              事项名称 <span class="text-red-500">*</span>
+            </label>
+            <input
+              v-model="customForm.name"
+              type="text"
+              required
+              placeholder="如：自习、组会、考研备战、羽毛球..."
+              class="w-full rounded border border-[#E5E5E5] dark:border-neutral-700 bg-[#FAFAFA] dark:bg-neutral-800/80 px-3 py-2 text-neutral-900 dark:text-white placeholder:text-neutral-400 focus:border-neutral-900 dark:focus:border-white focus:bg-white dark:focus:bg-neutral-800 focus:outline-none transition-colors"
+            />
+            <!-- Quick Chips -->
+            <div class="flex flex-wrap gap-1.5 mt-2">
+              <button
+                v-for="act in QUICK_ACTIVITIES"
+                :key="act"
+                type="button"
+                class="px-2 py-0.5 rounded border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-[11px] text-neutral-600 dark:text-neutral-300 hover:border-neutral-400 dark:hover:border-neutral-500 hover:bg-white dark:hover:bg-neutral-700 cursor-pointer transition-colors"
+                @click="customForm.name = act"
+              >
+                {{ act }}
+              </button>
+            </div>
+          </div>
+
+          <!-- 星期与节次 -->
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-neutral-500 dark:text-neutral-400 font-mono text-[10px] uppercase mb-1">
+                星期
+              </label>
+              <select
+                v-model.number="customForm.day"
+                class="w-full rounded border border-[#E5E5E5] dark:border-neutral-700 bg-[#FAFAFA] dark:bg-neutral-800/80 px-2.5 py-2 text-neutral-900 dark:text-white focus:border-neutral-900 dark:focus:border-white focus:outline-none font-mono"
+              >
+                <option v-for="(name, idx) in weekdays" :key="idx" :value="idx + 1">
+                  {{ name }}
+                </option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-neutral-500 dark:text-neutral-400 font-mono text-[10px] uppercase mb-1">
+                时段节次
+              </label>
+              <select
+                v-model.number="customForm.slotIndex"
+                class="w-full rounded border border-[#E5E5E5] dark:border-neutral-700 bg-[#FAFAFA] dark:bg-neutral-800/80 px-2.5 py-2 text-neutral-900 dark:text-white focus:border-neutral-900 dark:focus:border-white focus:outline-none font-mono"
+              >
+                <option v-for="(slot, idx) in periodSlots" :key="idx" :value="idx">
+                  第 {{ slot.label }} 节 ({{ slotTimeOf(slot.start) }})
+                </option>
+              </select>
+            </div>
+          </div>
+
+          <!-- 地点/场所 -->
+          <div>
+            <label class="block text-neutral-500 dark:text-neutral-400 font-mono text-[10px] uppercase mb-1">
+              地点 / 场所 (选填)
+            </label>
+            <input
+              v-model="customForm.room"
+              type="text"
+              placeholder="如：图书馆四层、二教201、西操场、实验室..."
+              class="w-full rounded border border-[#E5E5E5] dark:border-neutral-700 bg-[#FAFAFA] dark:bg-neutral-800/80 px-3 py-2 text-neutral-900 dark:text-white placeholder:text-neutral-400 focus:border-neutral-900 dark:focus:border-white focus:bg-white dark:focus:bg-neutral-800 focus:outline-none transition-colors"
+            />
+          </div>
+
+          <!-- 适用周次预设与自定义 -->
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-neutral-500 dark:text-neutral-400 font-mono text-[10px] uppercase">
+                适用周次
+              </label>
+              <span class="text-[10px] font-mono text-neutral-400">当前学期共 {{ TOTAL_WEEKS }} 周</span>
+            </div>
+            
+            <div class="grid grid-cols-4 gap-1.5 mb-2 font-mono text-[11px]">
+              <button
+                type="button"
+                class="py-1 rounded border text-center transition-colors cursor-pointer"
+                :class="customForm.weekType === 'current' ? 'bg-neutral-900 text-white border-neutral-900 dark:bg-white dark:text-neutral-950 dark:border-white font-medium' : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'"
+                @click="setWeekType('current')"
+              >
+                本周 (第{{ currentWeek }}周)
+              </button>
+              <button
+                type="button"
+                class="py-1 rounded border text-center transition-colors cursor-pointer"
+                :class="customForm.weekType === 'all' ? 'bg-neutral-900 text-white border-neutral-900 dark:bg-white dark:text-neutral-950 dark:border-white font-medium' : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'"
+                @click="setWeekType('all')"
+              >
+                全学期 (1-16周)
+              </button>
+              <button
+                type="button"
+                class="py-1 rounded border text-center transition-colors cursor-pointer"
+                :class="customForm.weekType === 'odd' ? 'bg-neutral-900 text-white border-neutral-900 dark:bg-white dark:text-neutral-950 dark:border-white font-medium' : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'"
+                @click="setWeekType('odd')"
+              >
+                单周
+              </button>
+              <button
+                type="button"
+                class="py-1 rounded border text-center transition-colors cursor-pointer"
+                :class="customForm.weekType === 'even' ? 'bg-neutral-900 text-white border-neutral-900 dark:bg-white dark:text-neutral-950 dark:border-white font-medium' : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'"
+                @click="setWeekType('even')"
+              >
+                双周
+              </button>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <span class="text-neutral-400 font-mono text-[10px] shrink-0">自定义周:</span>
+              <input
+                v-model="customForm.customWeeksInput"
+                type="text"
+                placeholder="例如: 1-8 或 1,3,5,7 或 2-16"
+                class="flex-1 rounded border border-[#E5E5E5] dark:border-neutral-700 bg-[#FAFAFA] dark:bg-neutral-800/80 px-2.5 py-1.5 text-neutral-900 dark:text-white font-mono text-xs focus:border-neutral-900 dark:focus:border-white focus:outline-none"
+                @input="customForm.weekType = 'custom'"
+              />
+            </div>
+          </div>
+
+          <!-- 卡片配色 -->
+          <div>
+            <label class="block text-neutral-500 dark:text-neutral-400 font-mono text-[10px] uppercase mb-1.5">
+              卡片配色
+            </label>
+            <div class="grid grid-cols-4 sm:grid-cols-8 gap-2">
+              <button
+                v-for="p in COLOR_PALETTES"
+                :key="p.name"
+                type="button"
+                class="flex flex-col items-center justify-center p-1.5 rounded-lg border cursor-pointer transition-all"
+                :class="[
+                  customForm.color === p.name
+                    ? 'border-neutral-900 ring-2 ring-neutral-900/20 dark:border-white dark:ring-white/30 scale-105'
+                    : 'border-neutral-200 dark:border-neutral-700 hover:border-neutral-400'
+                ]"
+                :style="{ backgroundColor: p.lightBg }"
+                @click="customForm.color = p.name"
+              >
+                <span class="w-3.5 h-3.5 rounded-full mb-1 shadow-xs" :style="{ backgroundColor: p.lightText }" />
+                <span class="text-[9px] font-sans font-medium" :style="{ color: p.lightText }">{{ p.label }}</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 详细备注 -->
+          <div>
+            <label class="block text-neutral-500 dark:text-neutral-400 font-mono text-[10px] uppercase mb-1">
+              详细备注 (选填)
+            </label>
+            <textarea
+              v-model="customForm.note"
+              rows="2"
+              placeholder="添加重要提示、携带材料或待办事项..."
+              class="w-full rounded border border-[#E5E5E5] dark:border-neutral-700 bg-[#FAFAFA] dark:bg-neutral-800/80 px-3 py-2 text-neutral-900 dark:text-white placeholder:text-neutral-400 focus:border-neutral-900 dark:focus:border-white focus:bg-white dark:focus:bg-neutral-800 focus:outline-none transition-colors resize-none"
+            />
+          </div>
+
+          <!-- 底部操作按钮 -->
+          <div class="pt-3 border-t border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
+            <button
+              v-if="editingEventId"
+              type="button"
+              class="text-red-600 dark:text-red-400 hover:underline cursor-pointer text-xs"
+              @click="deleteCustomEvent(editingEventId)"
+            >
+              删除该安排
+            </button>
+            <div v-else />
+
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                class="px-3.5 py-1.5 rounded border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
+                @click="showCustomEventModal = false"
+              >
+                取消
+              </button>
+              <button
+                type="submit"
+                class="px-4 py-1.5 rounded bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 hover:bg-neutral-800 dark:hover:bg-neutral-100 font-medium cursor-pointer transition-colors shadow-xs"
+              >
+                {{ editingEventId ? '保存修改' : '立即添加' }}
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <!-- Toolbox Modal (更多功能工具箱) -->
     <ToolboxModal
       :show="showToolbox"
-      :schedule="schedule"
+      :schedule="combinedSchedule"
       :student-id="studentId"
       :password="password"
+      :custom-events="customEvents"
       @close="showToolbox = false"
       @open-calendar="showToolbox = false; viewer = 'calendar'"
       @logout="handleScheduleLogout"
       @update-bg="onUpdateBg"
       @update-appearance="onUpdateAppearance"
+      @open-add-event="showToolbox = false; openAddCustomEventModal()"
+      @delete-custom-event="deleteCustomEvent"
     />
 
   </div>
