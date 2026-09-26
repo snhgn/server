@@ -218,15 +218,15 @@ function selectProvider(p: string) {
               class="flex items-center gap-1.5 rounded border px-2 py-1 font-mono text-[11px] transition-colors cursor-pointer"
               :class="
                 useMemory
-                  ? 'border-neutral-900 bg-neutral-900 text-white font-medium'
-                  : 'border-[#E5E5E5] bg-white text-neutral-500 hover:border-neutral-300 hover:text-neutral-900'
+                  ? 'border-neutral-900 bg-neutral-900 text-white font-medium dark:bg-white dark:text-neutral-950 dark:border-white'
+                  : 'border-[#E5E5E5] bg-white text-neutral-500 hover:border-neutral-300 hover:text-neutral-900 dark:border-[#2e333b] dark:bg-[#16191c] dark:text-neutral-400 dark:hover:border-neutral-500 dark:hover:text-white'
               "
               :title="memoryEnabled ? '切换长期偏好记忆' : '需先在设置中启用记忆'"
               @click="emit('update:useMemory', !useMemory)"
             >
               <span
                 class="h-1.5 w-1.5 rounded-full"
-                :class="useMemory ? 'bg-white' : 'bg-neutral-300'"
+                :class="useMemory ? 'bg-white dark:bg-neutral-950' : 'bg-neutral-300 dark:bg-neutral-600'"
               />
               <span>Memory</span>
             </button>
@@ -237,15 +237,15 @@ function selectProvider(p: string) {
               class="flex items-center gap-1.5 rounded border px-2 py-1 font-mono text-[11px] transition-colors cursor-pointer"
               :class="
                 useRag
-                  ? 'border-neutral-900 bg-neutral-900 text-white font-medium'
-                  : 'border-[#E5E5E5] bg-white text-neutral-500 hover:border-neutral-300 hover:text-neutral-900'
+                  ? 'border-neutral-900 bg-neutral-900 text-white font-medium dark:bg-white dark:text-neutral-950 dark:border-white'
+                  : 'border-[#E5E5E5] bg-white text-neutral-500 hover:border-neutral-300 hover:text-neutral-900 dark:border-[#2e333b] dark:bg-[#16191c] dark:text-neutral-400 dark:hover:border-neutral-500 dark:hover:text-white'
               "
               title="切换校园与专业资料 RAG 检索"
               @click="emit('update:useRag', !useRag)"
             >
               <span
                 class="h-1.5 w-1.5 rounded-full"
-                :class="useRag ? 'bg-white' : 'bg-neutral-300'"
+                :class="useRag ? 'bg-white dark:bg-neutral-950' : 'bg-neutral-300 dark:bg-neutral-600'"
               />
               <span>Knowledge RAG</span>
             </button>
@@ -254,7 +254,7 @@ function selectProvider(p: string) {
             <div class="relative">
               <button
                 type="button"
-                class="flex items-center gap-1 rounded border border-[#E5E5E5] bg-white px-2 py-1 font-mono text-[11px] text-neutral-600 hover:border-neutral-300 hover:text-neutral-900 transition-colors cursor-pointer"
+                class="flex items-center gap-1 rounded border border-[#E5E5E5] bg-white px-2 py-1 font-mono text-[11px] text-neutral-600 hover:border-neutral-300 hover:text-neutral-900 transition-colors cursor-pointer dark:bg-[#16191c] dark:border-[#2e333b] dark:text-neutral-300 dark:hover:border-neutral-500 dark:hover:text-white"
                 @click="modelMenuOpen = !modelMenuOpen"
               >
                 <span>{{ providerLabel }}</span>
@@ -268,7 +268,7 @@ function selectProvider(p: string) {
               />
               <div
                 v-if="modelMenuOpen"
-                class="absolute bottom-full left-0 z-50 mb-1.5 w-48 rounded-md border border-[#E5E5E5] bg-white p-1 shadow-lg text-xs font-mono"
+                class="absolute bottom-full left-0 z-50 mb-1.5 w-48 rounded-md border border-[#E5E5E5] bg-white p-1 shadow-lg text-xs font-mono dark:bg-[#1c2026] dark:border-[#2e333b]"
                 @click="modelMenuOpen = false"
               >
                 <button
@@ -292,10 +292,10 @@ function selectProvider(p: string) {
             <button
               v-if="isSending"
               type="button"
-              class="flex h-7 items-center gap-1 rounded bg-neutral-900 px-2.5 font-mono text-[11px] text-white hover:bg-neutral-800 transition-colors cursor-pointer"
+              class="flex h-7 items-center gap-1 rounded bg-neutral-900 px-2.5 font-mono text-[11px] text-white hover:bg-neutral-800 transition-colors cursor-pointer dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200"
               @click="emit('stop')"
             >
-              <span class="h-2 w-2 rounded-xs bg-white" />
+              <span class="h-2 w-2 rounded-xs bg-white dark:bg-neutral-950" />
               <span>Stop</span>
             </button>
 
@@ -303,7 +303,7 @@ function selectProvider(p: string) {
               v-else
               type="button"
               :disabled="!canSend"
-              class="flex h-7 w-7 items-center justify-center rounded bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-30 disabled:cursor-not-allowed transition-all cursor-pointer"
+              class="flex h-7 w-7 items-center justify-center rounded bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-30 disabled:cursor-not-allowed transition-all cursor-pointer dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200 dark:disabled:bg-neutral-800 dark:disabled:text-neutral-500"
               title="发送 (Enter)"
               @click="emit('send')"
             >

@@ -90,7 +90,7 @@ onMounted(load)
           :key="c"
           type="button"
           class="rounded px-2.5 py-1 text-xs transition-colors cursor-pointer"
-          :class="selectedCategory === c ? 'bg-neutral-900 text-white' : 'border border-[#E5E5E5] bg-white text-neutral-600 hover:bg-[#FAFAFA]'"
+          :class="selectedCategory === c ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 font-medium' : 'border border-[#E5E5E5] bg-white text-neutral-600 hover:bg-[#FAFAFA] dark:bg-[#1a1d21] dark:border-[#2e333b] dark:text-neutral-300 dark:hover:border-neutral-500'"
           @click="selectedCategory = c"
         >
           {{ c }}

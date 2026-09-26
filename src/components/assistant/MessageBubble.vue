@@ -205,7 +205,7 @@ function formatSize(f: FileMeta): string {
   <div v-else class="flex items-start gap-3.5">
     
     <!-- Signature Mark Indicator -->
-    <div class="flex h-5 w-5 flex-none items-center justify-center rounded-full bg-neutral-900 text-white mt-1 shrink-0 font-mono text-[10px]" title="snhgn.">
+    <div class="flex h-5 w-5 flex-none items-center justify-center rounded-full bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 mt-1 shrink-0 font-mono text-[10px]" title="snhgn.">
       <span>.</span>
     </div>
 
@@ -219,7 +219,7 @@ function formatSize(f: FileMeta): string {
           class="inline-flex items-center gap-1.5 rounded border border-[#E5E5E5] bg-white px-2 py-1 font-mono text-[11px] text-neutral-600 hover:text-neutral-900 transition-colors cursor-pointer"
           @click="showThinking = !showThinking"
         >
-          <span v-if="streaming && !text" class="inline-block h-1.5 w-1.5 animate-ping rounded-full bg-neutral-900" />
+          <span v-if="streaming && !text" class="inline-block h-1.5 w-1.5 animate-ping rounded-full bg-neutral-900 dark:bg-emerald-400" />
           <span>Thinking ({{ statusSteps.length }} steps)</span>
           <span class="text-[9px] text-neutral-400">{{ showThinking ? '▲' : '▼' }}</span>
         </button>
@@ -230,7 +230,7 @@ function formatSize(f: FileMeta): string {
             <span>{{ step }}</span>
           </div>
           <div v-if="streaming && !text" class="flex items-center gap-2 text-neutral-400">
-            <span class="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-neutral-900" />
+            <span class="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-neutral-900 dark:bg-emerald-400" />
             <span>Processing stream...</span>
           </div>
         </div>
@@ -247,7 +247,7 @@ function formatSize(f: FileMeta): string {
       <!-- Streaming Cursor -->
       <span
         v-if="streaming && text"
-        class="ml-0.5 inline-block h-3.5 w-1 rounded-full bg-neutral-900 align-middle animate-pulse"
+        class="ml-0.5 inline-block h-3.5 w-1 rounded-full bg-neutral-900 dark:bg-white align-middle animate-pulse"
       />
 
       <!-- Sources & Citations -->

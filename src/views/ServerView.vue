@@ -120,7 +120,7 @@ onMounted(loadStatus)
             </div>
             <div class="h-1.5 w-full bg-[#F4F5F6] rounded-full overflow-hidden">
               <div
-                class="h-full bg-neutral-900 transition-all duration-300"
+                class="h-full bg-neutral-900 dark:bg-white transition-all duration-300"
                 :style="{ width: `${status.cpu?.percent || 0}%` }"
               />
             </div>
@@ -136,7 +136,7 @@ onMounted(loadStatus)
             </div>
             <div class="h-1.5 w-full bg-[#F4F5F6] rounded-full overflow-hidden">
               <div
-                class="h-full bg-neutral-900 transition-all duration-300"
+                class="h-full bg-neutral-900 dark:bg-white transition-all duration-300"
                 :style="{ width: `${status.memory?.percent || 0}%` }"
               />
             </div>
@@ -152,7 +152,7 @@ onMounted(loadStatus)
             </div>
             <div class="h-1.5 w-full bg-[#F4F5F6] rounded-full overflow-hidden">
               <div
-                class="h-full bg-neutral-900 transition-all duration-300"
+                class="h-full bg-neutral-900 dark:bg-white transition-all duration-300"
                 :style="{ width: `${status.disk?.percent || 0}%` }"
               />
             </div>
@@ -180,7 +180,7 @@ onMounted(loadStatus)
               <tr v-for="c in status.containers" :key="c.name" class="hover:bg-[#FAFAFA]/70 transition-colors">
                 <td class="px-4 py-3 font-medium text-neutral-900">
                   <div class="flex items-center gap-2">
-                    <span class="h-1.5 w-1.5 rounded-full bg-neutral-900" />
+                    <span class="h-1.5 w-1.5 rounded-full bg-neutral-900 dark:bg-emerald-400" />
                     <span>{{ c.name }}</span>
                   </div>
                 </td>

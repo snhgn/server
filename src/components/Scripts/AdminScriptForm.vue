@@ -299,13 +299,13 @@ function submit() {
           <span class="text-neutral-700 font-medium">启用自动调度</span>
           <button
             type="button"
-            class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors cursor-pointer"
-            :class="form.enabled ? 'bg-neutral-950' : 'bg-neutral-200'"
+            class="no-invert relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors cursor-pointer"
+            :class="form.enabled ? 'bg-neutral-950 dark:bg-white' : 'bg-neutral-200 dark:bg-neutral-700'"
             @click="form.enabled = !form.enabled"
           >
             <span
-              class="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform"
-              :class="form.enabled ? 'translate-x-4.5' : 'translate-x-0.5'"
+              class="inline-block h-3.5 w-3.5 transform rounded-full transition-transform"
+              :class="form.enabled ? 'translate-x-4.5 bg-white dark:bg-neutral-950' : 'translate-x-0.5 bg-white dark:bg-neutral-300'"
             />
           </button>
         </div>

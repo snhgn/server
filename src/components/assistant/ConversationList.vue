@@ -125,8 +125,8 @@ function confirmDelete(sid: string) {
             class="group relative flex cursor-pointer items-center justify-between rounded px-2.5 py-1.5 text-xs transition-colors"
             :class="
               s.session_id === currentSessionId
-                ? 'bg-white border border-[#E5E5E5] text-neutral-950 font-medium shadow-[0_1px_2px_rgba(0,0,0,0.02)]'
-                : 'text-neutral-600 hover:bg-white/60 hover:text-neutral-900'
+                ? 'bg-white border border-[#E5E5E5] text-neutral-950 font-medium shadow-[0_1px_2px_rgba(0,0,0,0.02)] dark:bg-[#20252c] dark:border-[#383f4a] dark:text-white'
+                : 'text-neutral-600 hover:bg-white/60 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-[#1a1e24] dark:hover:text-white'
             "
             @click="renamingId !== s.session_id && emit('select', s.session_id)"
           >
@@ -135,7 +135,7 @@ function confirmDelete(sid: string) {
               v-if="renamingId === s.session_id"
               ref="renameInputRef"
               v-model="renameDraft"
-              class="min-w-0 flex-1 rounded bg-white px-1.5 py-0.5 text-xs text-neutral-900 border border-neutral-900 outline-none font-sans"
+              class="min-w-0 flex-1 rounded bg-white px-1.5 py-0.5 text-xs text-neutral-900 border border-neutral-900 outline-none font-sans dark:bg-[#16191c] dark:text-white dark:border-neutral-500"
               @keydown.enter.prevent="commitRename"
               @keydown.esc="cancelRename"
               @blur="commitRename"

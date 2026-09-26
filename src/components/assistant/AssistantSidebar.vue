@@ -133,7 +133,7 @@ function handleLogout() {
     <div class="border-t border-[#E5E5E5]/70 bg-white p-3 text-xs">
       <div class="flex items-center justify-between rounded px-1.5 py-1">
         <div class="flex items-center gap-2 min-w-0">
-          <div class="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-neutral-900 font-mono text-[10px] text-white">
+          <div class="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-neutral-900 font-mono text-[10px] text-white dark:bg-white dark:text-neutral-950">
             {{ initial }}
           </div>
           <div class="flex flex-col min-w-0">

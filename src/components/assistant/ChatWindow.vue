@@ -124,7 +124,7 @@ function onQuick(entry: { prompt: string }) {
           class="hidden sm:inline-flex items-center gap-1.5 rounded border border-[#E5E5E5] bg-[#FAFAFA] px-2 py-0.5 text-[10px]"
           :title="memoryEnabled ? '长期偏好记忆已启用' : '记忆未启用'"
         >
-          <span class="h-1.5 w-1.5 rounded-full" :class="memoryEnabled ? 'bg-neutral-900' : 'bg-neutral-300'" />
+          <span class="h-1.5 w-1.5 rounded-full" :class="memoryEnabled ? 'bg-neutral-900 dark:bg-emerald-400' : 'bg-neutral-300 dark:bg-neutral-600'" />
           <span>{{ memoryCount !== null ? `Memory: ${memoryCount}` : 'Memory' }}</span>
         </span>
 
@@ -132,7 +132,7 @@ function onQuick(entry: { prompt: string }) {
           class="hidden sm:inline-flex items-center gap-1.5 rounded border border-[#E5E5E5] bg-[#FAFAFA] px-2 py-0.5 text-[10px]"
           title="RAG 知识库检索状态"
         >
-          <span class="h-1.5 w-1.5 rounded-full bg-neutral-900" />
+          <span class="h-1.5 w-1.5 rounded-full bg-neutral-900 dark:bg-emerald-400" />
           <span>{{ lastSourcesCount > 0 ? `RAG: ${lastSourcesCount}` : 'RAG Ready' }}</span>
         </span>
 
