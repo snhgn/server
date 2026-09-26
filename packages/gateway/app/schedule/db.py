@@ -34,6 +34,16 @@ CREATE TABLE IF NOT EXISTS schedule_shares (
 );
 CREATE INDEX IF NOT EXISTS idx_share_code ON schedule_shares(code);
 CREATE INDEX IF NOT EXISTS idx_share_student ON schedule_shares(student_id);
+
+CREATE TABLE IF NOT EXISTS grade_monitors (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id    TEXT NOT NULL UNIQUE,
+    email         TEXT NOT NULL,
+    enabled       INTEGER NOT NULL DEFAULT 1,
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_grade_monitor_student ON grade_monitors(student_id);
 """
 
 
@@ -179,4 +189,46 @@ def create_or_update_share(student_id: str, owner_name: str, schedule_json: str,
             (code, sid, name, schedule_json, semester, now_str, now_str),
         )
         return code
+
+
+def get_grade_monitor(student_id: str) -> dict | None:
+    """获取指定学号的成绩监控配置。"""
+    sid = student_id.strip()
+    if not sid:
+        return None
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT student_id, email, enabled, created_at, updated_at FROM grade_monitors WHERE student_id = ?",
+            (sid,),
+        ).fetchone()
+        if not row:
+            return None
+        return dict(row)
+
+
+def save_grade_monitor(student_id: str, email: str, enabled: bool = True) -> dict:
+    """保存或更新指定学号的成绩出分监控配置。"""
+    sid = student_id.strip()
+    em = email.strip()
+    enabled_int = 1 if enabled else 0
+    from datetime import datetime, timezone
+    now_str = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    with _conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO grade_monitors (student_id, email, enabled, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(student_id) DO UPDATE SET
+                email = excluded.email,
+                enabled = excluded.enabled,
+                updated_at = excluded.updated_at
+            """,
+            (sid, em, enabled_int, now_str, now_str),
+        )
+    return {
+        "student_id": sid,
+        "email": em,
+        "enabled": bool(enabled_int),
+        "updated_at": now_str,
+    }
 

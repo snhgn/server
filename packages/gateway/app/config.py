@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     COURSE_DATA_DIR: str = "/data/course-data" # 用户专属 AI 数据目录（与 ai-service 共享）
     COURSE_SYNC_HOUR: int = 3                  # 每日定时同步时刻（24 小时制，服务器时区）
 
+    # ---- SMTP 邮件服务 ----
+    SMTP_HOST: str = "smtp.163.com"
+    SMTP_PORT: int = 465
+    SMTP_SENDER: str = "maben513512686@163.com"
+    SMTP_AUTH_CODE: str = "DL52SdMJE6Gx7aQ4"
+
     # ---- 通用 ----
     REQUEST_TIMEOUT: float = 130.0
 
