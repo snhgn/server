@@ -58,6 +58,11 @@ def main():
     parser.add_argument("--grades", action="store_true", help="查询各科成绩与GPA")
     parser.add_argument("--exams", action="store_true", help="查询考试日程安排")
     parser.add_argument("--classrooms", action="store_true", help="查询空闲自习教室")
+    parser.add_argument("--building", default="001", help="教学楼编号: 001(一教), 003(二教), 014(学研)，空为全部")
+    parser.add_argument("--week", type=int, default=3, help="周次 (1-30)")
+    parser.add_argument("--day", type=int, default=2, help="星期 (1-7)")
+    parser.add_argument("--start-period", type=int, default=1, help="开始节次 (1-12)")
+    parser.add_argument("--end-period", type=int, default=2, help="结束节次 (1-12)")
     parser.add_argument("--plan", action="store_true", help="查询四年培养方案要求")
     parser.add_argument("--level-exams", action="store_true", help="查询四六级等社会等级考试")
     parser.add_argument("--all", action="store_true", help="执行全部模块测试")
@@ -74,7 +79,7 @@ def main():
         args.all = True
 
     print(f"[*] 正在为学号 {user} 登录北林强智教务系统...")
-    success, sess, reason = captcha.login(user, pwd, verbose=False)
+    success, sess, reason = captcha.login(user, pwd, max_retry=5, verbose=False)
     if not success:
         print(f"[-] 登录失败: {reason}")
         sys.exit(1)
@@ -104,12 +109,19 @@ def main():
 
     if args.classrooms or args.all:
         print("=" * 30 + " 空闲自习教室 (Classrooms) " + "=" * 30)
-        # 默认查本周二 1-2 节一教
-        rooms = toolbox.get_free_classrooms(sess, building="001", week=3, day=2, start_period=1, end_period=2)
-        print(f"一教(001) 第3周周二 1-2节 空闲教室数: {len(rooms)}")
+        rooms = toolbox.get_free_classrooms(
+            sess,
+            building=args.building,
+            week=args.week,
+            day=args.day,
+            start_period=args.start_period,
+            end_period=args.end_period,
+        )
+        b_label = "全部教学区" if not args.building else f"教学楼({args.building})"
+        print(f"{b_label} 第{args.week}周周{args.day} {args.start_period}-{args.end_period}节 空闲教室数: {len(rooms)}")
         print("可用教室清单样例:")
-        for r in rooms[:6]:
-            print(f"  - 教室: {r['name']} | 容量: {r['capacity']}")
+        for r in rooms[:10]:
+            print(f"  - 教室: {r['name']} | 容量: {r['capacity']} | {r['building']}")
         print()
 
     if args.plan or args.all:

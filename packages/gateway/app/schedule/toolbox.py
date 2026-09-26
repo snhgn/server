@@ -170,8 +170,8 @@ def get_free_classrooms(
     """查询指定时段的空闲教室列表。
     
     Args:
-        building: 教学楼编号，'' 为全部，'001' 一教，'003' 二教，'014' 学研大厦
-        week: 周次 (1-20)
+        building: 教学楼编号，'' 为全部，'001' 一教，'003' 二教，'014' 学研大厦，'004' 主楼等
+        week: 周次 (1-30)
         day: 星期几 (1-7)
         start_period: 开始节次 (1-12)
         end_period: 结束节次 (1-12)
@@ -179,14 +179,18 @@ def get_free_classrooms(
     url = f"{BASE_URL}/jsxsd/kbxx/jsjy_query2"
     data = {
         "typewhere": "jszq",
-        "xnxqh": semester,
-        "jxlbh": building,
-        "zc": str(week),
-        "zc2": str(week),
-        "xq": str(day),
-        "xq2": str(day),
-        "jc": f"{start_period:02d}",
-        "jc2": f"{end_period:02d}",
+        "xnxqh": semester or "2026-2027-1",
+        "jxlbh": building or "",
+        "jsbh": "",
+        "bjfh": "=",
+        "rnrs": "",
+        "jszt": "5",  # 5 = 空闲
+        "zc": str(week) if week else "",
+        "zc2": str(week) if week else "",
+        "xq": str(day) if day else "",
+        "xq2": str(day) if day else "",
+        "jc": f"{start_period:02d}" if start_period else "",
+        "jc2": f"{end_period:02d}" if end_period else "",
     }
     headers = {"Referer": f"{BASE_URL}/jsxsd/kbxx/jsjy_query?Ves632DSdyV=NEW_XSD_PYGL"}
     r = session.post(url, data=data, headers=headers, timeout=15)
@@ -195,27 +199,52 @@ def get_free_classrooms(
     
     free_rooms = []
     if table:
-        for tr in table.find_all("tr")[1:]:
-            tds = [td.text.strip() for td in tr.find_all("td")]
-            if len(tds) >= 2:
-                room_info = tds[0]
-                status = tds[1]
-                # 状态为空或无占用标志表示空闲
-                if not status or status.strip() == "":
-                    # 提取名称和容量，形如 'A0212(56/28)'
-                    m = re.match(r"([^(]+)(?:\(([^)]+)\))?", room_info)
-                    if m:
-                        name = m.group(1).strip()
-                        cap = m.group(2) if m.group(2) else ""
-                    else:
-                        name = room_info
-                        cap = ""
-                    free_rooms.append({
-                        "name": name,
-                        "raw": room_info,
-                        "capacity": cap,
-                        "building": building or "全校",
-                    })
+        for tr in table.find_all("tr"):
+            tds = [td.text.strip() for td in tr.find_all(["td", "th"])]
+            if not tds or len(tds) < 2:
+                continue
+            room_info = tds[0]
+            # 过滤表头及底部符号说明
+            if any(k in room_info for k in ["星期", "教室", "说明", "节次", "时间"]):
+                continue
+            
+            # tds[1:] 包含查询时段内各节次的状态
+            status_cells = tds[1:]
+            # 只有当所有节次均为空时（即没有 ◆, J, K, L, G, X 等占用标志），才算完全空闲
+            if all(not s for s in status_cells):
+                m = re.match(r"([^(]+)(?:\(([^)]+)\))?", room_info)
+                if m:
+                    name = m.group(1).strip()
+                    cap = m.group(2) if m.group(2) else ""
+                else:
+                    name = room_info
+                    cap = ""
+                
+                # 智能识别教学楼归属
+                b_name = "其他教学区"
+                if "一教" in name or building == "001":
+                    b_name = "第一教学楼 (一教)"
+                elif "二教" in name or building == "003":
+                    b_name = "第二教学楼 (二教)"
+                elif any(name.startswith(x) for x in ["A", "B", "C", "学研"]) or building == "014":
+                    b_name = "学研大厦"
+                elif "主楼" in name or building == "004":
+                    b_name = "主楼"
+                elif "森工" in name or building == "006":
+                    b_name = "森工楼"
+                elif "生物" in name or building == "007":
+                    b_name = "生物楼"
+                elif building:
+                    b_name = f"教学楼({building})"
+                else:
+                    b_name = "全校教学区"
+
+                free_rooms.append({
+                    "name": name,
+                    "raw": room_info,
+                    "capacity": cap,
+                    "building": b_name,
+                })
     return free_rooms
 
 
@@ -243,7 +272,7 @@ def get_level_exams(session: requests.Session) -> List[Dict[str, str]]:
 
 def execute_with_login(account: str, password: str, task_fn, *args, **kwargs):
     """自动完成登录并调用目标抓取函数，确保 Session 生命周期安全关闭。"""
-    success, sess, reason = captcha.login(account.strip(), password)
+    success, sess, reason = captcha.login(account.strip(), password, max_retry=5)
     if not success:
         raise ValueError(reason or "账号或密码错误或验证码识别失败")
     try:
