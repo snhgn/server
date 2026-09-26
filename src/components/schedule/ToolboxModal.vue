@@ -523,15 +523,6 @@ const classroomPeriodMap: Record<string, [number, number]> = {
   '1-12': [1, 12],
 }
 
-function formatRoomCapacity(cap?: string) {
-  if (!cap) return '可自习'
-  if (cap.includes('/')) {
-    const [total, exam] = cap.split('/')
-    return `${total} 座 (考位 ${exam})`
-  }
-  return `${cap} 座`
-}
-
 function getBuildingTag(room: FreeRoom) {
   if (room.short_building) return room.short_building
   if (room.building) {
@@ -1668,16 +1659,11 @@ function saveMonitor() {
                 :key="r.name"
                 class="p-2.5 border border-[#E5E5E5] rounded-lg bg-[#FAFAFA] flex items-center justify-between hover:border-neutral-400 transition-colors"
               >
-                <div>
-                  <div class="flex items-center gap-1.5">
-                    <span class="font-medium text-neutral-900 text-xs">{{ r.name }}</span>
-                    <span class="text-[9px] px-1.5 py-0.5 rounded bg-neutral-200 text-neutral-600 font-sans">
-                      {{ getBuildingTag(r) }}
-                    </span>
-                  </div>
-                  <div class="text-[10px] text-neutral-400 font-mono mt-0.5">
-                    {{ formatRoomCapacity(r.capacity) }}
-                  </div>
+                <div class="flex items-center gap-1.5">
+                  <span class="font-medium text-neutral-900 text-xs">{{ r.name }}</span>
+                  <span class="text-[9px] px-1.5 py-0.5 rounded bg-neutral-200 text-neutral-600 font-sans">
+                    {{ getBuildingTag(r) }}
+                  </span>
                 </div>
                 <span class="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded text-[10px] font-medium shrink-0">空闲</span>
               </div>
