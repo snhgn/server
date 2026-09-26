@@ -661,6 +661,10 @@ watch(activeTool, (tool) => {
     }
   } else if (tool === 'share_friends') {
     fetchMyShareCode()
+  } else if (tool === 'grade_monitor') {
+    monitorMsg.value = ''
+    monitorError.value = ''
+    fetchMonitorConfig()
   }
 })
 
@@ -1013,14 +1017,94 @@ function removeFriend(idx: number) {
   localStorage.setItem('bjfu-shared-friends', JSON.stringify(sharedFriends.value))
 }
 
-// 模拟成绩出分监控
+// ================= 成绩出分监控与邮件通知 =================
 const monitorEmail = ref(localStorage.getItem('bjfu-monitor-email') || '')
 const monitorEnabled = ref(localStorage.getItem('bjfu-monitor-enabled') === 'true')
-function saveMonitor() {
-  localStorage.setItem('bjfu-monitor-email', monitorEmail.value.trim())
-  localStorage.setItem('bjfu-monitor-enabled', String(monitorEnabled.value))
-  showAlert('成绩监控设置已保存')
-  activeTool.value = 'none'
+const monitorLoading = ref(false)
+const monitorTestLoading = ref(false)
+const monitorMsg = ref('')
+const monitorError = ref('')
+
+async function fetchMonitorConfig() {
+  if (!props.studentId) return
+  try {
+    const res = await api.get<{ has_monitor: boolean; email?: string; enabled?: boolean }>(
+      `/api/schedule/monitor/get?student_id=${encodeURIComponent(props.studentId)}`
+    )
+    if (res && res.has_monitor) {
+      if (res.email) {
+        monitorEmail.value = res.email
+        localStorage.setItem('bjfu-monitor-email', res.email)
+      }
+      monitorEnabled.value = !!res.enabled
+      localStorage.setItem('bjfu-monitor-enabled', String(res.enabled))
+    }
+  } catch {
+    // 忽略后台静默获取错误
+  }
+}
+
+async function sendTestEmail() {
+  const email = monitorEmail.value.trim()
+  if (!email) {
+    monitorError.value = '请先输入接收通知的邮箱地址'
+    return
+  }
+  monitorTestLoading.value = true
+  monitorMsg.value = ''
+  monitorError.value = ''
+  try {
+    const res = await api.post<{ success: boolean; message: string }>('/api/schedule/monitor/test', {
+      student_id: props.studentId || '',
+      email: email,
+    })
+    monitorMsg.value = res.message || `测试邮件已成功发送至 ${email}，请查收！`
+    showAlert(`测试邮件已发送至 ${email}，请查收！`)
+  } catch (err: any) {
+    monitorError.value = err.message || '测试邮件发送失败，请检查邮箱地址或网络'
+  } finally {
+    monitorTestLoading.value = false
+  }
+}
+
+async function saveMonitor() {
+  const email = monitorEmail.value.trim()
+  if (monitorEnabled.value && !email) {
+    monitorError.value = '开启监控必须提供有效的接收通知邮箱'
+    return
+  }
+
+  monitorLoading.value = true
+  monitorMsg.value = ''
+  monitorError.value = ''
+  try {
+    const res = await api.post<{
+      success: boolean
+      email: string
+      enabled: boolean
+      test_email_sent: boolean
+      message: string
+    }>('/api/schedule/monitor/save', {
+      student_id: props.studentId || '',
+      email: email,
+      enabled: monitorEnabled.value,
+      send_test: true, // 核心需求：设置时发送一封测试邮件
+    })
+
+    localStorage.setItem('bjfu-monitor-email', email)
+    localStorage.setItem('bjfu-monitor-enabled', String(monitorEnabled.value))
+
+    if (res.test_email_sent) {
+      showAlert(`成绩监控设置已保存，测试邮件已发送至 ${email}，请注意查收！`)
+    } else {
+      showAlert(res.message || '成绩监控设置已保存')
+    }
+    activeTool.value = 'none'
+  } catch (err: any) {
+    monitorError.value = err.message || '保存监控设置失败，请稍后重试'
+  } finally {
+    monitorLoading.value = false
+  }
 }
 </script>
 
@@ -2354,23 +2438,79 @@ function saveMonitor() {
         </div>
 
         <p class="text-neutral-500 leading-relaxed">
-          期末出分季开启后，系统将在后台自动定期检测教务新出分数，并在第一时间向指定邮箱发送提醒。
+          开启后，系统将在后台自动定期检测教务新出分数，并在第一时间向指定邮箱发送提醒通知。
         </p>
 
+        <!-- 邮件测试与链路状态说明提示 -->
+        <div class="p-3 bg-neutral-50 border border-neutral-200 rounded-lg space-y-1">
+          <div class="flex items-center gap-1.5 font-medium text-neutral-800">
+            <svg class="w-3.5 h-3.5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>自动发送测试邮件保障</span>
+          </div>
+          <p class="text-[11px] text-neutral-500 leading-normal">
+            保存监控设置时，系统将自动向填写的邮箱发送一封测试邮件，确保您的通知链路畅通。
+          </p>
+        </div>
+
         <div class="space-y-3">
-          <label class="flex items-center justify-between p-3 border border-[#E5E5E5] rounded-lg cursor-pointer">
-            <span class="text-neutral-800 font-medium">开启成绩出分监控</span>
-            <input v-model="monitorEnabled" type="checkbox" class="h-4 w-4 accent-neutral-900" />
+          <label class="flex items-center justify-between p-3 border border-[#E5E5E5] rounded-lg cursor-pointer bg-[#FAFAFA] hover:bg-neutral-100/70 transition-colors">
+            <div>
+              <span class="text-neutral-800 font-medium block">开启成绩出分监控</span>
+              <span class="text-[10px] text-neutral-400">教务发布新课程或学期成绩时邮件提醒</span>
+            </div>
+            <input v-model="monitorEnabled" type="checkbox" class="h-4 w-4 accent-neutral-900 cursor-pointer" />
           </label>
 
           <div>
-            <label class="block text-neutral-500 mb-1">接收通知邮箱</label>
-            <input v-model="monitorEmail" placeholder="your_email@domain.com" class="w-full border border-[#E5E5E5] rounded px-3 py-2 bg-white" />
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-neutral-600 font-medium">接收通知邮箱</label>
+              <button
+                type="button"
+                :disabled="monitorTestLoading || !monitorEmail.trim()"
+                class="text-[11px] text-neutral-600 hover:text-neutral-950 font-mono underline underline-offset-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                @click="sendTestEmail"
+              >
+                {{ monitorTestLoading ? '正在发送测试...' : '单独发送测试邮件' }}
+              </button>
+            </div>
+            <div class="relative">
+              <input
+                v-model="monitorEmail"
+                type="email"
+                placeholder="your_email@domain.com"
+                class="w-full border border-[#E5E5E5] rounded px-3 py-2 bg-white text-xs font-mono focus:border-neutral-900 focus:outline-hidden"
+              />
+            </div>
+          </div>
+
+          <!-- 提示信息 -->
+          <div v-if="monitorMsg" class="p-2.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] flex items-start gap-1.5">
+            <svg class="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+            </svg>
+            <span>{{ monitorMsg }}</span>
+          </div>
+
+          <div v-if="monitorError" class="p-2.5 rounded bg-red-50 border border-red-200 text-red-700 text-[11px] flex items-start gap-1.5">
+            <svg class="w-4 h-4 text-red-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>{{ monitorError }}</span>
           </div>
         </div>
 
-        <button class="w-full py-2 bg-neutral-900 text-white rounded cursor-pointer hover:bg-neutral-800" @click="saveMonitor">
-          保存监控设置
+        <button
+          class="w-full py-2.5 bg-neutral-900 text-white rounded cursor-pointer hover:bg-neutral-800 flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+          :disabled="monitorLoading"
+          @click="saveMonitor"
+        >
+          <svg v-if="monitorLoading" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <span>{{ monitorLoading ? '正在保存并发送测试邮件...' : '保存监控设置 (自动发送测试邮件)' }}</span>
         </button>
       </div>
     </div>
