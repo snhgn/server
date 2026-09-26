@@ -689,20 +689,6 @@ onUnmounted(() => {
   window.removeEventListener('drop', onWindowDrop)
 })
 
-async function loadDemoSchedule() {
-  loading.value = true
-  error.value = ''
-  try {
-    schedule.value = await api.get<ScheduleData>('/api/schedule/view/1')
-    showForm.value = false
-    scrollToToday()
-  } catch {
-    error.value = '暂无示例课表数据'
-  } finally {
-    loading.value = false
-  }
-}
-
 async function fetchSchedule(force = true) {
   if (!studentId.value.trim() || !password.value) {
     error.value = '请输入学号和密码'
@@ -1330,18 +1316,6 @@ function deleteCustomEvent(id: string) {
           {{ loading ? '正在同步...' : '同步课表' }}
         </button>
       </form>
-
-      <!-- 体验示例课表入口（用户主动点击，绝不默认加载） -->
-      <div class="mt-6 pt-4 border-t border-neutral-100 flex items-center justify-between text-xs font-mono text-neutral-400">
-        <span>没有教务账号？</span>
-        <button
-          type="button"
-          class="text-neutral-700 hover:text-neutral-950 underline transition-colors cursor-pointer"
-          @click="loadDemoSchedule"
-        >
-          查看示例课表 →
-        </button>
-      </div>
     </section>
 
     <!-- Main Timetable Content -->
