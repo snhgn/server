@@ -222,16 +222,188 @@ function goToToday() {
   }
 }
 
+const showWeekPicker = ref(false)
+const edgePullDirection = ref<'prev' | 'next' | null>(null)
+const edgePullDistance = ref(0)
+const PULL_THRESHOLD = 40
+
+let touchStartX = 0
+let touchStartY = 0
+let edgePullStartX = 0
+let isTouching = false
+
+function onTouchStart(e: TouchEvent) {
+  if (!gridContainer.value || e.touches.length !== 1) return
+  isTouching = true
+  touchStartX = e.touches[0].clientX
+  touchStartY = e.touches[0].clientY
+  edgePullStartX = e.touches[0].clientX
+  edgePullDirection.value = null
+  edgePullDistance.value = 0
+}
+
+function onTouchMove(e: TouchEvent) {
+  if (!isTouching || !gridContainer.value || e.touches.length !== 1) return
+  const currentX = e.touches[0].clientX
+  const currentY = e.touches[0].clientY
+  const dx = currentX - touchStartX
+  const dy = currentY - touchStartY
+
+  // 必须主要是水平滑动手势
+  if (Math.abs(dx) <= Math.abs(dy) || Math.abs(dx) < 10) {
+    if (edgePullDirection.value) {
+      edgePullDirection.value = null
+      edgePullDistance.value = 0
+    }
+    return
+  }
+
+  const container = gridContainer.value
+  const currentScrollLeft = container.scrollLeft
+  const maxLeft = Math.max(0, container.scrollWidth - container.clientWidth)
+  const isAtLeftEdge = currentScrollLeft <= 2
+  const isAtRightEdge = currentScrollLeft >= maxLeft - 2
+
+  // 处于最左端向右拖动 -> 切换到上一周
+  if (isAtLeftEdge && dx > 0) {
+    if (!edgePullDirection.value) {
+      edgePullStartX = currentX
+    }
+    const pullDx = Math.max(0, currentX - edgePullStartX)
+    edgePullDirection.value = 'prev'
+    edgePullDistance.value = Math.min(80, pullDx * 0.45)
+  }
+  // 处于最右端向左拖动 -> 切换到下一周
+  else if (isAtRightEdge && dx < 0) {
+    if (!edgePullDirection.value) {
+      edgePullStartX = currentX
+    }
+    const pullDx = Math.max(0, edgePullStartX - currentX)
+    edgePullDirection.value = 'next'
+    edgePullDistance.value = Math.min(80, pullDx * 0.45)
+  } else {
+    edgePullDirection.value = null
+    edgePullDistance.value = 0
+    edgePullStartX = currentX
+  }
+}
+
+function onTouchEnd() {
+  if (!isTouching) return
+  isTouching = false
+
+  const dir = edgePullDirection.value
+  const dist = edgePullDistance.value
+
+  edgePullDirection.value = null
+  edgePullDistance.value = 0
+
+  if (dist >= PULL_THRESHOLD) {
+    if (dir === 'prev' && currentWeek.value > 1) {
+      switchToAdjacentWeek(currentWeek.value - 1, 'end')
+    } else if (dir === 'next' && currentWeek.value < TOTAL_WEEKS) {
+      switchToAdjacentWeek(currentWeek.value + 1, 'start')
+    }
+  }
+}
+
+function onTouchCancel() {
+  isTouching = false
+  edgePullDirection.value = null
+  edgePullDistance.value = 0
+}
+
+let wheelAccumX = 0
+let wheelDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
+function onGridWheel(e: WheelEvent) {
+  if (!gridContainer.value) return
+  if (Math.abs(e.deltaX) < 10 || Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return
+
+  const container = gridContainer.value
+  const maxLeft = Math.max(0, container.scrollWidth - container.clientWidth)
+  const isAtLeft = container.scrollLeft <= 2
+  const isAtRight = container.scrollLeft >= maxLeft - 2
+
+  if (isAtLeft && e.deltaX < -25) {
+    wheelAccumX += Math.abs(e.deltaX)
+    if (wheelAccumX > 100) {
+      wheelAccumX = 0
+      if (currentWeek.value > 1) {
+        switchToAdjacentWeek(currentWeek.value - 1, 'end')
+      }
+    }
+  } else if (isAtRight && e.deltaX > 25) {
+    wheelAccumX += Math.abs(e.deltaX)
+    if (wheelAccumX > 100) {
+      wheelAccumX = 0
+      if (currentWeek.value < TOTAL_WEEKS) {
+        switchToAdjacentWeek(currentWeek.value + 1, 'start')
+      }
+    }
+  } else {
+    wheelAccumX = 0
+  }
+
+  if (wheelDebounceTimer) clearTimeout(wheelDebounceTimer)
+  wheelDebounceTimer = setTimeout(() => {
+    wheelAccumX = 0
+  }, 250)
+}
+
+function switchToAdjacentWeek(targetWeek: number, position: 'start' | 'end') {
+  if (targetWeek < 1 || targetWeek > TOTAL_WEEKS || targetWeek === currentWeek.value) return
+  switching.value = true
+  currentWeek.value = targetWeek
+  setTimeout(() => {
+    switching.value = false
+    nextTick(() => {
+      if (gridContainer.value) {
+        if (position === 'start') {
+          gridContainer.value.scrollLeft = 0
+        } else {
+          gridContainer.value.scrollLeft = gridContainer.value.scrollWidth - gridContainer.value.clientWidth
+        }
+      }
+    })
+  }, 100)
+}
+
+function selectWeek(w: number) {
+  if (w < 1 || w > TOTAL_WEEKS) return
+  showWeekPicker.value = false
+  if (w === currentWeek.value) return
+  switching.value = true
+  currentWeek.value = w
+  setTimeout(() => {
+    switching.value = false
+    nextTick(() => {
+      if (w === systemWeek()) {
+        scrollToToday()
+      } else if (gridContainer.value) {
+        gridContainer.value.scrollLeft = 0
+      }
+    })
+  }, 100)
+}
+
 function changeWeek(delta: number) {
   const next = Math.min(TOTAL_WEEKS, Math.max(1, currentWeek.value + delta))
   if (next === currentWeek.value) return
   switching.value = true
+  currentWeek.value = next
   setTimeout(() => {
-    currentWeek.value = next
-    requestAnimationFrame(() => {
-      switching.value = false
+    switching.value = false
+    nextTick(() => {
+      if (gridContainer.value) {
+        if (delta > 0) {
+          gridContainer.value.scrollLeft = 0
+        } else {
+          gridContainer.value.scrollLeft = gridContainer.value.scrollWidth - gridContainer.value.clientWidth
+        }
+      }
     })
-  }, 160)
+  }, 100)
 }
 
 onMounted(async () => {
@@ -320,9 +492,21 @@ onMounted(async () => {
 
   // 3. 新用户或未勾选保存账号密码的用户：直接展示登录表单，严禁自动加载其他课表
   showForm.value = true
+
+  window.addEventListener('keydown', onKeydown)
 })
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    if (showWeekPicker.value) showWeekPicker.value = false
+    else if (viewer.value) viewer.value = null
+    else if (detail.value) detail.value = null
+  }
+}
+
 onUnmounted(() => {
   document.body.classList.remove('schedule-page')
+  window.removeEventListener('keydown', onKeydown)
 })
 
 async function loadDemoSchedule() {
@@ -502,7 +686,7 @@ function weekdayName(day: number): string {
           <span class="text-neutral-300">·</span>
           <span>北林课表</span>
           <span class="text-neutral-300">·</span>
-          <span class="text-neutral-400 font-mono text-[10px] lowercase bg-neutral-100 px-1.5 py-0.5 rounded">v1.2.0</span>
+          <span class="text-neutral-400 font-mono text-[10px] lowercase bg-neutral-100 px-1.5 py-0.5 rounded">v1.3.0</span>
           <span v-if="schedule" class="text-neutral-300">·</span>
           <span v-if="schedule" class="text-neutral-600 font-sans font-normal">{{ semesterLabel(schedule.semester) }}</span>
         </div>
@@ -517,14 +701,26 @@ function weekdayName(day: number): string {
           <button
             class="px-2 sm:px-2.5 py-0.5 sm:py-1 text-neutral-600 hover:text-neutral-950 disabled:opacity-30 cursor-pointer"
             :disabled="currentWeek <= 1"
+            title="上一周"
             @click="changeWeek(-1)"
           >
             ←
           </button>
-          <span class="px-2 font-medium text-neutral-900 border-x border-[#E5E5E5]/80 text-[11px] sm:text-xs">第 {{ currentWeek }} 周</span>
+          <button
+            type="button"
+            class="flex items-center gap-1 px-2 sm:px-2.5 py-0.5 sm:py-1 font-medium text-neutral-900 hover:bg-neutral-50 hover:text-neutral-950 border-x border-[#E5E5E5]/80 text-[11px] sm:text-xs cursor-pointer transition-colors"
+            title="点击快速跳转周次"
+            @click="showWeekPicker = true"
+          >
+            <span>第 {{ currentWeek }} 周</span>
+            <svg class="w-3 h-3 text-neutral-400" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+            </svg>
+          </button>
           <button
             class="px-2 sm:px-2.5 py-0.5 sm:py-1 text-neutral-600 hover:text-neutral-950 disabled:opacity-30 cursor-pointer"
             :disabled="currentWeek >= TOTAL_WEEKS"
+            title="下一周"
             @click="changeWeek(1)"
           >
             →
@@ -553,27 +749,14 @@ function weekdayName(day: number): string {
           </button>
           <button
             v-if="schedule && !showForm"
-            class="rounded border border-[#E5E5E5] bg-white px-2 sm:px-2.5 py-0.5 sm:py-1 text-neutral-600 hover:text-neutral-900 hover:border-neutral-400 transition-colors cursor-pointer text-[11px] sm:text-xs"
-            title="校历与作息时间表"
-            @click="viewer = 'calendar'"
-          >
-            校历
-          </button>
-          <button
-            v-if="schedule && !showForm"
-            class="rounded border border-[#E5E5E5] bg-white px-2 sm:px-2.5 py-0.5 sm:py-1 text-neutral-600 hover:text-neutral-900 hover:border-neutral-400 transition-colors cursor-pointer text-[11px] sm:text-xs"
+            class="rounded border border-[#E5E5E5] bg-white px-2.5 sm:px-3 py-0.5 sm:py-1 text-neutral-700 hover:text-neutral-950 hover:border-neutral-400 transition-colors cursor-pointer text-[11px] sm:text-xs font-medium flex items-center gap-1"
             title="工具箱与更多功能"
             @click="showToolbox = true"
           >
-            更多
-          </button>
-          <button
-            v-if="schedule && !showForm"
-            class="rounded border border-[#E5E5E5] bg-white px-2 sm:px-2.5 py-0.5 sm:py-1 text-neutral-600 hover:text-neutral-900 hover:border-neutral-400 transition-colors cursor-pointer text-[11px] sm:text-xs"
-            title="更换学号或重新同步"
-            @click="showForm = true"
-          >
-            切换学号
+            <span>更多</span>
+            <svg class="w-3 h-3 text-neutral-400" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+            </svg>
           </button>
         </div>
       </div>
@@ -676,66 +859,111 @@ function weekdayName(day: number): string {
         </div>
       </div>
 
-      <!-- Timetable Grid -->
-      <div ref="gridContainer" class="overflow-x-auto rounded-lg border border-[#E5E5E5] bg-white p-0.5 sm:p-2 shadow-[0_1px_3px_rgba(0,0,0,0.02)] scroll-smooth">
-        <div class="grid grid-cols-[40px_repeat(7,1fr)] sm:grid-cols-[56px_repeat(7,1fr)] gap-0.5 sm:gap-1.5 min-w-[580px] sm:min-w-[800px]">
-          
-          <!-- Column Headers: Weekdays & Dates -->
-          <div class="sticky left-0 z-20 bg-white p-1 sm:p-2 flex flex-col items-center justify-center font-mono text-[9px] sm:text-[11px] text-neutral-400 border-r border-[#E5E5E5]/50">
-            <span class="leading-tight">节次</span>
-          </div>
+      <!-- Timetable Grid with Edge Swipe Support -->
+      <div class="relative">
+        <!-- Floating edge swipe week switcher indicator -->
+        <transition
+          enter-active-class="transition duration-150 ease-out"
+          enter-from-class="opacity-0 -translate-y-2 scale-95"
+          enter-to-class="opacity-100 translate-y-0 scale-100"
+          leave-active-class="transition duration-150 ease-in"
+          leave-from-class="opacity-100 translate-y-0 scale-100"
+          leave-to-class="opacity-0 -translate-y-2 scale-95"
+        >
           <div
-            v-for="(day, idx) in weekdays"
-            :key="day"
-            class="flex flex-col items-center justify-center p-1 sm:p-2 text-center font-mono rounded transition-colors"
-            :class="isToday(idx) ? 'today-col-header bg-neutral-900 text-white shadow-sm' : 'text-neutral-700 bg-[#FAFAFA]'"
+            v-if="edgePullDirection"
+            class="absolute left-1/2 -translate-x-1/2 top-3 z-40 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-mono shadow-lg border backdrop-blur-md pointer-events-none transition-all duration-150 select-none"
+            :class="[
+              edgePullDistance >= PULL_THRESHOLD
+                ? 'bg-neutral-900 text-white border-neutral-800 scale-105 shadow-neutral-900/20'
+                : 'bg-white/95 text-neutral-700 border-neutral-200'
+            ]"
           >
-            <span class="text-[10px] sm:text-xs font-medium leading-tight">{{ day }}</span>
-            <span
-              class="text-[8px] sm:text-[10px] mt-0.5 font-normal leading-tight tracking-tight scale-90 sm:scale-100 origin-center"
-              :class="isToday(idx) ? 'text-neutral-300' : 'text-neutral-400'"
-            >
-              {{ getDateLabel(currentWeek, idx) }}
-            </span>
+            <template v-if="edgePullDirection === 'prev'">
+              <span v-if="currentWeek <= 1">已是第 1 周</span>
+              <template v-else>
+                <span>←</span>
+                <span>{{ edgePullDistance >= PULL_THRESHOLD ? `松开切换至第 ${currentWeek - 1} 周` : `继续向右滑切换至第 ${currentWeek - 1} 周` }}</span>
+              </template>
+            </template>
+            <template v-else-if="edgePullDirection === 'next'">
+              <span v-if="currentWeek >= TOTAL_WEEKS">已是最后一周</span>
+              <template v-else>
+                <span>{{ edgePullDistance >= PULL_THRESHOLD ? `松开切换至第 ${currentWeek + 1} 周` : `继续向左滑切换至第 ${currentWeek + 1} 周` }}</span>
+                <span>→</span>
+              </template>
+            </template>
           </div>
+        </transition>
 
-          <!-- Period Rows -->
-          <template v-for="(slot, sIdx) in periodSlots" :key="slot.label">
-            <!-- Period Label Column -->
-            <div class="sticky left-0 z-10 flex flex-col items-center justify-center p-0.5 sm:p-2 rounded-l bg-[#FAFAFA] font-mono text-[9px] sm:text-[11px] text-neutral-500 border border-neutral-100 border-r-[#E5E5E5]/50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.03)]">
-              <span class="font-semibold text-neutral-700 text-[9px] sm:text-[11px]">{{ slot.label }}</span>
-              <span class="text-[7.5px] sm:text-[9px] text-neutral-400 mt-0.5 whitespace-nowrap scale-90 sm:scale-100 origin-center">
-                {{ String(Math.floor(slot.from/60)).padStart(2,'0') }}:{{ String(slot.from%60).padStart(2,'0') }}
+        <div
+          ref="gridContainer"
+          class="overflow-x-auto rounded-lg border border-[#E5E5E5] bg-white p-0.5 sm:p-2 shadow-[0_1px_3px_rgba(0,0,0,0.02)] scroll-smooth"
+          @touchstart.passive="onTouchStart"
+          @touchmove.passive="onTouchMove"
+          @touchend="onTouchEnd"
+          @touchcancel="onTouchCancel"
+          @wheel="onGridWheel"
+        >
+          <div class="grid grid-cols-[40px_repeat(7,1fr)] sm:grid-cols-[56px_repeat(7,1fr)] gap-0.5 sm:gap-1.5 min-w-[580px] sm:min-w-[800px]">
+            
+            <!-- Column Headers: Weekdays & Dates -->
+            <div class="sticky left-0 z-20 bg-white p-1 sm:p-2 flex flex-col items-center justify-center font-mono text-[9px] sm:text-[11px] text-neutral-400 border-r border-[#E5E5E5]/50">
+              <span class="leading-tight">节次</span>
+            </div>
+            <div
+              v-for="(day, idx) in weekdays"
+              :key="day"
+              class="flex flex-col items-center justify-center p-1 sm:p-2 text-center font-mono rounded transition-colors"
+              :class="isToday(idx) ? 'today-col-header bg-neutral-900 text-white shadow-sm' : 'text-neutral-700 bg-[#FAFAFA]'"
+            >
+              <span class="text-[10px] sm:text-xs font-medium leading-tight">{{ day }}</span>
+              <span
+                class="text-[8px] sm:text-[10px] mt-0.5 font-normal leading-tight tracking-tight scale-90 sm:scale-100 origin-center"
+                :class="isToday(idx) ? 'text-neutral-300' : 'text-neutral-400'"
+              >
+                {{ getDateLabel(currentWeek, idx) }}
               </span>
             </div>
 
-            <!-- 7 Days Grid Cells for this Period Slot -->
-            <div
-              v-for="d in 7"
-              :key="`${sIdx}-${d}`"
-              class="relative rounded border border-neutral-100 min-h-[50px] sm:min-h-[72px] bg-white p-0.5 sm:p-1"
-            >
-              <!-- Placed course in this cell -->
-              <template v-for="c in placedCourses" :key="c.key">
-                <div
-                  v-if="c.day === d && blockOf(c.start) === sIdx + 1"
-                  class="rounded border border-[#E5E5E5] bg-[#FAFAFA] hover:bg-neutral-100 hover:border-neutral-400 p-1 sm:p-1.5 transition-all cursor-pointer h-full flex flex-col justify-between overflow-hidden"
-                  @click="detail = c"
-                >
-                  <div>
-                    <div class="font-medium text-neutral-900 font-sans line-clamp-2 leading-tight sm:leading-snug text-[9.5px] sm:text-xs">
-                      {{ c.name }}
+            <!-- Period Rows -->
+            <template v-for="(slot, sIdx) in periodSlots" :key="slot.label">
+              <!-- Period Label Column -->
+              <div class="sticky left-0 z-10 flex flex-col items-center justify-center p-0.5 sm:p-2 rounded-l bg-[#FAFAFA] font-mono text-[9px] sm:text-[11px] text-neutral-500 border border-neutral-100 border-r-[#E5E5E5]/50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.03)]">
+                <span class="font-semibold text-neutral-700 text-[9px] sm:text-[11px]">{{ slot.label }}</span>
+                <span class="text-[7.5px] sm:text-[9px] text-neutral-400 mt-0.5 whitespace-nowrap scale-90 sm:scale-100 origin-center">
+                  {{ String(Math.floor(slot.from/60)).padStart(2,'0') }}:{{ String(slot.from%60).padStart(2,'0') }}
+                </span>
+              </div>
+
+              <!-- 7 Days Grid Cells for this Period Slot -->
+              <div
+                v-for="d in 7"
+                :key="`${sIdx}-${d}`"
+                class="relative rounded border border-neutral-100 min-h-[50px] sm:min-h-[72px] bg-white p-0.5 sm:p-1"
+              >
+                <!-- Placed course in this cell -->
+                <template v-for="c in placedCourses" :key="c.key">
+                  <div
+                    v-if="c.day === d && blockOf(c.start) === sIdx + 1"
+                    class="rounded border border-[#E5E5E5] bg-[#FAFAFA] hover:bg-neutral-100 hover:border-neutral-400 p-1 sm:p-1.5 transition-all cursor-pointer h-full flex flex-col justify-between overflow-hidden"
+                    @click="detail = c"
+                  >
+                    <div>
+                      <div class="font-medium text-neutral-900 font-sans line-clamp-2 leading-tight sm:leading-snug text-[9.5px] sm:text-xs">
+                        {{ c.name }}
+                      </div>
+                    </div>
+                    <div class="font-mono text-[8px] sm:text-[10px] text-neutral-500 mt-0.5 sm:mt-1 flex items-center justify-between gap-0.5">
+                      <span class="truncate">{{ c.room || '待定' }}</span>
+                      <span class="text-neutral-400 shrink-0 hidden sm:inline">{{ weekCount(c.weeks) }}</span>
                     </div>
                   </div>
-                  <div class="font-mono text-[8px] sm:text-[10px] text-neutral-500 mt-0.5 sm:mt-1 flex items-center justify-between gap-0.5">
-                    <span class="truncate">{{ c.room || '待定' }}</span>
-                    <span class="text-neutral-400 shrink-0 hidden sm:inline">{{ weekCount(c.weeks) }}</span>
-                  </div>
-                </div>
-              </template>
-            </div>
-          </template>
+                </template>
+              </div>
+            </template>
 
+          </div>
         </div>
       </div>
 
@@ -779,6 +1007,79 @@ function weekdayName(day: number): string {
             <span class="text-neutral-400 block text-[10px] uppercase">上课周次</span>
             <span class="text-neutral-700">{{ weekCount(detail.weeks) }}</span>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick Week Picker Modal (周数快速切换弹窗) -->
+    <div
+      v-if="showWeekPicker"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4"
+      @click.self="showWeekPicker = false"
+    >
+      <div class="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl border border-[#E5E5E5] animate-in fade-in zoom-in-95 duration-150">
+        <div class="flex items-center justify-between pb-3 border-b border-neutral-100 mb-4">
+          <div class="flex items-center gap-2">
+            <h3 class="text-sm font-medium text-neutral-900 font-sans">快速跳转周次</h3>
+            <span class="text-[11px] font-mono text-neutral-400">(共 {{ TOTAL_WEEKS }} 周)</span>
+          </div>
+          <button
+            class="text-neutral-400 hover:text-neutral-900 cursor-pointer p-1 rounded hover:bg-neutral-100 transition-colors"
+            title="关闭"
+            @click="showWeekPicker = false"
+          >
+            ✕
+          </button>
+        </div>
+
+        <!-- Weeks Grid -->
+        <div class="grid grid-cols-4 sm:grid-cols-5 gap-2 font-mono text-xs max-h-[60vh] overflow-y-auto p-0.5">
+          <button
+            v-for="w in TOTAL_WEEKS"
+            :key="w"
+            type="button"
+            class="flex flex-col items-center justify-center p-2 rounded-lg border transition-all cursor-pointer relative text-center"
+            :class="[
+              w === currentWeek
+                ? 'bg-neutral-900 border-neutral-900 text-white shadow-sm'
+                : 'bg-neutral-50/70 border-neutral-200/80 text-neutral-800 hover:bg-neutral-100 hover:border-neutral-300',
+              w === systemWeek() && w !== currentWeek ? 'border-amber-400 bg-amber-50/40 text-amber-950 font-medium' : ''
+            ]"
+            @click="selectWeek(w)"
+          >
+            <span class="font-medium text-xs leading-tight">第 {{ w }} 周</span>
+            <span
+              class="text-[9px] mt-0.5 leading-tight scale-95"
+              :class="w === currentWeek ? 'text-neutral-300' : 'text-neutral-400'"
+            >
+              {{ getDateLabel(w, 0) }}
+            </span>
+            <span
+              v-if="w === systemWeek()"
+              class="absolute -top-1.5 -right-1 px-1 py-0.2 rounded text-[8px] font-sans font-medium"
+              :class="w === currentWeek ? 'bg-amber-400 text-neutral-900' : 'bg-amber-500 text-white'"
+            >
+              本周
+            </span>
+          </button>
+        </div>
+
+        <!-- Quick actions at footer -->
+        <div class="mt-4 pt-3 border-t border-neutral-100 flex items-center justify-between font-mono text-xs">
+          <button
+            type="button"
+            class="text-neutral-600 hover:text-neutral-950 cursor-pointer text-[11px] underline underline-offset-2 flex items-center gap-1"
+            @click="selectWeek(systemWeek())"
+          >
+            <span>跳转到本周 (第 {{ systemWeek() }} 周)</span>
+          </button>
+          <button
+            type="button"
+            class="px-3 py-1 rounded bg-neutral-100 hover:bg-neutral-200 text-neutral-700 cursor-pointer text-[11px]"
+            @click="showWeekPicker = false"
+          >
+            关闭
+          </button>
         </div>
       </div>
     </div>
