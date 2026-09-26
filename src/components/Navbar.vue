@@ -73,7 +73,7 @@ function handleLogout() {
           {{ link.label }}
           <span
             v-if="route.path === link.to"
-            class="absolute bottom-[-11px] left-2.5 right-2.5 h-[1.5px] rounded-full bg-neutral-900"
+            class="absolute bottom-[-11px] left-2.5 right-2.5 h-[1.5px] rounded-full bg-neutral-900 dark:bg-white"
           />
         </router-link>
       </nav>
@@ -94,7 +94,7 @@ function handleLogout() {
             class="flex items-center gap-1.5 rounded border border-[#E5E5E5] bg-white px-2.5 py-1 text-xs font-normal text-neutral-700 hover:border-neutral-400 hover:text-neutral-950 transition-all cursor-pointer shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
             @click="userDropdownOpen = !userDropdownOpen"
           >
-            <span class="inline-block h-1.5 w-1.5 rounded-full bg-neutral-900" />
+            <span class="inline-block h-1.5 w-1.5 rounded-full bg-neutral-900 dark:bg-emerald-400" />
             <span class="font-mono text-[11px] text-neutral-800">{{ username }}</span>
             <span class="text-[10px] text-neutral-400 font-mono">({{ role }})</span>
           </button>
@@ -142,7 +142,7 @@ function handleLogout() {
         <!-- Mobile Menu Toggle -->
         <button
           type="button"
-          class="flex h-8 w-8 items-center justify-center rounded border border-[#E5E5E5] text-neutral-600 hover:bg-white md:hidden cursor-pointer"
+          class="flex h-8 w-8 items-center justify-center rounded border border-[#E5E5E5] text-neutral-600 hover:bg-white dark:hover:bg-[#20252c] md:hidden cursor-pointer"
           aria-label="切换菜单"
           @click="mobileMenuOpen = !mobileMenuOpen"
         >
@@ -168,7 +168,7 @@ function handleLogout() {
           :key="link.to"
           :to="link.to"
           class="rounded px-2.5 py-1.5 font-normal transition-colors"
-          :class="route.path === link.to ? 'bg-white font-medium text-neutral-900 border border-[#E5E5E5]' : 'text-neutral-600 hover:bg-white/60'"
+          :class="route.path === link.to ? 'bg-white font-medium text-neutral-900 border border-[#E5E5E5] dark:bg-[#20252c] dark:text-white dark:border-[#333a44]' : 'text-neutral-600 hover:bg-white/60 dark:text-neutral-300 dark:hover:bg-[#20252c]'"
           @click="mobileMenuOpen = false"
         >
           {{ link.label }}

@@ -769,14 +769,14 @@ const placedCourses = computed<PlacedCourse[]>(() => {
 })
 
 const COLOR_PALETTES = [
-  { lightBg: '#EEF2FF', lightBorder: '#C7D2FE', lightText: '#3730A3', darkBg: '#1E1B4B', darkBorder: '#3730A3', darkText: '#E0E7FF' }, // Indigo
-  { lightBg: '#ECFDF5', lightBorder: '#A7F3D0', lightText: '#065F46', darkBg: '#064E3B', darkBorder: '#047857', darkText: '#D1FAE5' }, // Emerald
-  { lightBg: '#F0F9FF', lightBorder: '#BAE6FD', lightText: '#0369A1', darkBg: '#082F49', darkBorder: '#0284C7', darkText: '#E0F2FE' }, // Sky
-  { lightBg: '#FDF4FF', lightBorder: '#F5D0FE', lightText: '#86198F', darkBg: '#4A044E', darkBorder: '#A21CAF', darkText: '#FAE8FF' }, // Fuchsia
-  { lightBg: '#FFFBEB', lightBorder: '#FDE68A', lightText: '#92400E', darkBg: '#451A03', darkBorder: '#B45309', darkText: '#FEF3C7' }, // Amber
-  { lightBg: '#F5F3FF', lightBorder: '#DDD6FE', lightText: '#5B21B6', darkBg: '#2E1065', darkBorder: '#6D28D9', darkText: '#EDE9FE' }, // Violet
-  { lightBg: '#FFF1F2', lightBorder: '#FECDD3', lightText: '#9F1239', darkBg: '#4C0519', darkBorder: '#BE123C', darkText: '#FFE4E6' }, // Rose
-  { lightBg: '#F0FDFA', lightBorder: '#99F6E4', lightText: '#115E59', darkBg: '#134E4A', darkBorder: '#0D9488', darkText: '#CCFBF1' }, // Teal
+  { lightBg: '#EEF2FF', lightBorder: '#C7D2FE', lightText: '#3730A3', darkBg: 'rgba(99, 102, 241, 0.18)', darkBorder: 'rgba(129, 140, 248, 0.45)', darkText: '#C7D2FE' }, // Indigo
+  { lightBg: '#ECFDF5', lightBorder: '#A7F3D0', lightText: '#065F46', darkBg: 'rgba(16, 185, 129, 0.18)', darkBorder: 'rgba(52, 211, 153, 0.45)', darkText: '#A7F3D0' }, // Emerald
+  { lightBg: '#F0F9FF', lightBorder: '#BAE6FD', lightText: '#0369A1', darkBg: 'rgba(14, 165, 233, 0.18)', darkBorder: 'rgba(56, 189, 248, 0.45)', darkText: '#BAE6FD' }, // Sky
+  { lightBg: '#FDF4FF', lightBorder: '#F5D0FE', lightText: '#86198F', darkBg: 'rgba(217, 70, 239, 0.18)', darkBorder: 'rgba(232, 121, 249, 0.45)', darkText: '#F5D0FE' }, // Fuchsia
+  { lightBg: '#FFFBEB', lightBorder: '#FDE68A', lightText: '#92400E', darkBg: 'rgba(245, 158, 11, 0.18)', darkBorder: 'rgba(251, 191, 36, 0.45)', darkText: '#FDE68A' }, // Amber
+  { lightBg: '#F5F3FF', lightBorder: '#DDD6FE', lightText: '#5B21B6', darkBg: 'rgba(139, 92, 246, 0.18)', darkBorder: 'rgba(167, 139, 250, 0.45)', darkText: '#DDD6FE' }, // Violet
+  { lightBg: '#FFF1F2', lightBorder: '#FECDD3', lightText: '#9F1239', darkBg: 'rgba(244, 63, 94, 0.18)', darkBorder: 'rgba(251, 113, 133, 0.45)', darkText: '#FECDD3' }, // Rose
+  { lightBg: '#F0FDFA', lightBorder: '#99F6E4', lightText: '#115E59', darkBg: 'rgba(20, 184, 166, 0.18)', darkBorder: 'rgba(45, 212, 191, 0.45)', darkText: '#99F6E4' }, // Teal
 ]
 
 function getCourseCardStyle(courseName: string): Record<string, string> {
@@ -880,7 +880,7 @@ function weekdayName(day: number): string {
           <button
             v-if="schedule && !showForm"
             class="rounded border border-[#E5E5E5] bg-white px-2 sm:px-2.5 py-0.5 sm:py-1 text-neutral-600 hover:text-neutral-900 hover:border-neutral-400 transition-colors cursor-pointer text-[11px] sm:text-xs font-medium"
-            :class="{ 'bg-neutral-100 text-neutral-900 border-neutral-300 font-semibold': currentWeek === systemWeek() }"
+            :class="{ 'bg-neutral-100 text-neutral-900 border-neutral-300 font-semibold dark:bg-[#252a32] dark:text-white dark:border-[#434b57]': currentWeek === systemWeek() }"
             title="快速跳转到当天"
             @click="goToToday"
           >
@@ -913,7 +913,7 @@ function weekdayName(day: number): string {
     <!-- 正在查看共享课表横幅 (4位邀请码访问) -->
     <div
       v-if="isViewingShared"
-      class="relative z-10 mb-4 sm:mb-6 p-3 sm:p-3.5 rounded-xl bg-neutral-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-sm"
+      class="relative z-10 mb-4 sm:mb-6 p-3 sm:p-3.5 rounded-xl bg-neutral-900 dark:bg-[#1c2026] dark:border dark:border-[#333a44] text-white flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-sm"
     >
       <div class="flex items-center gap-2 flex-wrap">
         <span class="text-sm">🔗</span>
@@ -1015,7 +1015,7 @@ function weekdayName(day: number): string {
       <!-- Today's Status Banner -->
       <div class="mb-3 sm:mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 rounded border border-[#E5E5E5] bg-white px-2.5 py-1.5 sm:p-3 font-mono text-[11px] sm:text-xs shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
         <div class="flex items-center gap-2 sm:gap-2.5">
-          <span class="h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full bg-neutral-900 shrink-0" />
+          <span class="h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full bg-neutral-900 dark:bg-emerald-400 shrink-0 shadow-xs" />
           <span class="font-medium text-neutral-900 shrink-0">{{ todayState.label }}:</span>
           <span v-if="todayState.course" class="text-neutral-700 font-sans font-medium truncate">
             {{ todayState.course.name }} ({{ todayState.course.room }})
@@ -1058,8 +1058,8 @@ function weekdayName(day: number): string {
             class="absolute left-1/2 -translate-x-1/2 top-3 z-40 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-mono shadow-lg border backdrop-blur-md pointer-events-none transition-all duration-150 select-none"
             :class="[
               edgePullDistance >= PULL_THRESHOLD
-                ? 'bg-neutral-900 text-white border-neutral-800 scale-105 shadow-neutral-900/20'
-                : 'bg-white/95 text-neutral-700 border-neutral-200'
+                ? 'bg-neutral-900 text-white border-neutral-800 scale-105 shadow-neutral-900/20 dark:bg-white dark:text-neutral-950 dark:border-white'
+                : 'bg-white/95 text-neutral-700 border-neutral-200 dark:bg-[#1a1d21]/95 dark:text-neutral-200 dark:border-neutral-700'
             ]"
           >
             <template v-if="edgePullDirection === 'prev'">
@@ -1133,7 +1133,7 @@ function weekdayName(day: number): string {
                   <div
                     v-if="c.day === d && blockOf(c.start) === sIdx + 1"
                     class="rounded border p-1 sm:p-1.5 transition-all cursor-pointer h-full flex flex-col justify-between overflow-hidden"
-                    :class="colorfulCards ? 'course-card-colorful' : 'border-[#E5E5E5] bg-[#FAFAFA] hover:bg-neutral-100 hover:border-neutral-400'"
+                    :class="colorfulCards ? 'course-card-colorful' : 'course-card-default border-[#E5E5E5] bg-[#FAFAFA] hover:bg-neutral-100 hover:border-neutral-400'"
                     :style="getCourseCardStyle(c.name)"
                     @click="detail = c"
                   >
@@ -1232,16 +1232,16 @@ function weekdayName(day: number): string {
             class="flex flex-col items-center justify-center p-2 rounded-lg border transition-all cursor-pointer relative text-center"
             :class="[
               w === currentWeek
-                ? 'bg-neutral-900 border-neutral-900 text-white shadow-sm'
-                : 'bg-neutral-50/70 border-neutral-200/80 text-neutral-800 hover:bg-neutral-100 hover:border-neutral-300',
-              w === systemWeek() && w !== currentWeek ? 'border-amber-400 bg-amber-50/40 text-amber-950 font-medium' : ''
+                ? 'bg-neutral-900 border-neutral-900 text-white shadow-sm dark:bg-white dark:text-neutral-950 dark:border-white font-medium'
+                : 'bg-neutral-50/70 border-neutral-200/80 text-neutral-800 hover:bg-neutral-100 hover:border-neutral-300 dark:text-neutral-200',
+              w === systemWeek() && w !== currentWeek ? 'border-amber-400 bg-amber-50/40 text-amber-950 dark:text-amber-300 dark:border-amber-500 font-medium' : ''
             ]"
             @click="selectWeek(w)"
           >
             <span class="font-medium text-xs leading-tight">第 {{ w }} 周</span>
             <span
               class="text-[9px] mt-0.5 leading-tight scale-95"
-              :class="w === currentWeek ? 'text-neutral-300' : 'text-neutral-400'"
+              :class="w === currentWeek ? 'text-neutral-300 dark:text-neutral-700' : 'text-neutral-400'"
             >
               {{ getDateLabel(w, 0) }}
             </span>
@@ -1286,14 +1286,14 @@ function weekdayName(day: number): string {
           <div class="flex gap-2 font-mono text-xs">
             <button
               class="px-3 py-1 rounded transition-colors cursor-pointer"
-              :class="viewer === 'calendar' ? 'bg-neutral-900 text-white' : 'border border-[#E5E5E5] text-neutral-600 hover:text-neutral-900'"
+              :class="viewer === 'calendar' ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 font-medium' : 'border border-[#E5E5E5] text-neutral-600 hover:text-neutral-900'"
               @click="viewer = 'calendar'"
             >
               校历大图
             </button>
             <button
               class="px-3 py-1 rounded transition-colors cursor-pointer"
-              :class="viewer === 'time' ? 'bg-neutral-900 text-white' : 'border border-[#E5E5E5] text-neutral-600 hover:text-neutral-900'"
+              :class="viewer === 'time' ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 font-medium' : 'border border-[#E5E5E5] text-neutral-600 hover:text-neutral-900'"
               @click="viewer = 'time'"
             >
               作息时间表

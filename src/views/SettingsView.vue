@@ -68,7 +68,7 @@ onMounted(loadSettings)
           <div class="flex items-center justify-between py-3.5">
             <span class="text-neutral-500 font-sans">Session Status</span>
             <span class="flex items-center gap-1.5 text-neutral-800">
-              <span class="h-1.5 w-1.5 rounded-full bg-neutral-900" />
+              <span class="h-1.5 w-1.5 rounded-full bg-neutral-900 dark:bg-emerald-400" />
               <span>Session Active</span>
             </span>
           </div>
@@ -93,13 +93,13 @@ onMounted(loadSettings)
             <!-- Minimal Switch -->
             <button
               type="button"
-              class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors cursor-pointer"
-              :class="memoryEnabled ? 'bg-neutral-900' : 'bg-neutral-200'"
+              class="no-invert relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors cursor-pointer"
+              :class="memoryEnabled ? 'bg-neutral-900 dark:bg-white' : 'bg-neutral-200 dark:bg-neutral-700'"
               @click="memoryEnabled = !memoryEnabled"
             >
               <span
-                class="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform"
-                :class="memoryEnabled ? 'translate-x-4.5' : 'translate-x-0.5'"
+                class="inline-block h-3.5 w-3.5 transform rounded-full transition-transform"
+                :class="memoryEnabled ? 'translate-x-4.5 bg-white dark:bg-neutral-900' : 'translate-x-0.5 bg-white dark:bg-neutral-300'"
               />
             </button>
           </div>

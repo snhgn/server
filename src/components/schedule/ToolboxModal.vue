@@ -1115,7 +1115,7 @@ async function saveMonitor() {
       <!-- Toolbox Header -->
       <div class="flex items-center justify-between px-5 py-4 border-b border-neutral-100">
         <div class="flex items-center gap-2">
-          <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-neutral-900 text-white">
+          <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-neutral-900 dark:bg-white dark:text-neutral-950 text-white">
             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
             </svg>
@@ -1347,14 +1347,14 @@ async function saveMonitor() {
           <div class="flex items-center gap-1.5">
             <button
               class="px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition-colors"
-              :class="activeGradeTab === 'grades' ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'"
+              :class="activeGradeTab === 'grades' ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 font-medium' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'"
               @click="activeGradeTab = 'grades'"
             >
               课程成绩
             </button>
             <button
               class="px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition-colors"
-              :class="activeGradeTab === 'level' ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'"
+              :class="activeGradeTab === 'level' ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 font-medium' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'"
               @click="activeGradeTab = 'level'; if (!levelExams.length) fetchLevelExams()"
             >
               等级考试 (四六级)
@@ -1720,8 +1720,8 @@ async function saveMonitor() {
             >
               <!-- 学期可折叠头部 -->
               <div
-                class="flex items-center justify-between px-3.5 py-2.5 bg-neutral-50/90 hover:bg-neutral-100/90 cursor-pointer select-none transition-colors"
-                :class="{ 'border-b border-neutral-200/80': !isTermCollapsed(group.termKey) }"
+                class="flex items-center justify-between px-3.5 py-2.5 bg-neutral-50/90 dark:bg-[#1c2025] hover:bg-neutral-100/90 dark:hover:bg-[#252a31] cursor-pointer select-none transition-colors"
+                :class="{ 'border-b border-neutral-200/80 dark:border-neutral-700/80': !isTermCollapsed(group.termKey) }"
                 @click="toggleTermCollapse(group.termKey)"
               >
                 <div class="flex items-center gap-2">
@@ -1731,7 +1731,7 @@ async function saveMonitor() {
                   >
                     ▶
                   </span>
-                  <span class="font-medium text-neutral-900 text-xs sm:text-sm font-sans">
+                  <span class="font-medium text-neutral-900 dark:text-white text-xs sm:text-sm font-sans">
                     {{ group.displayName }}
                   </span>
                   <span class="text-[11px] text-neutral-400 font-mono">
@@ -1740,8 +1740,8 @@ async function saveMonitor() {
                 </div>
 
                 <div class="flex items-center gap-2.5">
-                  <span class="text-[11px] text-neutral-600 font-mono bg-white px-2 py-0.5 rounded border border-neutral-200/70">
-                    学分小计: <strong class="text-neutral-900">{{ group.totalCredits }}</strong>
+                  <span class="text-[11px] text-neutral-600 dark:text-neutral-300 font-mono bg-white dark:bg-[#16191c] px-2 py-0.5 rounded border border-neutral-200/70 dark:border-neutral-700/70">
+                    学分小计: <strong class="text-neutral-900 dark:text-white">{{ group.totalCredits }}</strong>
                   </span>
                   <span class="text-[11px] text-neutral-400 hover:text-neutral-700">
                     {{ isTermCollapsed(group.termKey) ? '展开' : '收起' }}
@@ -1864,9 +1864,9 @@ async function saveMonitor() {
             <div class="flex items-center justify-between">
               <label class="text-neutral-500 text-xs font-medium">节次区间 (可点击两端或滑动任选相邻节次)</label>
               <div class="flex items-center gap-1 font-mono text-[11px]">
-                <span class="text-neutral-900 font-medium bg-neutral-100 px-2 py-0.5 rounded">
+                <span class="text-neutral-900 font-medium bg-neutral-100 dark:bg-[#252a32] dark:text-neutral-100 px-2 py-0.5 rounded">
                   {{ classroomStartPeriod === classroomEndPeriod ? `第 ${classroomStartPeriod} 节` : `第 ${classroomStartPeriod}-${classroomEndPeriod} 节` }}
-                  <span class="text-neutral-500 font-normal ml-1">({{ selectedPeriodTimeRange }})</span>
+                  <span class="text-neutral-500 dark:text-neutral-400 font-normal ml-1">({{ selectedPeriodTimeRange }})</span>
                 </span>
               </div>
             </div>
@@ -1874,7 +1874,7 @@ async function saveMonitor() {
             <!-- 12 节长条 -->
             <div
               ref="periodBarRef"
-              class="relative flex items-stretch h-10 bg-neutral-100/90 rounded-xl p-1 select-none touch-none border border-[#E5E5E5] cursor-pointer"
+              class="relative flex items-stretch h-10 bg-neutral-100/90 dark:bg-[#181c22] rounded-xl p-1 select-none touch-none border border-[#E5E5E5] dark:border-[#2f3540] cursor-pointer"
               @pointermove="handlePointerMove"
               @pointerup="handlePointerUp"
               @pointercancel="handlePointerUp"
@@ -1885,8 +1885,8 @@ async function saveMonitor() {
                 class="flex-1 flex flex-col items-center justify-center transition-colors relative"
                 :class="[
                   p >= classroomStartPeriod && p <= classroomEndPeriod
-                    ? 'bg-neutral-900 text-white font-medium shadow-xs z-10'
-                    : 'text-neutral-600 hover:text-neutral-900 hover:bg-neutral-200/50',
+                    ? 'bg-neutral-900 text-white font-medium shadow-xs z-10 dark:bg-white dark:text-neutral-950'
+                    : 'text-neutral-600 hover:text-neutral-900 hover:bg-neutral-200/50 dark:text-neutral-400 dark:hover:text-white dark:hover:bg-neutral-800/60',
                   p === classroomStartPeriod && p === classroomEndPeriod ? 'rounded-lg' : '',
                   p === classroomStartPeriod && p !== classroomEndPeriod ? 'rounded-l-lg' : '',
                   p === classroomEndPeriod && p !== classroomStartPeriod ? 'rounded-r-lg' : '',
@@ -1896,7 +1896,7 @@ async function saveMonitor() {
                 <span class="text-xs leading-none font-mono font-medium">{{ p }}</span>
                 <span
                   class="text-[7.5px] leading-tight font-mono mt-0.5"
-                  :class="p >= classroomStartPeriod && p <= classroomEndPeriod ? 'text-neutral-300' : 'text-neutral-400'"
+                  :class="p >= classroomStartPeriod && p <= classroomEndPeriod ? 'text-neutral-300 dark:text-neutral-600' : 'text-neutral-400 dark:text-neutral-500'"
                 >
                   {{ p <= 4 ? '早' : p === 5 ? '午' : p <= 9 ? '下' : '晚' }}
                 </span>
@@ -1906,7 +1906,7 @@ async function saveMonitor() {
             <!-- 提示与常用快捷预设 -->
             <div class="flex flex-wrap items-center justify-between gap-1 text-[11px] pt-0.5">
               <div class="text-[11px] text-neutral-400">
-                <span v-if="selectingAnchor !== null" class="text-amber-600 font-medium">
+                <span v-if="selectingAnchor !== null" class="text-amber-600 dark:text-amber-400 font-medium">
                   👉 已定第 {{ selectingAnchor }} 节，点击任一节次完成连段选择
                 </span>
                 <span v-else>
@@ -1919,7 +1919,7 @@ async function saveMonitor() {
                 <button
                   type="button"
                   class="px-1.5 py-0.5 rounded border text-[10px] cursor-pointer transition-colors"
-                  :class="classroomStartPeriod === 1 && classroomEndPeriod === 2 ? 'border-neutral-900 bg-neutral-900 text-white font-medium' : 'border-[#E5E5E5] bg-white text-neutral-600 hover:border-neutral-400'"
+                  :class="classroomStartPeriod === 1 && classroomEndPeriod === 2 ? 'border-neutral-900 bg-neutral-900 text-white font-medium dark:bg-white dark:text-neutral-950 dark:border-white' : 'border-[#E5E5E5] bg-white text-neutral-600 hover:border-neutral-400 dark:bg-[#1f242b] dark:border-[#2f3540] dark:text-neutral-300 dark:hover:border-neutral-400'"
                   @click="setPeriodPreset(1, 2)"
                 >
                   1-2
@@ -1927,7 +1927,7 @@ async function saveMonitor() {
                 <button
                   type="button"
                   class="px-1.5 py-0.5 rounded border text-[10px] cursor-pointer transition-colors"
-                  :class="classroomStartPeriod === 3 && classroomEndPeriod === 4 ? 'border-neutral-900 bg-neutral-900 text-white font-medium' : 'border-[#E5E5E5] bg-white text-neutral-600 hover:border-neutral-400'"
+                  :class="classroomStartPeriod === 3 && classroomEndPeriod === 4 ? 'border-neutral-900 bg-neutral-900 text-white font-medium dark:bg-white dark:text-neutral-950 dark:border-white' : 'border-[#E5E5E5] bg-white text-neutral-600 hover:border-neutral-400 dark:bg-[#1f242b] dark:border-[#2f3540] dark:text-neutral-300 dark:hover:border-neutral-400'"
                   @click="setPeriodPreset(3, 4)"
                 >
                   3-4
@@ -1935,7 +1935,7 @@ async function saveMonitor() {
                 <button
                   type="button"
                   class="px-1.5 py-0.5 rounded border text-[10px] cursor-pointer transition-colors"
-                  :class="classroomStartPeriod === 1 && classroomEndPeriod === 4 ? 'border-neutral-900 bg-neutral-900 text-white font-medium' : 'border-[#E5E5E5] bg-white text-neutral-600 hover:border-neutral-400'"
+                  :class="classroomStartPeriod === 1 && classroomEndPeriod === 4 ? 'border-neutral-900 bg-neutral-900 text-white font-medium dark:bg-white dark:text-neutral-950 dark:border-white' : 'border-[#E5E5E5] bg-white text-neutral-600 hover:border-neutral-400 dark:bg-[#1f242b] dark:border-[#2f3540] dark:text-neutral-300 dark:hover:border-neutral-400'"
                   @click="setPeriodPreset(1, 4)"
                 >
                   上午(1-4)
@@ -1943,7 +1943,7 @@ async function saveMonitor() {
                 <button
                   type="button"
                   class="px-1.5 py-0.5 rounded border text-[10px] cursor-pointer transition-colors"
-                  :class="classroomStartPeriod === 6 && classroomEndPeriod === 7 ? 'border-neutral-900 bg-neutral-900 text-white font-medium' : 'border-[#E5E5E5] bg-white text-neutral-600 hover:border-neutral-400'"
+                  :class="classroomStartPeriod === 6 && classroomEndPeriod === 7 ? 'border-neutral-900 bg-neutral-900 text-white font-medium dark:bg-white dark:text-neutral-950 dark:border-white' : 'border-[#E5E5E5] bg-white text-neutral-600 hover:border-neutral-400 dark:bg-[#1f242b] dark:border-[#2f3540] dark:text-neutral-300 dark:hover:border-neutral-400'"
                   @click="setPeriodPreset(6, 7)"
                 >
                   6-7
@@ -1951,7 +1951,7 @@ async function saveMonitor() {
                 <button
                   type="button"
                   class="px-1.5 py-0.5 rounded border text-[10px] cursor-pointer transition-colors"
-                  :class="classroomStartPeriod === 8 && classroomEndPeriod === 9 ? 'border-neutral-900 bg-neutral-900 text-white font-medium' : 'border-[#E5E5E5] bg-white text-neutral-600 hover:border-neutral-400'"
+                  :class="classroomStartPeriod === 8 && classroomEndPeriod === 9 ? 'border-neutral-900 bg-neutral-900 text-white font-medium dark:bg-white dark:text-neutral-950 dark:border-white' : 'border-[#E5E5E5] bg-white text-neutral-600 hover:border-neutral-400 dark:bg-[#1f242b] dark:border-[#2f3540] dark:text-neutral-300 dark:hover:border-neutral-400'"
                   @click="setPeriodPreset(8, 9)"
                 >
                   8-9
@@ -1959,7 +1959,7 @@ async function saveMonitor() {
                 <button
                   type="button"
                   class="px-1.5 py-0.5 rounded border text-[10px] cursor-pointer transition-colors"
-                  :class="classroomStartPeriod === 6 && classroomEndPeriod === 9 ? 'border-neutral-900 bg-neutral-900 text-white font-medium' : 'border-[#E5E5E5] bg-white text-neutral-600 hover:border-neutral-400'"
+                  :class="classroomStartPeriod === 6 && classroomEndPeriod === 9 ? 'border-neutral-900 bg-neutral-900 text-white font-medium dark:bg-white dark:text-neutral-950 dark:border-white' : 'border-[#E5E5E5] bg-white text-neutral-600 hover:border-neutral-400 dark:bg-[#1f242b] dark:border-[#2f3540] dark:text-neutral-300 dark:hover:border-neutral-400'"
                   @click="setPeriodPreset(6, 9)"
                 >
                   下午(6-9)
@@ -1967,7 +1967,7 @@ async function saveMonitor() {
                 <button
                   type="button"
                   class="px-1.5 py-0.5 rounded border text-[10px] cursor-pointer transition-colors"
-                  :class="classroomStartPeriod === 10 && classroomEndPeriod === 11 ? 'border-neutral-900 bg-neutral-900 text-white font-medium' : 'border-[#E5E5E5] bg-white text-neutral-600 hover:border-neutral-400'"
+                  :class="classroomStartPeriod === 10 && classroomEndPeriod === 11 ? 'border-neutral-900 bg-neutral-900 text-white font-medium dark:bg-white dark:text-neutral-950 dark:border-white' : 'border-[#E5E5E5] bg-white text-neutral-600 hover:border-neutral-400 dark:bg-[#1f242b] dark:border-[#2f3540] dark:text-neutral-300 dark:hover:border-neutral-400'"
                   @click="setPeriodPreset(10, 11)"
                 >
                   10-11
@@ -1975,7 +1975,7 @@ async function saveMonitor() {
                 <button
                   type="button"
                   class="px-1.5 py-0.5 rounded border text-[10px] cursor-pointer transition-colors"
-                  :class="classroomStartPeriod === 1 && classroomEndPeriod === 12 ? 'border-neutral-900 bg-neutral-900 text-white font-medium' : 'border-[#E5E5E5] bg-white text-neutral-600 hover:border-neutral-400'"
+                  :class="classroomStartPeriod === 1 && classroomEndPeriod === 12 ? 'border-neutral-900 bg-neutral-900 text-white font-medium dark:bg-white dark:text-neutral-950 dark:border-white' : 'border-[#E5E5E5] bg-white text-neutral-600 hover:border-neutral-400 dark:bg-[#1f242b] dark:border-[#2f3540] dark:text-neutral-300 dark:hover:border-neutral-400'"
                   @click="setPeriodPreset(1, 12)"
                 >
                   全天
@@ -2016,15 +2016,15 @@ async function saveMonitor() {
               <div
                 v-for="r in freeClassrooms"
                 :key="r.name"
-                class="p-2.5 border border-[#E5E5E5] rounded-lg bg-[#FAFAFA] flex items-center justify-between hover:border-neutral-400 transition-colors"
+                class="p-2.5 border border-[#E5E5E5] rounded-lg bg-[#FAFAFA] flex items-center justify-between hover:border-neutral-400 transition-colors dark:bg-[#1a1d21] dark:border-[#2e333b]"
               >
                 <div class="flex items-center gap-1.5">
-                  <span class="font-medium text-neutral-900 text-xs">{{ r.name }}</span>
-                  <span class="text-[9px] px-1.5 py-0.5 rounded bg-neutral-200 text-neutral-600 font-sans">
+                  <span class="font-medium text-neutral-900 text-xs dark:text-neutral-100">{{ r.name }}</span>
+                  <span class="text-[9px] px-1.5 py-0.5 rounded bg-neutral-200 text-neutral-600 font-sans dark:bg-[#282d35] dark:text-neutral-300">
                     {{ getBuildingTag(r) }}
                   </span>
                 </div>
-                <span class="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded text-[10px] font-medium shrink-0">空闲</span>
+                <span class="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded text-[10px] font-medium shrink-0 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border dark:border-emerald-800/40">空闲</span>
               </div>
             </div>
 
@@ -2109,14 +2109,14 @@ async function saveMonitor() {
               <div class="flex items-center gap-1.5">
                 <button
                   type="button"
-                  class="px-2.5 py-1.5 rounded-lg border border-[#E5E5E5] hover:border-neutral-400 text-neutral-700 text-xs cursor-pointer transition-colors"
+                  class="px-2.5 py-1.5 rounded-lg border border-[#E5E5E5] hover:border-neutral-400 text-neutral-700 text-xs cursor-pointer transition-colors dark:border-[#2e333b] dark:text-neutral-300 dark:hover:border-neutral-400"
                   @click="copyShareCodeOnly"
                 >
                   仅复制码
                 </button>
                 <button
                   type="button"
-                  class="px-3 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white font-medium text-xs cursor-pointer transition-colors"
+                  class="px-3 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white font-medium text-xs cursor-pointer transition-colors dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-100"
                   @click="copyShareLink"
                 >
                   {{ copySuccess ? '已复制！' : '复制分享链接' }}
@@ -2213,9 +2213,9 @@ async function saveMonitor() {
               class="flex items-center justify-between p-3 bg-white hover:bg-neutral-50/60 transition-colors"
             >
               <div>
-                <div class="font-medium text-neutral-900 flex items-center gap-1.5">
+                <div class="font-medium text-neutral-900 dark:text-neutral-100 flex items-center gap-1.5">
                   <span>{{ f.name }}</span>
-                  <span class="font-mono text-[9px] px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-600">
+                  <span class="font-mono text-[9px] px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-600 dark:bg-[#252a32] dark:text-neutral-300">
                     码: {{ f.code }}
                   </span>
                 </div>
@@ -2227,13 +2227,13 @@ async function saveMonitor() {
                 <a
                   :href="`/schedule?code=${f.code}`"
                   target="_blank"
-                  class="text-neutral-900 hover:text-black font-medium underline text-xs"
+                  class="text-neutral-900 hover:text-black dark:text-neutral-200 dark:hover:text-white font-medium underline text-xs"
                 >
                   查看课表 →
                 </a>
                 <button
                   type="button"
-                  class="text-neutral-300 hover:text-red-600 cursor-pointer p-1 transition-colors"
+                  class="text-neutral-300 hover:text-red-600 dark:text-neutral-500 dark:hover:text-red-400 cursor-pointer p-1 transition-colors"
                   title="移除好友"
                   @click="removeFriend(idx)"
                 >
@@ -2313,21 +2313,21 @@ async function saveMonitor() {
             <div class="grid grid-cols-3 gap-2">
               <button
                 class="py-2 border rounded-lg text-center cursor-pointer transition-colors"
-                :class="themeMode === 'auto' ? 'border-neutral-900 bg-neutral-900 text-white font-medium shadow-xs' : 'border-[#E5E5E5] text-neutral-700 hover:border-neutral-400'"
+                :class="themeMode === 'auto' ? 'border-neutral-900 bg-neutral-900 text-white font-medium shadow-xs dark:bg-white dark:text-neutral-950 dark:border-white' : 'border-[#E5E5E5] text-neutral-700 hover:border-neutral-400 dark:bg-[#1a1d21] dark:border-[#2e333b] dark:text-neutral-300 dark:hover:border-neutral-400'"
                 @click="onThemeChange('auto')"
               >
                 跟随系统
               </button>
               <button
                 class="py-2 border rounded-lg text-center cursor-pointer transition-colors"
-                :class="themeMode === 'light' ? 'border-neutral-900 bg-neutral-900 text-white font-medium shadow-xs' : 'border-[#E5E5E5] text-neutral-700 hover:border-neutral-400'"
+                :class="themeMode === 'light' ? 'border-neutral-900 bg-neutral-900 text-white font-medium shadow-xs dark:bg-white dark:text-neutral-950 dark:border-white' : 'border-[#E5E5E5] text-neutral-700 hover:border-neutral-400 dark:bg-[#1a1d21] dark:border-[#2e333b] dark:text-neutral-300 dark:hover:border-neutral-400'"
                 @click="onThemeChange('light')"
               >
                 浅色模式
               </button>
               <button
                 class="py-2 border rounded-lg text-center cursor-pointer transition-colors"
-                :class="themeMode === 'dark' ? 'border-neutral-900 bg-neutral-900 text-white font-medium shadow-xs' : 'border-[#E5E5E5] text-neutral-700 hover:border-neutral-400'"
+                :class="themeMode === 'dark' ? 'border-neutral-900 bg-neutral-900 text-white font-medium shadow-xs dark:bg-white dark:text-neutral-950 dark:border-white' : 'border-[#E5E5E5] text-neutral-700 hover:border-neutral-400 dark:bg-[#1a1d21] dark:border-[#2e333b] dark:text-neutral-300 dark:hover:border-neutral-400'"
                 @click="onThemeChange('dark')"
               >
                 深色模式
@@ -2469,7 +2469,7 @@ async function saveMonitor() {
               <button
                 type="button"
                 :disabled="monitorTestLoading || !monitorEmail.trim()"
-                class="text-[11px] text-neutral-600 hover:text-neutral-950 font-mono underline underline-offset-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                class="text-[11px] text-neutral-600 hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white font-mono underline underline-offset-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                 @click="sendTestEmail"
               >
                 {{ monitorTestLoading ? '正在发送测试...' : '单独发送测试邮件' }}
@@ -2480,7 +2480,7 @@ async function saveMonitor() {
                 v-model="monitorEmail"
                 type="email"
                 placeholder="your_email@domain.com"
-                class="w-full border border-[#E5E5E5] rounded px-3 py-2 bg-white text-xs font-mono focus:border-neutral-900 focus:outline-hidden"
+                class="w-full border border-[#E5E5E5] rounded px-3 py-2 bg-white text-xs font-mono focus:border-neutral-900 focus:outline-hidden dark:bg-[#1a1d21] dark:border-[#2e333b] dark:text-neutral-100"
               />
             </div>
           </div>
