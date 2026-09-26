@@ -26,3 +26,9 @@ dist-ssr
 *.tsbuildinfo
 *.zip
 *.png
+
+# Android build
+.gradle/
+**/build/
+*.apk
+*.aab

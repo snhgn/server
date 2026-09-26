@@ -1,0 +1,19 @@
+<resources>
+    <string name="app_name">snhgn 课表</string>
+    <string name="permission_guide_title">课程提醒与自启动配置</string>
+    <string name="permission_guide_subtitle">为了使课程提醒胶囊能准时唤醒，且下课后自动关闭不留后台，请授予以下必要系统权限：</string>
+    <string name="perm_overlay_title">悬浮窗权限 (流体云)</string>
+    <string name="perm_overlay_desc">用于在屏幕顶部展示类似 ColorOS 流体云的胶囊提醒</string>
+    <string name="perm_alarm_title">精确闹钟权限</string>
+    <string name="perm_alarm_desc">用于在每节课前 5 分钟精准唤醒 APP 校验课程并弹出提醒</string>
+    <string name="perm_battery_title">电池优化无限制</string>
+    <string name="perm_battery_desc">避免系统休眠或息屏时误杀闹钟事件</string>
+    <string name="perm_autostart_title">ColorOS 自启动与后台运行</string>
+    <string name="perm_autostart_desc">允许应用在任务卡片被划掉后依然响应课程提醒</string>
+    <string name="perm_notification_title">系统通知权限</string>
+    <string name="perm_notification_desc">用于在前台服务运行期间保持提醒可靠性</string>
+    <string name="btn_complete_guide">完成设置并进入课表</string>
+    <string name="network_error_title">网络连接异常</string>
+    <string name="network_error_desc">无法连接到课程网站，请检查网络设置后重试</string>
+    <string name="btn_retry">重新加载</string>
+</resources>
