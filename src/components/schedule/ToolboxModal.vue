@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { api } from '@/api'
 
 function showAlert(msg: string) {
   if (typeof window !== 'undefined') {
@@ -28,6 +29,7 @@ const props = defineProps<{
   show: boolean
   schedule: ScheduleData | null
   studentId: string
+  password?: string
 }>()
 
 const emit = defineEmits<{
@@ -52,6 +54,396 @@ type ActiveTool =
   | 'grade_monitor'
 
 const activeTool = ref<ActiveTool>('none')
+
+// ================= 凭据解析与弹窗内即时输入支持 =================
+const inputPassword = ref('')
+const tempPasswordInput = ref('')
+const effectivePassword = computed(() => {
+  return (
+    props.password?.trim() ||
+    inputPassword.value.trim() ||
+    localStorage.getItem('bjfu-student-pwd') ||
+    ''
+  )
+})
+
+function submitTempPassword() {
+  if (!tempPasswordInput.value.trim()) {
+    showAlert('请输入教务系统密码')
+    return
+  }
+  inputPassword.value = tempPasswordInput.value.trim()
+  if (localStorage.getItem('bjfu-remember-credentials') === 'true') {
+    localStorage.setItem('bjfu-student-pwd', inputPassword.value)
+  }
+  // 重新触发对应工具查询
+  if (activeTool.value === 'grades') fetchGrades(true)
+  else if (activeTool.value === 'exams') fetchOfficialExams(true)
+  else if (activeTool.value === 'training') fetchTrainingPlan(true)
+  else if (activeTool.value === 'classroom') queryClassrooms()
+}
+
+// ================= 1. 成绩查询 (GPA与各学期成绩) =================
+interface GradeCourse {
+  term: string
+  code: string
+  name: string
+  score: string
+  credit: number
+  hours: string
+  attribute: string
+  category: string
+}
+
+interface GradesData {
+  courses: GradeCourse[]
+  total_courses: number
+  total_credits: number
+  avg_gpa: number
+  avg_score: number
+}
+
+interface LevelExam {
+  batch: string
+  code: string
+  name: string
+  time: string
+  score: string
+  ticket: string
+  [key: string]: any
+}
+
+const gradesData = ref<GradesData | null>(null)
+const gradesLoading = ref(false)
+const gradesError = ref('')
+const gradesSemester = ref('all')
+const activeGradeTab = ref<'grades' | 'level'>('grades')
+const levelExams = ref<LevelExam[]>([])
+const levelExamsLoading = ref(false)
+
+function loadCachedGrades() {
+  if (!props.studentId) return
+  try {
+    const raw = localStorage.getItem(`bjfu-grades-cache-${props.studentId}`)
+    if (raw) {
+      gradesData.value = JSON.parse(raw)
+    }
+  } catch {}
+}
+
+async function fetchGrades(_force = false) {
+  if (!props.studentId) {
+    gradesError.value = '未找到有效学号'
+    return
+  }
+  if (!effectivePassword.value) {
+    gradesError.value = '请输入教务系统密码以拉取最新成绩'
+    return
+  }
+  gradesLoading.value = true
+  gradesError.value = ''
+  try {
+    const res = await api.post<GradesData>('/api/schedule/grades', {
+      student_id: props.studentId,
+      password: effectivePassword.value,
+      semester: '',
+      display_mode: 'all',
+    })
+    gradesData.value = res
+    localStorage.setItem(`bjfu-grades-cache-${props.studentId}`, JSON.stringify(res))
+  } catch (err: any) {
+    gradesError.value = err.message || '成绩拉取失败，请检查网络或密码'
+  } finally {
+    gradesLoading.value = false
+  }
+}
+
+async function fetchLevelExams() {
+  if (!props.studentId || !effectivePassword.value) return
+  levelExamsLoading.value = true
+  try {
+    const res = await api.post<LevelExam[]>('/api/schedule/level_exams', {
+      student_id: props.studentId,
+      password: effectivePassword.value,
+    })
+    levelExams.value = res || []
+  } catch (err: any) {
+    showAlert(err.message || '等级考试查询失败')
+  } finally {
+    levelExamsLoading.value = false
+  }
+}
+
+const availableGradeSemesters = computed(() => {
+  if (!gradesData.value?.courses) return []
+  const terms = [...new Set(gradesData.value.courses.map((c) => c.term).filter(Boolean))]
+  return terms.sort().reverse()
+})
+
+const displayedCourses = computed(() => {
+  if (!gradesData.value?.courses) return []
+  if (gradesSemester.value === 'all') return gradesData.value.courses
+  return gradesData.value.courses.filter((c) => c.term === gradesSemester.value)
+})
+
+// ================= 2. 考试安排与自定义考试 =================
+interface OfficialExam {
+  batch: string
+  code: string
+  name: string
+  time: string
+  room: string
+  seat: string
+  ticket: string
+}
+
+interface CustomExam {
+  id: string
+  name: string
+  date: string
+  time: string
+  room: string
+  seat: string
+}
+
+const officialExams = ref<OfficialExam[]>([])
+const examsLoading = ref(false)
+const examsError = ref('')
+const customExams = ref<CustomExam[]>([])
+try {
+  customExams.value = JSON.parse(localStorage.getItem('bjfu-custom-exams') || '[]')
+} catch {}
+
+const newExamName = ref('')
+const newExamDate = ref('')
+const newExamTime = ref('09:00 - 11:00')
+const newExamRoom = ref('')
+const newExamSeat = ref('')
+const showAddExamForm = ref(false)
+
+function loadCachedExams() {
+  if (!props.studentId) return
+  try {
+    const raw = localStorage.getItem(`bjfu-exams-cache-${props.studentId}`)
+    if (raw) {
+      officialExams.value = JSON.parse(raw)
+    }
+  } catch {}
+}
+
+async function fetchOfficialExams(_force = false) {
+  if (!props.studentId) {
+    examsError.value = '未找到有效学号'
+    return
+  }
+  if (!effectivePassword.value) {
+    examsError.value = '请输入教务系统密码以拉取考试'
+    return
+  }
+  examsLoading.value = true
+  examsError.value = ''
+  try {
+    const res = await api.post<OfficialExam[]>('/api/schedule/exams', {
+      student_id: props.studentId,
+      password: effectivePassword.value,
+      semester: '',
+      category: '',
+    })
+    officialExams.value = res || []
+    localStorage.setItem(`bjfu-exams-cache-${props.studentId}`, JSON.stringify(officialExams.value))
+  } catch (err: any) {
+    examsError.value = err.message || '考试日程拉取失败'
+  } finally {
+    examsLoading.value = false
+  }
+}
+
+function addCustomExam() {
+  if (!newExamName.value.trim() || !newExamDate.value) {
+    showAlert('请填写考试科目和考试日期')
+    return
+  }
+  customExams.value.push({
+    id: String(Date.now()),
+    name: newExamName.value.trim(),
+    date: newExamDate.value,
+    time: newExamTime.value.trim(),
+    room: newExamRoom.value.trim() || '待定',
+    seat: newExamSeat.value.trim() || '—',
+  })
+  localStorage.setItem('bjfu-custom-exams', JSON.stringify(customExams.value))
+  newExamName.value = ''
+  newExamDate.value = ''
+  newExamRoom.value = ''
+  newExamSeat.value = ''
+  showAddExamForm.value = false
+}
+
+function removeCustomExam(id: string) {
+  customExams.value = customExams.value.filter((e) => e.id !== id)
+  localStorage.setItem('bjfu-custom-exams', JSON.stringify(customExams.value))
+}
+
+// ================= 3. 培养方案 =================
+interface TrainingPlanItem {
+  term: string
+  code: string
+  name: string
+  dept: string
+  credit: number
+  hours: string
+  attribute: string
+}
+
+const trainingPlan = ref<TrainingPlanItem[]>([])
+const planLoading = ref(false)
+const planError = ref('')
+const selectedPlanCategory = ref('all')
+
+function loadCachedPlan() {
+  if (!props.studentId) return
+  try {
+    const raw = localStorage.getItem(`bjfu-plan-cache-${props.studentId}`)
+    if (raw) {
+      trainingPlan.value = JSON.parse(raw)
+    }
+  } catch {}
+}
+
+async function fetchTrainingPlan(_force = false) {
+  if (!props.studentId) {
+    planError.value = '未找到有效学号'
+    return
+  }
+  if (!effectivePassword.value) {
+    planError.value = '请输入教务系统密码以拉取培养方案'
+    return
+  }
+  planLoading.value = true
+  planError.value = ''
+  try {
+    const res = await api.post<TrainingPlanItem[]>('/api/schedule/training_plan', {
+      student_id: props.studentId,
+      password: effectivePassword.value,
+    })
+    trainingPlan.value = res || []
+    localStorage.setItem(`bjfu-plan-cache-${props.studentId}`, JSON.stringify(trainingPlan.value))
+  } catch (err: any) {
+    planError.value = err.message || '培养方案拉取失败'
+  } finally {
+    planLoading.value = false
+  }
+}
+
+const planCategories = computed(() => {
+  if (!trainingPlan.value.length) return []
+  const set = new Set<string>()
+  trainingPlan.value.forEach((item) => {
+    const key = item.attribute || item.term || '其他'
+    if (key) set.add(key)
+  })
+  return [...set]
+})
+
+const planTotalCredits = computed(() => {
+  return Math.round(trainingPlan.value.reduce((acc, cur) => acc + (cur.credit || 0), 0) * 10) / 10
+})
+
+const filteredPlanCourses = computed(() => {
+  if (selectedPlanCategory.value === 'all') return trainingPlan.value
+  return trainingPlan.value.filter((item) => {
+    const key = item.attribute || item.term || '其他'
+    return key === selectedPlanCategory.value
+  })
+})
+
+// ================= 4. 空闲教室查询 =================
+interface FreeRoom {
+  name: string
+  raw: string
+  capacity: string
+  building: string
+}
+
+const classroomBuilding = ref('')
+const currentSystemWeek = Math.min(
+  20,
+  Math.max(1, Math.floor((Date.now() - new Date('2026-09-07T00:00:00').getTime()) / 86400000 / 7) + 1)
+)
+const classroomWeek = ref(currentSystemWeek)
+const currentDayOfWeek = new Date().getDay() || 7
+const classroomDay = ref(currentDayOfWeek)
+const classroomPeriod = ref('1-2')
+
+const classroomPeriodMap: Record<string, [number, number]> = {
+  '1-2': [1, 2],
+  '3-4': [3, 4],
+  '5': [5, 5],
+  '6-7': [6, 7],
+  '8-9': [8, 9],
+  '10-11': [10, 11],
+  '12': [12, 12],
+  '1-4': [1, 4],
+  '6-9': [6, 9],
+  '1-12': [1, 12],
+}
+
+const freeClassrooms = ref<FreeRoom[]>([])
+const classroomsLoading = ref(false)
+const classroomsError = ref('')
+const classroomsSearched = ref(false)
+
+async function queryClassrooms() {
+  if (!props.studentId) {
+    classroomsError.value = '未找到有效学号'
+    return
+  }
+  if (!effectivePassword.value) {
+    classroomsError.value = '请输入教务系统密码以查询空闲教室'
+    return
+  }
+  const [startP, endP] = classroomPeriodMap[classroomPeriod.value] || [1, 2]
+  classroomsLoading.value = true
+  classroomsError.value = ''
+  try {
+    const res = await api.post<FreeRoom[]>('/api/schedule/classrooms', {
+      student_id: props.studentId,
+      password: effectivePassword.value,
+      semester: props.schedule?.semester || '2026-2027-1',
+      building: classroomBuilding.value,
+      week: Number(classroomWeek.value),
+      day: Number(classroomDay.value),
+      start_period: startP,
+      end_period: endP,
+    })
+    freeClassrooms.value = res || []
+    classroomsSearched.value = true
+  } catch (err: any) {
+    classroomsError.value = err.message || '空闲教室查询失败'
+  } finally {
+    classroomsLoading.value = false
+  }
+}
+
+// 自动在打开对应卡片时加载本地缓存或拉取
+watch(activeTool, (tool) => {
+  if (tool === 'grades') {
+    loadCachedGrades()
+    if (!gradesData.value && effectivePassword.value) {
+      fetchGrades()
+    }
+  } else if (tool === 'exams') {
+    loadCachedExams()
+    if (!officialExams.value.length && effectivePassword.value) {
+      fetchOfficialExams()
+    }
+  } else if (tool === 'training') {
+    loadCachedPlan()
+    if (!trainingPlan.value.length && effectivePassword.value) {
+      fetchTrainingPlan()
+    }
+  }
+})
 
 // ================= 背景设置 (纯前端直接可用) =================
 const bgUrl = ref(localStorage.getItem('bjfu-bg-url') || '')
@@ -104,54 +496,7 @@ function saveAppearance() {
   activeTool.value = 'none'
 }
 
-// ================= 自定义考试 =================
-interface CustomExam {
-  id: string
-  name: string
-  date: string
-  time: string
-  room: string
-  seat: string
-}
-const customExams = ref<CustomExam[]>([])
-try {
-  customExams.value = JSON.parse(localStorage.getItem('bjfu-custom-exams') || '[]')
-} catch {}
-
-const newExamName = ref('')
-const newExamDate = ref('')
-const newExamTime = ref('09:00 - 11:00')
-const newExamRoom = ref('')
-const newExamSeat = ref('')
-const showAddExamForm = ref(false)
-
-function addCustomExam() {
-  if (!newExamName.value.trim() || !newExamDate.value) {
-    showAlert('请填写考试科目和考试日期')
-    return
-  }
-  customExams.value.push({
-    id: String(Date.now()),
-    name: newExamName.value.trim(),
-    date: newExamDate.value,
-    time: newExamTime.value.trim(),
-    room: newExamRoom.value.trim() || '待定',
-    seat: newExamSeat.value.trim() || '—',
-  })
-  localStorage.setItem('bjfu-custom-exams', JSON.stringify(customExams.value))
-  newExamName.value = ''
-  newExamDate.value = ''
-  newExamRoom.value = ''
-  newExamSeat.value = ''
-  showAddExamForm.value = false
-}
-
-function removeCustomExam(id: string) {
-  customExams.value = customExams.value.filter((e) => e.id !== id)
-  localStorage.setItem('bjfu-custom-exams', JSON.stringify(customExams.value))
-}
-
-// ================= 导出 ICS 日历 (纯前端完全可用) =================
+// ================= 导出 ICS 日历 =================
 const exportIncludeExams = ref(true)
 
 function parseWeeksList(weeks: string): number[] {
@@ -224,8 +569,29 @@ function generateICS(): string {
     })
   }
 
-  // 考试导出
+  // 考试导出 (官方 + 自定义)
   if (exportIncludeExams.value) {
+    officialExams.value.forEach((e, idx) => {
+      const m = e.time.match(/(\d{4}-\d{2}-\d{2})\s*(\d{2}:\d{2})-(\d{2}:\d{2})/)
+      if (m) {
+        const cleanDate = m[1].replace(/-/g, '')
+        const startT = m[2].replace(':', '') + '00'
+        const endT = m[3].replace(':', '') + '00'
+        ics.push(
+          'BEGIN:VEVENT',
+          `UID:official-exam-${idx}-${cleanDate}@snhgn.me`,
+          `DTSTAMP:${cleanDate}T${startT}Z`,
+          `DTSTART;TZID=Asia/Shanghai:${cleanDate}T${startT}`,
+          `DTEND;TZID=Asia/Shanghai:${cleanDate}T${endT}`,
+          `SUMMARY:[考试] ${e.name}`,
+          `LOCATION:${e.room}`,
+          `DESCRIPTION:场次: ${e.batch}\\n时间: ${e.time}\\n座位号: ${e.seat}\\n准考证号: ${e.ticket}`,
+          'STATUS:CONFIRMED',
+          'END:VEVENT'
+        )
+      }
+    })
+
     customExams.value.forEach((e) => {
       const cleanDate = e.date.replace(/-/g, '')
       ics.push(
@@ -518,97 +884,227 @@ function saveMonitor() {
 
     <!-- 1. 成绩查询弹窗 -->
     <div v-if="activeTool === 'grades'" class="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4" @click.self="activeTool = 'none'">
-      <div class="w-full max-w-xl rounded-xl bg-white p-6 shadow-2xl border border-[#E5E5E5] space-y-4 max-h-[85vh] overflow-y-auto">
+      <div class="w-full max-w-xl rounded-xl bg-white p-6 shadow-2xl border border-[#E5E5E5] space-y-4 max-h-[85vh] flex flex-col overflow-hidden">
         <div class="flex items-center justify-between border-b border-neutral-100 pb-3">
           <div>
-            <h3 class="text-base font-medium text-neutral-900 font-sans">成绩查询</h3>
+            <h3 class="text-base font-medium text-neutral-900 font-sans">成绩查询与绩点分析</h3>
             <p class="text-[11px] text-neutral-400 font-mono">Academic Grades & GPA Analysis</p>
           </div>
           <button class="text-neutral-400 hover:text-neutral-900 cursor-pointer" @click="activeTool = 'none'">✕</button>
         </div>
 
-        <div class="rounded-lg bg-amber-50/70 border border-amber-200/60 p-3 text-[11px] text-amber-800 flex items-center justify-between">
-          <span>提示：教务成绩抓取接口开发中，已预留数据表结构与查询界面。</span>
-          <button class="px-2.5 py-1 bg-amber-600 text-white rounded text-[11px] cursor-pointer hover:bg-amber-700">刷新成绩</button>
+        <!-- 密码未提供时的即时补全卡片 -->
+        <div v-if="!effectivePassword" class="rounded-lg bg-neutral-50 border border-neutral-200 p-4 text-center space-y-2.5">
+          <div class="text-xs text-neutral-600">当前未保存教务密码，请输入密码以拉取个人成绩与计算 GPA：</div>
+          <div class="flex gap-2 max-w-xs mx-auto">
+            <input
+              v-model="tempPasswordInput"
+              type="password"
+              placeholder="教务系统登录密码"
+              class="flex-1 px-3 py-1.5 border border-neutral-300 rounded text-xs bg-white focus:outline-none focus:border-neutral-900"
+              @keyup.enter="submitTempPassword"
+            />
+            <button
+              class="px-3.5 py-1.5 bg-neutral-900 text-white rounded text-xs hover:bg-neutral-800 cursor-pointer"
+              @click="submitTempPassword"
+            >
+              确定
+            </button>
+          </div>
         </div>
 
-        <div class="grid grid-cols-3 gap-3 font-mono text-center">
-          <div class="rounded-lg border border-neutral-100 bg-[#FAFAFA] p-3">
-            <div class="text-xs text-neutral-400">平均绩点 (GPA)</div>
-            <div class="text-xl font-bold text-neutral-900 mt-1">3.68</div>
+        <!-- 功能栏：学期筛选、四六级等级切换与刷新 -->
+        <div class="flex items-center justify-between text-xs gap-2">
+          <div class="flex items-center gap-1.5">
+            <button
+              class="px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition-colors"
+              :class="activeGradeTab === 'grades' ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'"
+              @click="activeGradeTab = 'grades'"
+            >
+              课程成绩
+            </button>
+            <button
+              class="px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition-colors"
+              :class="activeGradeTab === 'level' ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'"
+              @click="activeGradeTab = 'level'; if (!levelExams.length) fetchLevelExams()"
+            >
+              等级考试 (四六级)
+            </button>
           </div>
-          <div class="rounded-lg border border-neutral-100 bg-[#FAFAFA] p-3">
-            <div class="text-xs text-neutral-400">加权平均分</div>
-            <div class="text-xl font-bold text-neutral-900 mt-1">87.5</div>
-          </div>
-          <div class="rounded-lg border border-neutral-100 bg-[#FAFAFA] p-3">
-            <div class="text-xs text-neutral-400">已修总学分</div>
-            <div class="text-xl font-bold text-neutral-900 mt-1">42.5</div>
+
+          <div v-if="activeGradeTab === 'grades'" class="flex items-center gap-2">
+            <select
+              v-if="availableGradeSemesters.length"
+              v-model="gradesSemester"
+              class="border border-[#E5E5E5] rounded px-2 py-1 bg-white text-xs text-neutral-700"
+            >
+              <option value="all">全部学期 ({{ gradesData?.courses.length || 0 }} 门)</option>
+              <option v-for="t in availableGradeSemesters" :key="t" :value="t">{{ t }}</option>
+            </select>
+            <button
+              class="px-2.5 py-1 text-xs border border-[#E5E5E5] rounded hover:border-neutral-400 bg-white cursor-pointer flex items-center gap-1 disabled:opacity-50"
+              :disabled="gradesLoading"
+              @click="fetchGrades(true)"
+            >
+              <span :class="{ 'animate-spin': gradesLoading }">🔄</span>
+              <span>{{ gradesLoading ? '拉取中' : '刷新' }}</span>
+            </button>
           </div>
         </div>
 
-        <div class="border border-[#E5E5E5] rounded-lg overflow-hidden">
-          <table class="w-full text-left text-xs font-mono">
-            <thead class="bg-[#FAFAFA] border-b border-[#E5E5E5] text-neutral-500">
-              <tr>
-                <th class="p-2.5 font-normal">课程名称</th>
-                <th class="p-2.5 font-normal">性质</th>
-                <th class="p-2.5 font-normal">学分</th>
-                <th class="p-2.5 font-normal">成绩</th>
-                <th class="p-2.5 font-normal">绩点</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-neutral-100">
-              <tr>
-                <td class="p-2.5 font-sans font-medium text-neutral-900">高等数学 A1</td>
-                <td class="p-2.5 text-neutral-500">必修</td>
-                <td class="p-2.5">5.0</td>
-                <td class="p-2.5 font-semibold text-neutral-900">92</td>
-                <td class="p-2.5">4.0</td>
-              </tr>
-              <tr>
-                <td class="p-2.5 font-sans font-medium text-neutral-900">大学物理 B1</td>
-                <td class="p-2.5 text-neutral-500">必修</td>
-                <td class="p-2.5">4.0</td>
-                <td class="p-2.5 font-semibold text-neutral-900">88</td>
-                <td class="p-2.5">3.7</td>
-              </tr>
-              <tr>
-                <td class="p-2.5 font-sans font-medium text-neutral-900">C语言程序设计</td>
-                <td class="p-2.5 text-neutral-500">必修</td>
-                <td class="p-2.5">3.5</td>
-                <td class="p-2.5 font-semibold text-neutral-900">95</td>
-                <td class="p-2.5">4.0</td>
-              </tr>
-            </tbody>
-          </table>
+        <!-- 错误提示 -->
+        <div v-if="gradesError" class="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-600 flex items-center justify-between">
+          <span>{{ gradesError }}</span>
+          <button class="px-2 py-0.5 bg-red-600 text-white rounded text-[11px] cursor-pointer" @click="fetchGrades(true)">重试</button>
         </div>
+
+        <!-- 课程成绩视图 -->
+        <div v-if="activeGradeTab === 'grades'" class="flex-1 overflow-y-auto space-y-3">
+          <!-- 统计概览指标 -->
+          <div v-if="gradesData" class="grid grid-cols-4 gap-2 font-mono text-center">
+            <div class="rounded-lg border border-neutral-100 bg-[#FAFAFA] p-2.5">
+              <div class="text-[11px] text-neutral-400 font-sans">平均绩点 (GPA)</div>
+              <div class="text-lg font-bold text-neutral-900 mt-0.5">{{ gradesData.avg_gpa }}</div>
+            </div>
+            <div class="rounded-lg border border-neutral-100 bg-[#FAFAFA] p-2.5">
+              <div class="text-[11px] text-neutral-400 font-sans">加权平均分</div>
+              <div class="text-lg font-bold text-neutral-900 mt-0.5">{{ gradesData.avg_score }}</div>
+            </div>
+            <div class="rounded-lg border border-neutral-100 bg-[#FAFAFA] p-2.5">
+              <div class="text-[11px] text-neutral-400 font-sans">已修学分</div>
+              <div class="text-lg font-bold text-neutral-900 mt-0.5">{{ gradesData.total_credits }}</div>
+            </div>
+            <div class="rounded-lg border border-neutral-100 bg-[#FAFAFA] p-2.5">
+              <div class="text-[11px] text-neutral-400 font-sans">课程门数</div>
+              <div class="text-lg font-bold text-neutral-900 mt-0.5">{{ gradesData.total_courses }}</div>
+            </div>
+          </div>
+
+          <!-- 加载中动画 -->
+          <div v-if="gradesLoading && !gradesData" class="py-12 text-center text-xs text-neutral-400 space-y-2">
+            <div class="inline-block animate-spin text-lg">⏳</div>
+            <div>正在连接北林教务系统拉取成绩并计算绩点...</div>
+          </div>
+
+          <!-- 课程列表表格 -->
+          <div v-else-if="displayedCourses.length" class="border border-[#E5E5E5] rounded-lg overflow-hidden">
+            <table class="w-full text-left text-xs font-mono">
+              <thead class="bg-[#FAFAFA] border-b border-[#E5E5E5] text-neutral-500 text-[11px]">
+                <tr>
+                  <th class="p-2.5 font-normal">课程名称</th>
+                  <th class="p-2.5 font-normal">学期</th>
+                  <th class="p-2.5 font-normal">性质</th>
+                  <th class="p-2.5 font-normal">学分</th>
+                  <th class="p-2.5 font-normal text-right">成绩</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-neutral-100">
+                <tr v-for="c in displayedCourses" :key="c.code + c.term" class="hover:bg-neutral-50/70 transition-colors">
+                  <td class="p-2.5 font-sans font-medium text-neutral-900">
+                    <div>{{ c.name }}</div>
+                    <div class="text-[10px] text-neutral-400 font-mono">{{ c.code }}</div>
+                  </td>
+                  <td class="p-2.5 text-neutral-400 text-[11px]">{{ c.term }}</td>
+                  <td class="p-2.5 text-neutral-500">
+                    <span class="px-1.5 py-0.5 bg-neutral-100 text-neutral-600 rounded text-[10px]">{{ c.attribute || '必修' }}</span>
+                  </td>
+                  <td class="p-2.5 text-neutral-700">{{ c.credit }}</td>
+                  <td class="p-2.5 text-right font-semibold" :class="Number(c.score) >= 90 || c.score === '优秀' || c.score === '优' ? 'text-emerald-600 font-bold' : (Number(c.score) < 60 || c.score === '不及格' ? 'text-red-500' : 'text-neutral-900')">
+                    {{ c.score }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div v-else-if="!gradesLoading" class="text-center py-10 text-xs text-neutral-400">
+            暂无成绩数据，请点击上方“刷新”拉取
+          </div>
+        </div>
+
+        <!-- 等级考试视图 -->
+        <div v-else class="flex-1 overflow-y-auto space-y-3">
+          <div v-if="levelExamsLoading" class="py-12 text-center text-xs text-neutral-400 space-y-2">
+            <div class="inline-block animate-spin text-lg">⏳</div>
+            <div>正在拉取四六级等社会等级考试记录...</div>
+          </div>
+          <div v-else-if="levelExams.length" class="space-y-2">
+            <div v-for="(lex, i) in levelExams" :key="i" class="p-3 border border-[#E5E5E5] rounded-lg bg-[#FAFAFA] flex items-center justify-between">
+              <div>
+                <div class="font-medium text-neutral-900 text-xs">{{ lex.name }}</div>
+                <div class="text-[11px] text-neutral-400 font-mono mt-0.5">时间: {{ lex.time || '—' }} · 准考证号: {{ lex.ticket || '—' }}</div>
+              </div>
+              <div class="text-right">
+                <div class="text-sm font-bold text-neutral-900 font-mono">{{ lex.score }}</div>
+              </div>
+            </div>
+          </div>
+          <div v-else class="text-center py-10 text-xs text-neutral-400">
+            暂无等级考试记录或尚未查询
+          </div>
+        </div>
+
       </div>
     </div>
 
     <!-- 2. 考试安排弹窗 -->
     <div v-if="activeTool === 'exams'" class="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4" @click.self="activeTool = 'none'">
-      <div class="w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl border border-[#E5E5E5] space-y-4 max-h-[85vh] overflow-y-auto">
+      <div class="w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl border border-[#E5E5E5] space-y-4 max-h-[85vh] flex flex-col overflow-hidden">
         <div class="flex items-center justify-between border-b border-neutral-100 pb-3">
           <div>
-            <h3 class="text-base font-medium text-neutral-900 font-sans">考试安排</h3>
-            <p class="text-[11px] text-neutral-400 font-mono">Exam Schedule & Countdown</p>
+            <h3 class="text-base font-medium text-neutral-900 font-sans">考试日程安排</h3>
+            <p class="text-[11px] text-neutral-400 font-mono">Exam Schedule & Venue Details</p>
           </div>
           <button class="text-neutral-400 hover:text-neutral-900 cursor-pointer" @click="activeTool = 'none'">✕</button>
         </div>
 
-        <div class="flex items-center justify-between">
-          <span class="text-xs text-neutral-500">当前学期考试日程</span>
-          <button
-            class="px-2.5 py-1 text-xs border border-[#E5E5E5] rounded hover:border-neutral-400 bg-white cursor-pointer"
-            @click="showAddExamForm = !showAddExamForm"
-          >
-            {{ showAddExamForm ? '收起表单' : '+ 添加自定义考试' }}
-          </button>
+        <!-- 密码未提供时的即时补全卡片 -->
+        <div v-if="!effectivePassword" class="rounded-lg bg-neutral-50 border border-neutral-200 p-4 text-center space-y-2.5">
+          <div class="text-xs text-neutral-600">当前未保存教务密码，请输入密码以同步期末考试考场与座位号：</div>
+          <div class="flex gap-2 max-w-xs mx-auto">
+            <input
+              v-model="tempPasswordInput"
+              type="password"
+              placeholder="教务系统登录密码"
+              class="flex-1 px-3 py-1.5 border border-neutral-300 rounded text-xs bg-white focus:outline-none focus:border-neutral-900"
+              @keyup.enter="submitTempPassword"
+            />
+            <button
+              class="px-3.5 py-1.5 bg-neutral-900 text-white rounded text-xs hover:bg-neutral-800 cursor-pointer"
+              @click="submitTempPassword"
+            >
+              确定
+            </button>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between text-xs">
+          <span class="text-neutral-500 font-medium">当前考试日程列表</span>
+          <div class="flex items-center gap-2">
+            <button
+              class="px-2.5 py-1 text-xs border border-[#E5E5E5] rounded hover:border-neutral-400 bg-white cursor-pointer flex items-center gap-1 disabled:opacity-50"
+              :disabled="examsLoading"
+              @click="fetchOfficialExams(true)"
+            >
+              <span :class="{ 'animate-spin': examsLoading }">🔄</span>
+              <span>{{ examsLoading ? '同步中' : '同步教务' }}</span>
+            </button>
+            <button
+              class="px-2.5 py-1 text-xs border border-[#E5E5E5] rounded hover:border-neutral-400 bg-white cursor-pointer"
+              @click="showAddExamForm = !showAddExamForm"
+            >
+              {{ showAddExamForm ? '收起表单' : '+ 自定义考试' }}
+            </button>
+          </div>
+        </div>
+
+        <div v-if="examsError" class="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-600 flex items-center justify-between">
+          <span>{{ examsError }}</span>
+          <button class="px-2 py-0.5 bg-red-600 text-white rounded text-[11px] cursor-pointer" @click="fetchOfficialExams(true)">重试</button>
         </div>
 
         <!-- 添加考试表单 -->
-        <div v-if="showAddExamForm" class="p-4 border border-[#E5E5E5] rounded-lg bg-[#FAFAFA] space-y-3 text-xs">
+        <div v-if="showAddExamForm" class="p-4 border border-[#E5E5E5] rounded-lg bg-[#FAFAFA] space-y-3 text-xs shrink-0">
           <div>
             <label class="block text-neutral-500 mb-1">考试科目</label>
             <input v-model="newExamName" placeholder="例如：线性代数期末考" class="w-full border border-[#E5E5E5] rounded px-2.5 py-1.5 bg-white" />
@@ -638,25 +1134,49 @@ function saveMonitor() {
           </button>
         </div>
 
-        <!-- 考试列表 -->
-        <div class="space-y-2">
-          <div v-if="!customExams.length" class="text-center py-8 text-neutral-400 text-xs">
-            暂无考试安排，点击上方按钮可手动添加或等待教务脚本上线自动拉取
+        <!-- 考试列表主体 -->
+        <div class="flex-1 overflow-y-auto space-y-2 text-xs">
+          <!-- 加载中 -->
+          <div v-if="examsLoading && !officialExams.length" class="py-10 text-center text-neutral-400 space-y-2">
+            <div class="inline-block animate-spin text-lg">⏳</div>
+            <div>正在从教务系统同步最新排考日程...</div>
           </div>
-          <div
-            v-for="e in customExams"
-            :key="e.id"
-            class="flex items-center justify-between p-3.5 border border-[#E5E5E5] rounded-lg bg-[#FAFAFA]"
-          >
+
+          <!-- 官方教务考试列表 -->
+          <div v-for="e in officialExams" :key="e.code + e.time" class="p-3.5 border border-[#E5E5E5] rounded-lg bg-[#FAFAFA] flex items-start justify-between">
+            <div class="space-y-1">
+              <div class="flex items-center gap-1.5">
+                <span class="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded text-[10px] font-medium">{{ e.batch || '教务考试' }}</span>
+                <span class="font-medium text-neutral-900 text-sm font-sans">{{ e.name }}</span>
+              </div>
+              <div class="text-xs text-neutral-600 font-mono">
+                📅 {{ e.time }} · 📍 {{ e.room || '待定' }}
+              </div>
+              <div class="text-[11px] text-neutral-400 font-mono">
+                座位号: <span class="font-semibold text-neutral-800">{{ e.seat || '—' }}</span> · 准考证号: {{ e.ticket || '—' }}
+              </div>
+            </div>
+          </div>
+
+          <!-- 自定义考试列表 -->
+          <div v-for="e in customExams" :key="e.id" class="flex items-center justify-between p-3.5 border border-[#E5E5E5] rounded-lg bg-white">
             <div>
-              <div class="font-medium text-neutral-900 text-sm font-sans">{{ e.name }}</div>
+              <div class="flex items-center gap-1.5">
+                <span class="px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded text-[10px]">自定义</span>
+                <span class="font-medium text-neutral-900 text-sm font-sans">{{ e.name }}</span>
+              </div>
               <div class="text-xs text-neutral-500 mt-1 font-mono">
-                {{ e.date }} · {{ e.time }} · {{ e.room }} · 座位: {{ e.seat }}
+                📅 {{ e.date }} {{ e.time }} · 📍 {{ e.room }} · 座位: {{ e.seat }}
               </div>
             </div>
             <button class="text-neutral-400 hover:text-red-600 text-xs cursor-pointer p-1" @click="removeCustomExam(e.id)">
               删除
             </button>
+          </div>
+
+          <!-- 空状态 -->
+          <div v-if="!officialExams.length && !customExams.length && !examsLoading" class="text-center py-10 text-neutral-400">
+            暂无考试安排，期末考试排考通常于考前 1-2 周公布，点击上方可同步教务或添加自定义考试
           </div>
         </div>
       </div>
@@ -664,113 +1184,236 @@ function saveMonitor() {
 
     <!-- 3. 培养方案弹窗 -->
     <div v-if="activeTool === 'training'" class="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4" @click.self="activeTool = 'none'">
-      <div class="w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl border border-[#E5E5E5] space-y-4 max-h-[85vh] overflow-y-auto">
+      <div class="w-full max-w-xl rounded-xl bg-white p-6 shadow-2xl border border-[#E5E5E5] space-y-4 max-h-[85vh] flex flex-col overflow-hidden text-xs">
         <div class="flex items-center justify-between border-b border-neutral-100 pb-3">
           <div>
-            <h3 class="text-base font-medium text-neutral-900 font-sans">培养方案</h3>
-            <p class="text-[11px] text-neutral-400 font-mono">Curriculum & Graduation Requirements</p>
+            <h3 class="text-base font-medium text-neutral-900 font-sans">培养方案与课程进度</h3>
+            <p class="text-[11px] text-neutral-400 font-mono">Curriculum Plan & Graduation Credits</p>
           </div>
           <button class="text-neutral-400 hover:text-neutral-900 cursor-pointer" @click="activeTool = 'none'">✕</button>
         </div>
 
-        <div class="space-y-3 text-xs">
-          <div>
-            <div class="flex justify-between text-neutral-600 mb-1">
-              <span>通识必修课</span>
-              <span class="font-mono">24 / 28 学分 (85%)</span>
-            </div>
-            <div class="w-full bg-neutral-100 rounded-full h-2">
-              <div class="bg-neutral-900 h-2 rounded-full" style="width: 85%" />
-            </div>
-          </div>
-
-          <div>
-            <div class="flex justify-between text-neutral-600 mb-1">
-              <span>学科基础课</span>
-              <span class="font-mono">18 / 22 学分 (81%)</span>
-            </div>
-            <div class="w-full bg-neutral-100 rounded-full h-2">
-              <div class="bg-neutral-900 h-2 rounded-full" style="width: 81%" />
-            </div>
-          </div>
-
-          <div>
-            <div class="flex justify-between text-neutral-600 mb-1">
-              <span>专业核心课</span>
-              <span class="font-mono">28 / 36 学分 (77%)</span>
-            </div>
-            <div class="w-full bg-neutral-100 rounded-full h-2">
-              <div class="bg-neutral-900 h-2 rounded-full" style="width: 77%" />
-            </div>
-          </div>
-
-          <div>
-            <div class="flex justify-between text-neutral-600 mb-1">
-              <span>专业选修课与实践</span>
-              <span class="font-mono">12 / 16 学分 (75%)</span>
-            </div>
-            <div class="w-full bg-neutral-100 rounded-full h-2">
-              <div class="bg-neutral-900 h-2 rounded-full" style="width: 75%" />
-            </div>
+        <!-- 密码未提供时的即时补全卡片 -->
+        <div v-if="!effectivePassword" class="rounded-lg bg-neutral-50 border border-neutral-200 p-4 text-center space-y-2.5">
+          <div class="text-xs text-neutral-600">当前未保存教务密码，请输入密码以拉取培养方案各模块学分进度：</div>
+          <div class="flex gap-2 max-w-xs mx-auto">
+            <input
+              v-model="tempPasswordInput"
+              type="password"
+              placeholder="教务系统登录密码"
+              class="flex-1 px-3 py-1.5 border border-neutral-300 rounded text-xs bg-white focus:outline-none focus:border-neutral-900"
+              @keyup.enter="submitTempPassword"
+            />
+            <button
+              class="px-3.5 py-1.5 bg-neutral-900 text-white rounded text-xs hover:bg-neutral-800 cursor-pointer"
+              @click="submitTempPassword"
+            >
+              确定
+            </button>
           </div>
         </div>
 
-        <div class="pt-3 border-t border-neutral-100 flex justify-end">
-          <button class="px-3 py-1.5 border border-[#E5E5E5] rounded text-xs hover:border-neutral-400 cursor-pointer" @click="showAlert('培养方案刷新脚本对接中')">
-            刷新培养方案
-          </button>
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="text-neutral-500">方案总学分要求:</span>
+            <span class="font-bold text-neutral-900 font-mono">{{ planTotalCredits }} 学分 ({{ trainingPlan.length }} 门)</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <select v-model="selectedPlanCategory" class="border border-[#E5E5E5] rounded px-2 py-1 bg-white text-xs">
+              <option value="all">全部分类</option>
+              <option v-for="c in planCategories" :key="c" :value="c">{{ c }}</option>
+            </select>
+            <button
+              class="px-2.5 py-1 border border-[#E5E5E5] rounded hover:border-neutral-400 bg-white cursor-pointer flex items-center gap-1 disabled:opacity-50"
+              :disabled="planLoading"
+              @click="fetchTrainingPlan(true)"
+            >
+              <span :class="{ 'animate-spin': planLoading }">🔄</span>
+              <span>{{ planLoading ? '拉取中' : '刷新方案' }}</span>
+            </button>
+          </div>
+        </div>
+
+        <div v-if="planError" class="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-600 flex items-center justify-between">
+          <span>{{ planError }}</span>
+          <button class="px-2 py-0.5 bg-red-600 text-white rounded text-[11px] cursor-pointer" @click="fetchTrainingPlan(true)">重试</button>
+        </div>
+
+        <!-- 课程方案表格 -->
+        <div class="flex-1 overflow-y-auto space-y-2">
+          <div v-if="planLoading && !trainingPlan.length" class="py-12 text-center text-neutral-400 space-y-2">
+            <div class="inline-block animate-spin text-lg">⏳</div>
+            <div>正在拉取培养方案全部学期课程及学分属性...</div>
+          </div>
+
+          <div v-else-if="filteredPlanCourses.length" class="border border-[#E5E5E5] rounded-lg overflow-hidden">
+            <table class="w-full text-left text-xs font-mono">
+              <thead class="bg-[#FAFAFA] border-b border-[#E5E5E5] text-neutral-500 text-[11px]">
+                <tr>
+                  <th class="p-2.5 font-normal">课程名称</th>
+                  <th class="p-2.5 font-normal">建议学期</th>
+                  <th class="p-2.5 font-normal">课程性质</th>
+                  <th class="p-2.5 font-normal">开课单位</th>
+                  <th class="p-2.5 font-normal text-right">学分/学时</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-neutral-100">
+                <tr v-for="item in filteredPlanCourses" :key="item.code + item.name" class="hover:bg-neutral-50/70 transition-colors">
+                  <td class="p-2.5 font-sans font-medium text-neutral-900">
+                    <div>{{ item.name }}</div>
+                    <div class="text-[10px] text-neutral-400 font-mono">{{ item.code }}</div>
+                  </td>
+                  <td class="p-2.5 text-neutral-500 text-[11px]">{{ item.term || '—' }}</td>
+                  <td class="p-2.5">
+                    <span class="px-1.5 py-0.5 bg-neutral-100 text-neutral-600 rounded text-[10px]">{{ item.attribute || '其他' }}</span>
+                  </td>
+                  <td class="p-2.5 text-neutral-400 text-[11px]">{{ item.dept || '—' }}</td>
+                  <td class="p-2.5 text-right font-medium text-neutral-900">
+                    {{ item.credit }} 分 <span class="text-neutral-400 font-normal">({{ item.hours }}h)</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div v-else-if="!planLoading" class="text-center py-10 text-neutral-400">
+            暂无培养方案数据，请点击上方“刷新方案”
+          </div>
         </div>
       </div>
     </div>
 
     <!-- 4. 教室查询弹窗 -->
     <div v-if="activeTool === 'classroom'" class="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4" @click.self="activeTool = 'none'">
-      <div class="w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl border border-[#E5E5E5] space-y-4 max-h-[85vh] overflow-y-auto text-xs">
+      <div class="w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl border border-[#E5E5E5] space-y-4 max-h-[85vh] flex flex-col overflow-hidden text-xs">
         <div class="flex items-center justify-between border-b border-neutral-100 pb-3">
           <div>
-            <h3 class="text-base font-medium text-neutral-900 font-sans">空闲教室查询</h3>
-            <p class="text-[11px] text-neutral-400 font-mono">Available Study Classrooms</p>
+            <h3 class="text-base font-medium text-neutral-900 font-sans">空闲教室检索</h3>
+            <p class="text-[11px] text-neutral-400 font-mono">Real-time Available Study Classrooms</p>
           </div>
           <button class="text-neutral-400 hover:text-neutral-900 cursor-pointer" @click="activeTool = 'none'">✕</button>
         </div>
 
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block text-neutral-500 mb-1">校区</label>
-            <select class="w-full border border-[#E5E5E5] rounded px-2.5 py-1.5 bg-white">
-              <option>学院路主校区</option>
-              <option>学清路校区</option>
-            </select>
+        <!-- 密码未提供时的即时补全卡片 -->
+        <div v-if="!effectivePassword" class="rounded-lg bg-neutral-50 border border-neutral-200 p-4 text-center space-y-2.5">
+          <div class="text-xs text-neutral-600">当前未保存教务密码，请输入密码以检索实时空闲自习教室：</div>
+          <div class="flex gap-2 max-w-xs mx-auto">
+            <input
+              v-model="tempPasswordInput"
+              type="password"
+              placeholder="教务系统登录密码"
+              class="flex-1 px-3 py-1.5 border border-neutral-300 rounded text-xs bg-white focus:outline-none focus:border-neutral-900"
+              @keyup.enter="submitTempPassword"
+            />
+            <button
+              class="px-3.5 py-1.5 bg-neutral-900 text-white rounded text-xs hover:bg-neutral-800 cursor-pointer"
+              @click="submitTempPassword"
+            >
+              确定
+            </button>
           </div>
+        </div>
+
+        <!-- 筛选控件 -->
+        <div class="grid grid-cols-2 gap-3 shrink-0">
           <div>
             <label class="block text-neutral-500 mb-1">教学楼</label>
-            <select class="w-full border border-[#E5E5E5] rounded px-2.5 py-1.5 bg-white">
-              <option>第二教学楼</option>
-              <option>第一教学楼</option>
-              <option>学研中心</option>
-              <option>主楼</option>
+            <select v-model="classroomBuilding" class="w-full border border-[#E5E5E5] rounded px-2.5 py-1.5 bg-white text-xs">
+              <option value="">全部教学楼</option>
+              <option value="003">第二教学楼 (二教)</option>
+              <option value="001">第一教学楼 (一教)</option>
+              <option value="014">学研大厦</option>
+              <option value="004">主楼</option>
+              <option value="006">森工楼</option>
+              <option value="007">生物楼</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-neutral-500 mb-1">周次</label>
+            <select v-model.number="classroomWeek" class="w-full border border-[#E5E5E5] rounded px-2.5 py-1.5 bg-white text-xs">
+              <option v-for="w in 20" :key="w" :value="w">第 {{ w }} 周 {{ w === currentSystemWeek ? '(本周)' : '' }}</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-neutral-500 mb-1">星期</label>
+            <select v-model.number="classroomDay" class="w-full border border-[#E5E5E5] rounded px-2.5 py-1.5 bg-white text-xs">
+              <option :value="1">周一</option>
+              <option :value="2">周二</option>
+              <option :value="3">周三</option>
+              <option :value="4">周四</option>
+              <option :value="5">周五</option>
+              <option :value="6">周六</option>
+              <option :value="7">周日</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-neutral-500 mb-1">节次时段</label>
+            <select v-model="classroomPeriod" class="w-full border border-[#E5E5E5] rounded px-2.5 py-1.5 bg-white text-xs">
+              <option value="1-2">1-2 节 (08:00 - 09:35)</option>
+              <option value="3-4">3-4 节 (09:50 - 11:25)</option>
+              <option value="5">5 节 (11:30 - 12:15)</option>
+              <option value="6-7">6-7 节 (13:30 - 15:05)</option>
+              <option value="8-9">8-9 节 (15:20 - 16:55)</option>
+              <option value="10-11">10-11 节 (18:30 - 20:05)</option>
+              <option value="12">12 节 (20:10 - 20:55)</option>
+              <option value="1-4">上午全段 (1-4 节)</option>
+              <option value="6-9">下午全段 (6-9 节)</option>
+              <option value="1-12">全天空闲 (1-12 节)</option>
             </select>
           </div>
         </div>
 
-        <button class="w-full py-2 bg-neutral-900 text-white rounded cursor-pointer hover:bg-neutral-800" @click="showAlert('教室实时占用抓取脚本对接中')">
-          查询空闲教室
+        <button
+          class="w-full py-2 bg-neutral-900 text-white rounded cursor-pointer hover:bg-neutral-800 flex items-center justify-center gap-1.5 disabled:opacity-50 shrink-0"
+          :disabled="classroomsLoading"
+          @click="queryClassrooms"
+        >
+          <span :class="{ 'animate-spin': classroomsLoading }">🔍</span>
+          <span>{{ classroomsLoading ? '正在检索占用表...' : '查询空闲自习教室' }}</span>
         </button>
 
-        <div class="border border-[#E5E5E5] rounded-lg p-3 bg-[#FAFAFA] space-y-2">
-          <div class="flex justify-between items-center text-neutral-800">
-            <span class="font-medium">二教 203 (120 座)</span>
-            <span class="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded text-[11px]">当前空闲</span>
+        <div v-if="classroomsError" class="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-600 flex items-center justify-between">
+          <span>{{ classroomsError }}</span>
+          <button class="px-2 py-0.5 bg-red-600 text-white rounded text-[11px] cursor-pointer" @click="queryClassrooms">重试</button>
+        </div>
+
+        <!-- 教室列表主体 -->
+        <div class="flex-1 overflow-y-auto space-y-2">
+          <div v-if="classroomsLoading" class="py-10 text-center text-neutral-400 space-y-2">
+            <div class="inline-block animate-spin text-lg">⏳</div>
+            <div>正在核查所选时段教室课程占用情况...</div>
           </div>
-          <div class="flex justify-between items-center text-neutral-800">
-            <span class="font-medium">二教 305 (80 座)</span>
-            <span class="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded text-[11px]">当前空闲</span>
+
+          <div v-else-if="classroomsSearched">
+            <div class="flex items-center justify-between mb-2 text-neutral-500 text-[11px]">
+              <span>检索结果：</span>
+              <span class="font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">共 {{ freeClassrooms.length }} 间空闲教室</span>
+            </div>
+
+            <div v-if="freeClassrooms.length" class="grid grid-cols-2 gap-2">
+              <div
+                v-for="r in freeClassrooms"
+                :key="r.name"
+                class="p-2.5 border border-[#E5E5E5] rounded-lg bg-[#FAFAFA] flex items-center justify-between hover:border-neutral-400 transition-colors"
+              >
+                <div>
+                  <div class="font-medium text-neutral-900">{{ r.name }}</div>
+                  <div class="text-[10px] text-neutral-400 font-mono">{{ r.capacity ? `${r.capacity} 座` : '可自习' }}</div>
+                </div>
+                <span class="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded text-[10px] font-medium">空闲</span>
+              </div>
+            </div>
+
+            <div v-else class="text-center py-10 text-neutral-400">
+              该时段该教学楼暂无完全空闲教室，建议尝试其它节次或教学楼
+            </div>
           </div>
-          <div class="flex justify-between items-center text-neutral-800">
-            <span class="font-medium">学研 A0201 (200 座)</span>
-            <span class="text-amber-600 bg-amber-50 px-2 py-0.5 rounded text-[11px]">下节有课</span>
+
+          <div v-else class="text-center py-10 text-neutral-400">
+            选择教学楼与时段后，点击上方按钮开始查询
           </div>
         </div>
+
       </div>
     </div>
 
