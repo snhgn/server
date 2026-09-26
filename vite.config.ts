@@ -27,7 +27,7 @@ export default defineConfig({
         ],
       },
       workbox: {
-        cacheId: 'snhgn-v1-4-1',
+        cacheId: 'snhgn-v1-4-2',
         skipWaiting: true,
         clientsClaim: true,
         cleanupOutdatedCaches: true,

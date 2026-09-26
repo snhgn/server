@@ -119,3 +119,139 @@ h1, h2, h3, h4 {
 .pulse-micro {
   animation: subtle-pulse 4s ease-in-out infinite;
 }
+
+/* ---- Dark Theme Global Styles ---- */
+html[data-theme="dark"],
+html.dark {
+  color-scheme: dark;
+  background-color: #0e1012;
+  color: #f2f2f2;
+}
+
+html[data-theme="dark"] body,
+html.dark body {
+  background-color: #0e1012;
+  color: #f2f2f2;
+}
+
+/* Background overrides in dark mode */
+html[data-theme="dark"] .bg-white,
+html.dark .bg-white {
+  background-color: #16191c !important;
+}
+
+html[data-theme="dark"] .bg-\[\#FAFAFA\],
+html.dark .bg-\[\#FAFAFA\] {
+  background-color: #1a1d21 !important;
+}
+
+html[data-theme="dark"] .bg-neutral-50,
+html.dark .bg-neutral-50 {
+  background-color: #1a1d21 !important;
+}
+
+html[data-theme="dark"] .bg-neutral-100,
+html.dark .bg-neutral-100 {
+  background-color: #24282e !important;
+}
+
+/* Border overrides in dark mode */
+html[data-theme="dark"] .border-\[\#E5E5E5\],
+html.dark .border-\[\#E5E5E5\] {
+  border-color: #2d3136 !important;
+}
+
+html[data-theme="dark"] .border-neutral-100,
+html.dark .border-neutral-100,
+html[data-theme="dark"] .border-neutral-200,
+html.dark .border-neutral-200 {
+  border-color: #2d3136 !important;
+}
+
+html[data-theme="dark"] .divide-neutral-100 > :not([hidden]) ~ :not([hidden]),
+html.dark .divide-neutral-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #2d3136 !important;
+}
+
+/* Text overrides in dark mode */
+html[data-theme="dark"] .text-neutral-900,
+html.dark .text-neutral-900 {
+  color: #f4f4f5 !important;
+}
+
+html[data-theme="dark"] .text-neutral-800,
+html.dark .text-neutral-800 {
+  color: #e4e4e7 !important;
+}
+
+html[data-theme="dark"] .text-neutral-700,
+html.dark .text-neutral-700 {
+  color: #d4d4d8 !important;
+}
+
+html[data-theme="dark"] .text-neutral-600,
+html.dark .text-neutral-600 {
+  color: #a1a1aa !important;
+}
+
+html[data-theme="dark"] .text-neutral-500,
+html.dark .text-neutral-500 {
+  color: #8e939a !important;
+}
+
+/* Inputs & selects in dark mode */
+html[data-theme="dark"] input,
+html[data-theme="dark"] select,
+html.dark input,
+html.dark select {
+  background-color: #16191c !important;
+  color: #f4f4f5 !important;
+  border-color: #2d3136 !important;
+}
+
+/* Today column header in schedule */
+html[data-theme="dark"] .today-col-header,
+html.dark .today-col-header {
+  background-color: #f4f4f5 !important;
+  color: #0e1012 !important;
+}
+html[data-theme="dark"] .today-col-header *,
+html.dark .today-col-header * {
+  color: #0e1012 !important;
+}
+
+/* Hover effects */
+html[data-theme="dark"] .hover\:bg-neutral-50:hover,
+html.dark .hover\:bg-neutral-50:hover {
+  background-color: #24282e !important;
+}
+
+html[data-theme="dark"] .hover\:bg-neutral-100:hover,
+html.dark .hover\:bg-neutral-100:hover {
+  background-color: #2c3239 !important;
+}
+
+html[data-theme="dark"] .hover\:border-neutral-400:hover,
+html.dark .hover\:border-neutral-400:hover {
+  border-color: #555b63 !important;
+}
+
+/* Colorful Course Cards */
+.course-card-colorful {
+  background-color: var(--card-l-bg, #fafafa) !important;
+  border-color: var(--card-l-border, #e5e5e5) !important;
+  color: var(--card-l-text, #111111) !important;
+}
+.course-card-colorful * {
+  color: var(--card-l-text, #111111) !important;
+}
+html[data-theme="dark"] .course-card-colorful,
+html.dark .course-card-colorful {
+  background-color: var(--card-d-bg, #1a1d21) !important;
+  border-color: var(--card-d-border, #2d3136) !important;
+  color: var(--card-d-text, #f2f2f2) !important;
+}
+html[data-theme="dark"] .course-card-colorful *,
+html.dark .course-card-colorful * {
+  color: var(--card-d-text, #f2f2f2) !important;
+}

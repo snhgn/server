@@ -4,9 +4,12 @@ import router from './router'
 import { useAuth } from './stores/auth'
 import './style.css'
 import { registerSW } from 'virtual:pwa-register'
+import { initTheme } from './utils/theme'
+
+initTheme()
 
 // 发布版本标识（老设备检测到新版本时主动清空旧 CacheStorage、注销旧 SW 并重载以拉取最新界面）
-export const APP_VERSION = 'v1.4.1'
+export const APP_VERSION = 'v1.4.2'
 const storedVersion = localStorage.getItem('app_version')
 
 const isOldInstallation =

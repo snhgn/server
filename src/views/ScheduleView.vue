@@ -25,6 +25,14 @@ interface ScheduleData {
 }
 
 const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+const showWeekend = ref(localStorage.getItem('bjfu-show-weekend') !== 'false')
+const colorfulCards = ref(localStorage.getItem('bjfu-colorful-cards') !== 'false')
+const showCourseTime = ref(localStorage.getItem('bjfu-show-course-time') === 'true')
+
+const displayedWeekdays = computed(() => {
+  return showWeekend.value ? weekdays : weekdays.slice(0, 5)
+})
+const daysCount = computed(() => (showWeekend.value ? 7 : 5))
 
 const TERM_START = '2026-09-07'
 const TERM_END = '2027-01-15'
@@ -155,7 +163,22 @@ const bgConfig = ref({
 })
 
 function onUpdateBg(bg: { url: string; opacity: number; blur: number }) {
-  bgConfig.value = bg
+  bgConfig.value = {
+    url: bg.url,
+    opacity: bg.opacity / 100,
+    blur: bg.blur,
+  }
+}
+
+function onUpdateAppearance(pref: {
+  showWeekend: boolean
+  themeMode: string
+  colorfulCards: boolean
+  showCourseTime: boolean
+}) {
+  showWeekend.value = pref.showWeekend
+  colorfulCards.value = pref.colorfulCards
+  showCourseTime.value = pref.showCourseTime
 }
 
 function handleScheduleLogout() {
@@ -588,6 +611,17 @@ async function refresh() {
 const weekCourses = computed<Course[]>(() => {
   const week = currentWeek.value
   return (schedule.value?.courses ?? []).filter((c) => {
+    if (!showWeekend.value && c.day > 5) return false
+    const list = parseWeeks(c.weeks)
+    return list === null || list.includes(week)
+  })
+})
+
+const hasHiddenWeekendCourses = computed(() => {
+  if (showWeekend.value) return false
+  const week = currentWeek.value
+  return (schedule.value?.courses ?? []).some((c) => {
+    if (c.day <= 5) return false
     const list = parseWeeks(c.weeks)
     return list === null || list.includes(week)
   })
@@ -669,6 +703,46 @@ const placedCourses = computed<PlacedCourse[]>(() => {
   })
 })
 
+const COLOR_PALETTES = [
+  { lightBg: '#EEF2FF', lightBorder: '#C7D2FE', lightText: '#3730A3', darkBg: '#1E1B4B', darkBorder: '#3730A3', darkText: '#E0E7FF' }, // Indigo
+  { lightBg: '#ECFDF5', lightBorder: '#A7F3D0', lightText: '#065F46', darkBg: '#064E3B', darkBorder: '#047857', darkText: '#D1FAE5' }, // Emerald
+  { lightBg: '#F0F9FF', lightBorder: '#BAE6FD', lightText: '#0369A1', darkBg: '#082F49', darkBorder: '#0284C7', darkText: '#E0F2FE' }, // Sky
+  { lightBg: '#FDF4FF', lightBorder: '#F5D0FE', lightText: '#86198F', darkBg: '#4A044E', darkBorder: '#A21CAF', darkText: '#FAE8FF' }, // Fuchsia
+  { lightBg: '#FFFBEB', lightBorder: '#FDE68A', lightText: '#92400E', darkBg: '#451A03', darkBorder: '#B45309', darkText: '#FEF3C7' }, // Amber
+  { lightBg: '#F5F3FF', lightBorder: '#DDD6FE', lightText: '#5B21B6', darkBg: '#2E1065', darkBorder: '#6D28D9', darkText: '#EDE9FE' }, // Violet
+  { lightBg: '#FFF1F2', lightBorder: '#FECDD3', lightText: '#9F1239', darkBg: '#4C0519', darkBorder: '#BE123C', darkText: '#FFE4E6' }, // Rose
+  { lightBg: '#F0FDFA', lightBorder: '#99F6E4', lightText: '#115E59', darkBg: '#134E4A', darkBorder: '#0D9488', darkText: '#CCFBF1' }, // Teal
+]
+
+function getCourseCardStyle(courseName: string): Record<string, string> {
+  if (!colorfulCards.value) return {}
+  let hash = 0
+  for (let i = 0; i < courseName.length; i++) {
+    hash = (hash << 5) - hash + courseName.charCodeAt(i)
+    hash |= 0
+  }
+  const idx = Math.abs(hash) % COLOR_PALETTES.length
+  const p = COLOR_PALETTES[idx]
+  return {
+    '--card-l-bg': p.lightBg,
+    '--card-l-border': p.lightBorder,
+    '--card-l-text': p.lightText,
+    '--card-d-bg': p.darkBg,
+    '--card-d-border': p.darkBorder,
+    '--card-d-text': p.darkText,
+  }
+}
+
+function slotTimeOf(period: number): string {
+  const b = periodSlots[blockOf(period) - 1]
+  if (!b) return ''
+  const startH = String(Math.floor(b.from / 60)).padStart(2, '0')
+  const startM = String(b.from % 60).padStart(2, '0')
+  const endH = String(Math.floor(b.to / 60)).padStart(2, '0')
+  const endM = String(b.to % 60).padStart(2, '0')
+  return `${startH}:${startM}-${endH}:${endM}`
+}
+
 function weekdayName(day: number): string {
   return weekdays[day - 1] ?? ''
 }
@@ -695,7 +769,7 @@ function weekdayName(day: number): string {
           <span class="text-neutral-300">·</span>
           <span>北林课表</span>
           <span class="text-neutral-300">·</span>
-          <span class="text-neutral-400 font-mono text-[10px] lowercase bg-neutral-100 px-1.5 py-0.5 rounded">v1.4.1</span>
+          <span class="text-neutral-400 font-mono text-[10px] lowercase bg-neutral-100 px-1.5 py-0.5 rounded">v1.4.2</span>
           <span v-if="schedule" class="text-neutral-300">·</span>
           <span v-if="schedule" class="text-neutral-600 font-sans font-normal">{{ semesterLabel(schedule.semester) }}</span>
         </div>
@@ -858,6 +932,13 @@ function weekdayName(day: number): string {
           </span>
         </div>
         <div class="flex items-center gap-3">
+          <button
+            v-if="hasHiddenWeekendCourses"
+            class="flex items-center gap-1 text-[10px] sm:text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-0.5 cursor-pointer hover:bg-amber-100 transition-colors"
+            @click="showWeekend = true"
+          >
+            <span>⚠️ 周末有课已隐藏 (点击显示)</span>
+          </button>
           <div v-if="syncingLatest" class="flex items-center gap-1.5 text-amber-600 text-[10px] sm:text-[11px] animate-pulse font-sans">
             <span class="inline-block h-1.5 w-1.5 rounded-full bg-amber-500 animate-ping" />
             正在拉取最新课表...
@@ -914,14 +995,17 @@ function weekdayName(day: number): string {
           @touchcancel="onTouchCancel"
           @wheel="onGridWheel"
         >
-          <div class="grid grid-cols-[40px_repeat(7,1fr)] sm:grid-cols-[56px_repeat(7,1fr)] gap-0.5 sm:gap-1.5 min-w-[580px] sm:min-w-[800px]">
+          <div
+            class="grid gap-0.5 sm:gap-1.5"
+            :class="showWeekend ? 'grid-cols-[40px_repeat(7,1fr)] sm:grid-cols-[56px_repeat(7,1fr)] min-w-[580px] sm:min-w-[800px]' : 'grid-cols-[40px_repeat(5,1fr)] sm:grid-cols-[56px_repeat(5,1fr)] min-w-[460px] sm:min-w-[650px]'"
+          >
             
             <!-- Column Headers: Weekdays & Dates -->
             <div class="sticky left-0 z-20 bg-white p-1 sm:p-2 flex flex-col items-center justify-center font-mono text-[9px] sm:text-[11px] text-neutral-400 border-r border-[#E5E5E5]/50">
               <span class="leading-tight">节次</span>
             </div>
             <div
-              v-for="(day, idx) in weekdays"
+              v-for="(day, idx) in displayedWeekdays"
               :key="day"
               class="flex flex-col items-center justify-center p-1 sm:p-2 text-center font-mono rounded transition-colors"
               :class="isToday(idx) ? 'today-col-header bg-neutral-900 text-white shadow-sm' : 'text-neutral-700 bg-[#FAFAFA]'"
@@ -945,9 +1029,9 @@ function weekdayName(day: number): string {
                 </span>
               </div>
 
-              <!-- 7 Days Grid Cells for this Period Slot -->
+              <!-- Days Grid Cells for this Period Slot -->
               <div
-                v-for="d in 7"
+                v-for="d in daysCount"
                 :key="`${sIdx}-${d}`"
                 class="relative rounded border border-neutral-100 min-h-[50px] sm:min-h-[72px] bg-white p-0.5 sm:p-1"
               >
@@ -955,12 +1039,17 @@ function weekdayName(day: number): string {
                 <template v-for="c in placedCourses" :key="c.key">
                   <div
                     v-if="c.day === d && blockOf(c.start) === sIdx + 1"
-                    class="rounded border border-[#E5E5E5] bg-[#FAFAFA] hover:bg-neutral-100 hover:border-neutral-400 p-1 sm:p-1.5 transition-all cursor-pointer h-full flex flex-col justify-between overflow-hidden"
+                    class="rounded border p-1 sm:p-1.5 transition-all cursor-pointer h-full flex flex-col justify-between overflow-hidden"
+                    :class="colorfulCards ? 'course-card-colorful' : 'border-[#E5E5E5] bg-[#FAFAFA] hover:bg-neutral-100 hover:border-neutral-400'"
+                    :style="getCourseCardStyle(c.name)"
                     @click="detail = c"
                   >
                     <div>
                       <div class="font-medium text-neutral-900 font-sans line-clamp-2 leading-tight sm:leading-snug text-[9.5px] sm:text-xs">
                         {{ c.name }}
+                      </div>
+                      <div v-if="showCourseTime" class="text-[7.5px] sm:text-[9px] opacity-75 font-mono mt-0.5">
+                        {{ slotTimeOf(c.start) }}
                       </div>
                     </div>
                     <div class="font-mono text-[8px] sm:text-[10px] text-neutral-500 mt-0.5 sm:mt-1 flex items-center justify-between gap-0.5">
@@ -1147,6 +1236,7 @@ function weekdayName(day: number): string {
       @open-calendar="showToolbox = false; viewer = 'calendar'"
       @logout="handleScheduleLogout"
       @update-bg="onUpdateBg"
+      @update-appearance="onUpdateAppearance"
     />
 
   </div>

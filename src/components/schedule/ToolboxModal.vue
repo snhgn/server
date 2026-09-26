@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { api } from '@/api'
+import { applyTheme, type ThemeMode } from '@/utils/theme'
 
 function showAlert(msg: string) {
   if (typeof window !== 'undefined') {
@@ -37,6 +38,7 @@ const emit = defineEmits<{
   (e: 'openCalendar'): void
   (e: 'logout'): void
   (e: 'updateBg', bg: { url: string; opacity: number; blur: number }): void
+  (e: 'updateAppearance', pref: { showWeekend: boolean; themeMode: string; colorfulCards: boolean; showCourseTime: boolean }): void
 }>()
 
 type ActiveTool =
@@ -620,11 +622,43 @@ function handleFileUpload(e: Event) {
 
 // ================= 外观设置 =================
 const showWeekend = ref(localStorage.getItem('bjfu-show-weekend') !== 'false')
-const themeMode = ref(localStorage.getItem('bjfu-theme-mode') || 'auto')
+const themeMode = ref<ThemeMode>((localStorage.getItem('bjfu-theme-mode') || 'auto') as ThemeMode)
+const colorfulCards = ref(localStorage.getItem('bjfu-colorful-cards') !== 'false')
+const showCourseTime = ref(localStorage.getItem('bjfu-show-course-time') === 'true')
 
-function saveAppearance() {
+function onThemeChange(mode: ThemeMode) {
+  themeMode.value = mode
+  applyTheme(mode)
+  emitAppearance()
+}
+
+function onWeekendChange() {
+  emitAppearance()
+}
+
+function onColorfulChange() {
+  emitAppearance()
+}
+
+function onCourseTimeChange() {
+  emitAppearance()
+}
+
+function emitAppearance() {
   localStorage.setItem('bjfu-show-weekend', String(showWeekend.value))
   localStorage.setItem('bjfu-theme-mode', themeMode.value)
+  localStorage.setItem('bjfu-colorful-cards', String(colorfulCards.value))
+  localStorage.setItem('bjfu-show-course-time', String(showCourseTime.value))
+  emit('updateAppearance', {
+    showWeekend: showWeekend.value,
+    themeMode: themeMode.value,
+    colorfulCards: colorfulCards.value,
+    showCourseTime: showCourseTime.value,
+  })
+}
+
+function saveAppearance() {
+  emitAppearance()
   activeTool.value = 'none'
 }
 
@@ -1799,40 +1833,78 @@ function saveMonitor() {
         </div>
 
         <div class="space-y-4">
+          <!-- 主题模式 -->
           <div>
-            <label class="block text-neutral-600 mb-1.5">主题模式</label>
+            <label class="block text-neutral-600 mb-1.5 font-medium">主题模式</label>
             <div class="grid grid-cols-3 gap-2">
               <button
-                class="py-2 border rounded text-center cursor-pointer transition-colors"
-                :class="themeMode === 'auto' ? 'border-neutral-900 bg-neutral-900 text-white' : 'border-[#E5E5E5] text-neutral-700'"
-                @click="themeMode = 'auto'"
+                class="py-2 border rounded-lg text-center cursor-pointer transition-colors"
+                :class="themeMode === 'auto' ? 'border-neutral-900 bg-neutral-900 text-white font-medium shadow-xs' : 'border-[#E5E5E5] text-neutral-700 hover:border-neutral-400'"
+                @click="onThemeChange('auto')"
               >
                 跟随系统
               </button>
               <button
-                class="py-2 border rounded text-center cursor-pointer transition-colors"
-                :class="themeMode === 'light' ? 'border-neutral-900 bg-neutral-900 text-white' : 'border-[#E5E5E5] text-neutral-700'"
-                @click="themeMode = 'light'"
+                class="py-2 border rounded-lg text-center cursor-pointer transition-colors"
+                :class="themeMode === 'light' ? 'border-neutral-900 bg-neutral-900 text-white font-medium shadow-xs' : 'border-[#E5E5E5] text-neutral-700 hover:border-neutral-400'"
+                @click="onThemeChange('light')"
               >
                 浅色模式
               </button>
               <button
-                class="py-2 border rounded text-center cursor-pointer transition-colors"
-                :class="themeMode === 'dark' ? 'border-neutral-900 bg-neutral-900 text-white' : 'border-[#E5E5E5] text-neutral-700'"
-                @click="themeMode = 'dark'"
+                class="py-2 border rounded-lg text-center cursor-pointer transition-colors"
+                :class="themeMode === 'dark' ? 'border-neutral-900 bg-neutral-900 text-white font-medium shadow-xs' : 'border-[#E5E5E5] text-neutral-700 hover:border-neutral-400'"
+                @click="onThemeChange('dark')"
               >
                 深色模式
               </button>
             </div>
           </div>
 
-          <label class="flex items-center justify-between p-3 border border-[#E5E5E5] rounded-lg cursor-pointer">
-            <span class="text-neutral-800">课表显示周末 (周六与周日)</span>
-            <input v-model="showWeekend" type="checkbox" class="h-4 w-4 accent-neutral-900" />
+          <!-- 课表显示周末 -->
+          <label class="flex items-center justify-between p-3 border border-[#E5E5E5] rounded-xl cursor-pointer hover:bg-neutral-50/50 transition-colors">
+            <div>
+              <div class="font-medium text-neutral-800">显示周末 (周六与周日)</div>
+              <div class="text-[10px] text-neutral-400">关闭后仅显示周一至周五 5 天，视图更宽敞</div>
+            </div>
+            <input
+              v-model="showWeekend"
+              type="checkbox"
+              class="h-4 w-4 accent-neutral-900 cursor-pointer"
+              @change="onWeekendChange"
+            />
           </label>
 
-          <button class="w-full py-2 bg-neutral-900 text-white rounded cursor-pointer hover:bg-neutral-800" @click="saveAppearance">
-            保存外观偏好
+          <!-- 彩色课程卡片 -->
+          <label class="flex items-center justify-between p-3 border border-[#E5E5E5] rounded-xl cursor-pointer hover:bg-neutral-50/50 transition-colors">
+            <div>
+              <div class="font-medium text-neutral-800">多彩课程卡片</div>
+              <div class="text-[10px] text-neutral-400">为不同课程分配不同优雅莫兰迪配色，便于区分识别</div>
+            </div>
+            <input
+              v-model="colorfulCards"
+              type="checkbox"
+              class="h-4 w-4 accent-neutral-900 cursor-pointer"
+              @change="onColorfulChange"
+            />
+          </label>
+
+          <!-- 课程时间显示 -->
+          <label class="flex items-center justify-between p-3 border border-[#E5E5E5] rounded-xl cursor-pointer hover:bg-neutral-50/50 transition-colors">
+            <div>
+              <div class="font-medium text-neutral-800">卡片内显示具体节次时间</div>
+              <div class="text-[10px] text-neutral-400">在课程方块内直接展示如 08:00 - 09:35</div>
+            </div>
+            <input
+              v-model="showCourseTime"
+              type="checkbox"
+              class="h-4 w-4 accent-neutral-900 cursor-pointer"
+              @change="onCourseTimeChange"
+            />
+          </label>
+
+          <button class="w-full py-2.5 bg-neutral-900 text-white rounded-lg cursor-pointer hover:bg-neutral-800 font-medium transition-colors" @click="saveAppearance">
+            完成并保存偏好
           </button>
         </div>
       </div>
