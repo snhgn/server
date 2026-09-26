@@ -11,9 +11,12 @@ const mobileMenuOpen = ref(false)
 const userDropdownOpen = ref(false)
 
 const links = computed(() => {
+  const sid = (typeof localStorage !== 'undefined' ? localStorage.getItem('bjfu-student-id') : '') || ''
+  const schedulePath = sid.trim() ? `/schedule?user=${encodeURIComponent(sid.trim())}` : '/schedule'
+
   const items: { to: string; label: string }[] = [
     { to: '/', label: '首页' },
-    { to: '/schedule', label: '课表' },
+    { to: schedulePath, label: '课表' },
     { to: '/projects', label: '项目' },
     { to: '/about', label: '关于' },
   ]

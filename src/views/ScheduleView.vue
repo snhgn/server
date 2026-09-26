@@ -180,13 +180,12 @@ function syncUrlWithUser(sid: string) {
   }
 }
 
-// 课表初始数据：若已保存账号密码，优先从本地持久化缓存同步读取
-const schedule = ref<ScheduleData | null>(hasSavedCredentials ? loadCachedSchedule() : null)
+// 课表初始数据：优先从本地持久化缓存立即读取，避免白屏与闪烁
+const initialSchedule = loadCachedSchedule()
+const schedule = ref<ScheduleData | null>(initialSchedule)
 
-// 核心流转控制：
-// 1. 勾选了保存密码的用户：首屏直接呈现课表，绝不展示登录页，直接进入课表并在后台静默拉取
-// 2. 新用户或未勾选保存密码的用户：展示登录表单
-const showForm = ref(!hasSavedCredentials)
+// 核心流转控制：若本地已有缓存数据（或保存了凭据），首屏直接呈现课表，绝不闪现登录页
+const showForm = ref(!initialSchedule && !hasSavedCredentials)
 
 function closeImgViewer() {
   viewer.value = null
@@ -409,16 +408,18 @@ function changeWeek(delta: number) {
 onMounted(async () => {
   document.body.classList.add('schedule-page')
 
-  // 1. 若 URL 中指定了 user 或 student_id（形如 ?user=250100109 或 ?student_id=xxx）
+  // 1. 若 URL 中指定了 user 或本地有保存的学号
   const qSid = (route.query.user || route.query.student_id || route.query.sid) as string | undefined
   const qUid = (route.query.user_id || route.query.uid) as string | undefined
+  const effectiveSid = qSid?.trim() || savedSid.trim()
 
-  if (qSid && qSid.trim()) {
-    const cleanSid = qSid.trim()
-    studentId.value = cleanSid
+  if (effectiveSid) {
+    studentId.value = effectiveSid
 
-    // 优先从本学号本地离线缓存读取
-    const cachedForUser = localStorage.getItem(`bjfu-schedule-cache-${cleanSid}`)
+    // 优先从该学号的本地持久化离线缓存读取
+    const cachedForUser =
+      localStorage.getItem(`bjfu-schedule-cache-${effectiveSid}`) ||
+      localStorage.getItem('bjfu-schedule-cache')
     if (cachedForUser) {
       try {
         const parsed = JSON.parse(cachedForUser)
@@ -426,20 +427,25 @@ onMounted(async () => {
           schedule.value = parsed
           showForm.value = false
           scrollToToday()
-          syncUrlWithUser(cleanSid)
-          return
+          syncUrlWithUser(effectiveSid)
+          if (!hasSavedCredentials) return
         }
       } catch {}
     }
 
-    try {
-      schedule.value = await api.get<ScheduleData>(`/api/schedule/query?student_id=${encodeURIComponent(cleanSid)}`)
-      showForm.value = false
-      scrollToToday()
-      syncUrlWithUser(cleanSid)
-      return
-    } catch {
-      // 指定学号无课表时回退常规流程
+    // 若本地暂无离线缓存且未保存密码，尝试直接从服务端无密码公开缓存查询
+    if (!schedule.value && !hasSavedCredentials) {
+      try {
+        schedule.value = await api.get<ScheduleData>(
+          `/api/schedule/query?student_id=${encodeURIComponent(effectiveSid)}`
+        )
+        showForm.value = false
+        scrollToToday()
+        syncUrlWithUser(effectiveSid)
+        return
+      } catch {
+        // 未查询到缓存时向下流转
+      }
     }
   } else if (qUid && qUid.trim()) {
     try {
@@ -455,6 +461,7 @@ onMounted(async () => {
   // 2. 勾选了保存账号密码的用户：直接后台静默拉取最新课表，并在 URL 同步 ?user=学号
   if (hasSavedCredentials) {
     if (schedule.value) {
+      showForm.value = false
       scrollToToday()
       syncUrlWithUser(savedSid.trim())
     }
@@ -490,8 +497,10 @@ onMounted(async () => {
     return
   }
 
-  // 3. 新用户或未勾选保存账号密码的用户：直接展示登录表单，严禁自动加载其他课表
-  showForm.value = true
+  // 3. 既无有效学号也无课表缓存的新用户：展示登录表单
+  if (!schedule.value) {
+    showForm.value = true
+  }
 
   window.addEventListener('keydown', onKeydown)
 })

@@ -6,32 +6,37 @@ import BrandWordmark from '@/components/BrandWordmark.vue'
 
 const { isAdmin, isUser, isAuthenticated } = useAuth()
 
-const digitalRooms = computed(() => [
-  {
-    title: 'Projects & Hardware',
-    desc: '嵌入式底层驱动、RoboMaster 机器人控制、机器视觉伺服与软硬件协同',
-    to: '/projects',
-    meta: 'Engineering',
-  },
-  {
-    title: 'AI Workspace',
-    desc: '私有化双引擎协作工作台，支持偏好记忆沉淀与多维知识库 RAG',
-    to: isAuthenticated.value ? '/ai' : '/login',
-    meta: 'Workspace',
-  },
-  {
-    title: 'Schedule & Calendar',
-    desc: '北京林业大学教务数据同步、实时节次时刻分析与学期校历视图',
-    to: '/schedule',
-    meta: 'Tool',
-  },
-  {
-    title: 'Server & Infrastructure',
-    desc: 'Ubuntu 宿主节点拓扑、Cloudflare 零信任通道与自动化定时任务中心',
-    to: isAdmin.value ? '/server' : (isUser.value ? '/scripts' : '/login'),
-    meta: 'System',
-  },
-])
+const digitalRooms = computed(() => {
+  const sid = (typeof localStorage !== 'undefined' ? localStorage.getItem('bjfu-student-id') : '') || ''
+  const schedulePath = sid.trim() ? `/schedule?user=${encodeURIComponent(sid.trim())}` : '/schedule'
+
+  return [
+    {
+      title: 'Projects & Hardware',
+      desc: '嵌入式底层驱动、RoboMaster 机器人控制、机器视觉伺服与软硬件协同',
+      to: '/projects',
+      meta: 'Engineering',
+    },
+    {
+      title: 'AI Workspace',
+      desc: '私有化双引擎协作工作台，支持偏好记忆沉淀与多维知识库 RAG',
+      to: isAuthenticated.value ? '/ai' : '/login',
+      meta: 'Workspace',
+    },
+    {
+      title: 'Schedule & Calendar',
+      desc: '北京林业大学教务数据同步、实时节次时刻分析与学期校历视图',
+      to: schedulePath,
+      meta: 'Tool',
+    },
+    {
+      title: 'Server & Infrastructure',
+      desc: 'Ubuntu 宿主节点拓扑、Cloudflare 零信任通道与自动化定时任务中心',
+      to: isAdmin.value ? '/server' : (isUser.value ? '/scripts' : '/login'),
+      meta: 'System',
+    },
+  ]
+})
 </script>
 
 <template>
