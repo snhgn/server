@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from .. import sessions
 from ..auth import invalidate_session_cache, optional_user, require_admin, require_user
 from ..config import settings
-from ..schedule import db as schedule_db, service, toolbox
+from ..schedule import db as schedule_db, notifier, service, toolbox
 
 logger = logging.getLogger("gateway.schedule")
 router = APIRouter(prefix="/api/schedule", tags=["schedule"])
@@ -410,6 +410,102 @@ def view_shared_schedule(code: str, response: Response) -> dict:
         "semester": sem,
         "updated_time": up_time,
         "courses": courses,
+    }
+
+
+# ================= 成绩出分监控与邮件通知 =================
+
+class GradeMonitorSaveRequest(BaseModel):
+    student_id: str
+    email: str
+    enabled: bool = True
+    send_test: bool = True  # 保存时是否发送测试邮件，默认 True
+
+
+class GradeMonitorTestRequest(BaseModel):
+    student_id: str = ""
+    email: str
+
+
+@router.get("/monitor/get")
+async def get_grade_monitor_api(
+    response: Response,
+    student_id: str = Query("", description="学号"),
+):
+    """获取指定学号的成绩监控配置。"""
+    _set_no_cache(response)
+    sid = student_id.strip()
+    if not sid:
+        return {"has_monitor": False}
+    m = schedule_db.get_grade_monitor(sid)
+    if not m:
+        return {"has_monitor": False}
+    return {
+        "has_monitor": True,
+        "email": m["email"],
+        "enabled": bool(m["enabled"]),
+        "updated_at": m["updated_at"],
+    }
+
+
+@router.post("/monitor/test")
+async def send_grade_monitor_test_api(
+    req: GradeMonitorTestRequest,
+    response: Response,
+):
+    """发送出分监控测试邮件。"""
+    _set_no_cache(response)
+    email = req.email.strip()
+    if not email:
+        raise HTTPException(400, "请输入有效的接收邮箱")
+
+    ok, msg = await asyncio.to_thread(notifier.send_test_grade_monitor_email, email, req.student_id)
+    if not ok:
+        raise HTTPException(400, msg)
+    return {"success": True, "message": msg}
+
+
+@router.post("/monitor/save")
+async def save_grade_monitor_api(
+    req: GradeMonitorSaveRequest,
+    response: Response,
+):
+    """保存或更新成绩监控设置；若开启且填写了邮箱，默认自动发送一封测试邮件。"""
+    _set_no_cache(response)
+    sid = req.student_id.strip()
+    email = req.email.strip()
+
+    if req.enabled and not email:
+        raise HTTPException(400, "开启监控必须提供有效的接收通知邮箱")
+
+    if email and not notifier.validate_email_address(email):
+        raise HTTPException(400, "邮箱地址格式无效，请检查")
+
+    # 持久化存储
+    schedule_db.save_grade_monitor(sid, email, req.enabled)
+
+    # 若开启且要求发送测试邮件
+    test_sent = False
+    test_msg = ""
+    if req.enabled and email and req.send_test:
+        ok, test_msg = await asyncio.to_thread(notifier.send_test_grade_monitor_email, email, sid)
+        test_sent = ok
+        if not ok:
+            return {
+                "success": True,
+                "email": email,
+                "enabled": req.enabled,
+                "test_email_sent": False,
+                "message": f"设置已保存，但测试邮件发送失败：{test_msg}",
+            }
+
+    msg = f"监控设置已保存，测试邮件已发送至 {email}，请查收！" if test_sent else "成绩监控设置已保存"
+    return {
+        "success": True,
+        "email": email,
+        "enabled": req.enabled,
+        "test_email_sent": test_sent,
+        "message": msg,
     }
 
 
