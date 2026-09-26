@@ -508,19 +508,86 @@ const currentSystemWeek = Math.min(
 const classroomWeek = ref(currentSystemWeek)
 const currentDayOfWeek = new Date().getDay() || 7
 const classroomDay = ref(currentDayOfWeek)
-const classroomPeriod = ref('1-2')
+const classroomStartPeriod = ref(1)
+const classroomEndPeriod = ref(2)
+const selectingAnchor = ref<number | null>(null)
+let isDraggingPeriod = false
+let dragStartPeriod = 1
+let pointerStartX = 0
+let hasMoved = false
+const periodBarRef = ref<HTMLElement | null>(null)
 
-const classroomPeriodMap: Record<string, [number, number]> = {
-  '1-2': [1, 2],
-  '3-4': [3, 4],
-  '5': [5, 5],
-  '6-7': [6, 7],
-  '8-9': [8, 9],
-  '10-11': [10, 11],
-  '12': [12, 12],
-  '1-4': [1, 4],
-  '6-9': [6, 9],
-  '1-12': [1, 12],
+const PERIOD_TIMES: Record<number, { start: string; end: string }> = {
+  1: { start: '08:00', end: '08:45' },
+  2: { start: '08:50', end: '09:35' },
+  3: { start: '09:50', end: '10:35' },
+  4: { start: '10:40', end: '11:25' },
+  5: { start: '11:30', end: '12:15' },
+  6: { start: '13:30', end: '14:15' },
+  7: { start: '14:20', end: '15:05' },
+  8: { start: '15:20', end: '16:05' },
+  9: { start: '16:10', end: '16:55' },
+  10: { start: '18:30', end: '19:15' },
+  11: { start: '19:20', end: '20:05' },
+  12: { start: '20:10', end: '20:55' },
+}
+
+const selectedPeriodTimeRange = computed(() => {
+  const s = PERIOD_TIMES[classroomStartPeriod.value]?.start || '08:00'
+  const e = PERIOD_TIMES[classroomEndPeriod.value]?.end || '09:35'
+  return `${s} - ${e}`
+})
+
+function setPeriodPreset(start: number, end: number) {
+  classroomStartPeriod.value = start
+  classroomEndPeriod.value = end
+  selectingAnchor.value = null
+}
+
+function handlePointerDown(p: number, e: PointerEvent) {
+  isDraggingPeriod = true
+  hasMoved = false
+  pointerStartX = e.clientX
+  dragStartPeriod = p
+  if (periodBarRef.value) {
+    try {
+      periodBarRef.value.setPointerCapture?.(e.pointerId)
+    } catch {}
+  }
+}
+
+function handlePointerMove(e: PointerEvent) {
+  if (!isDraggingPeriod || !periodBarRef.value) return
+  if (Math.abs(e.clientX - pointerStartX) > 5) {
+    hasMoved = true
+    const rect = periodBarRef.value.getBoundingClientRect()
+    const relX = Math.max(0, Math.min(rect.width, e.clientX - rect.left))
+    const p = Math.min(12, Math.max(1, Math.ceil((relX / rect.width) * 12)))
+    classroomStartPeriod.value = Math.min(dragStartPeriod, p)
+    classroomEndPeriod.value = Math.max(dragStartPeriod, p)
+    selectingAnchor.value = null
+  }
+}
+
+function handlePointerUp(e: PointerEvent) {
+  if (!isDraggingPeriod) return
+  isDraggingPeriod = false
+  if (periodBarRef.value) {
+    try {
+      periodBarRef.value.releasePointerCapture?.(e.pointerId)
+    } catch {}
+  }
+  if (!hasMoved) {
+    if (selectingAnchor.value !== null) {
+      classroomStartPeriod.value = Math.min(selectingAnchor.value, dragStartPeriod)
+      classroomEndPeriod.value = Math.max(selectingAnchor.value, dragStartPeriod)
+      selectingAnchor.value = null
+    } else {
+      selectingAnchor.value = dragStartPeriod
+      classroomStartPeriod.value = dragStartPeriod
+      classroomEndPeriod.value = dragStartPeriod
+    }
+  }
 }
 
 function getBuildingTag(room: FreeRoom) {
@@ -552,7 +619,8 @@ async function queryClassrooms() {
     classroomsError.value = '请输入教务系统密码以查询空闲教室'
     return
   }
-  const [startP, endP] = classroomPeriodMap[classroomPeriod.value] || [1, 2]
+  const startP = classroomStartPeriod.value
+  const endP = classroomEndPeriod.value
   classroomsLoading.value = true
   classroomsError.value = ''
   try {
@@ -1581,48 +1649,160 @@ function saveMonitor() {
         </div>
 
         <!-- 筛选控件 -->
-        <div class="grid grid-cols-2 gap-3 shrink-0">
-          <div>
-            <label class="block text-neutral-500 mb-1">教学楼</label>
-            <select v-model="classroomBuilding" class="w-full border border-[#E5E5E5] rounded px-2.5 py-1.5 bg-white text-xs">
-              <option value="">全部教学楼 (一教/二教/学研)</option>
-              <option value="001">第一教学楼 (一教)</option>
-              <option value="003">第二教学楼 (二教)</option>
-              <option value="014">学研中心 (学研大厦)</option>
-            </select>
+        <div class="space-y-3 shrink-0">
+          <div class="grid grid-cols-3 gap-2">
+            <div>
+              <label class="block text-neutral-500 mb-1 text-xs">教学楼</label>
+              <select v-model="classroomBuilding" class="w-full border border-[#E5E5E5] rounded-lg px-2 py-1.5 bg-white text-xs">
+                <option value="">全部教学楼</option>
+                <option value="001">第一教学楼 (一教)</option>
+                <option value="003">第二教学楼 (二教)</option>
+                <option value="014">学研中心</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-neutral-500 mb-1 text-xs">周次</label>
+              <select v-model.number="classroomWeek" class="w-full border border-[#E5E5E5] rounded-lg px-2 py-1.5 bg-white text-xs">
+                <option v-for="w in 30" :key="w" :value="w">第 {{ w }} 周 {{ w === currentSystemWeek ? '(本周)' : '' }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-neutral-500 mb-1 text-xs">星期</label>
+              <select v-model.number="classroomDay" class="w-full border border-[#E5E5E5] rounded-lg px-2 py-1.5 bg-white text-xs">
+                <option :value="1">周一</option>
+                <option :value="2">周二</option>
+                <option :value="3">周三</option>
+                <option :value="4">周四</option>
+                <option :value="5">周五</option>
+                <option :value="6">周六</option>
+                <option :value="7">周日</option>
+              </select>
+            </div>
           </div>
-          <div>
-            <label class="block text-neutral-500 mb-1">周次</label>
-            <select v-model.number="classroomWeek" class="w-full border border-[#E5E5E5] rounded px-2.5 py-1.5 bg-white text-xs">
-              <option v-for="w in 30" :key="w" :value="w">第 {{ w }} 周 {{ w === currentSystemWeek ? '(本周)' : '' }}</option>
-            </select>
-          </div>
-          <div>
-            <label class="block text-neutral-500 mb-1">星期</label>
-            <select v-model.number="classroomDay" class="w-full border border-[#E5E5E5] rounded px-2.5 py-1.5 bg-white text-xs">
-              <option :value="1">周一</option>
-              <option :value="2">周二</option>
-              <option :value="3">周三</option>
-              <option :value="4">周四</option>
-              <option :value="5">周五</option>
-              <option :value="6">周六</option>
-              <option :value="7">周日</option>
-            </select>
-          </div>
-          <div>
-            <label class="block text-neutral-500 mb-1">节次时段</label>
-            <select v-model="classroomPeriod" class="w-full border border-[#E5E5E5] rounded px-2.5 py-1.5 bg-white text-xs">
-              <option value="1-2">1-2 节 (08:00 - 09:35)</option>
-              <option value="3-4">3-4 节 (09:50 - 11:25)</option>
-              <option value="5">5 节 (11:30 - 12:15)</option>
-              <option value="6-7">6-7 节 (13:30 - 15:05)</option>
-              <option value="8-9">8-9 节 (15:20 - 16:55)</option>
-              <option value="10-11">10-11 节 (18:30 - 20:05)</option>
-              <option value="12">12 节 (20:10 - 20:55)</option>
-              <option value="1-4">上午全段 (1-4 节)</option>
-              <option value="6-9">下午全段 (6-9 节)</option>
-              <option value="1-12">全天空闲 (1-12 节)</option>
-            </select>
+
+          <!-- 节次为单位的长条 (支持滑动或点击任意相邻节次) -->
+          <div class="space-y-1.5">
+            <div class="flex items-center justify-between">
+              <label class="text-neutral-500 text-xs font-medium">节次区间 (可点击两端或滑动任选相邻节次)</label>
+              <div class="flex items-center gap-1 font-mono text-[11px]">
+                <span class="text-neutral-900 font-medium bg-neutral-100 px-2 py-0.5 rounded">
+                  {{ classroomStartPeriod === classroomEndPeriod ? `第 ${classroomStartPeriod} 节` : `第 ${classroomStartPeriod}-${classroomEndPeriod} 节` }}
+                  <span class="text-neutral-500 font-normal ml-1">({{ selectedPeriodTimeRange }})</span>
+                </span>
+              </div>
+            </div>
+
+            <!-- 12 节长条 -->
+            <div
+              ref="periodBarRef"
+              class="relative flex items-stretch h-10 bg-neutral-100/90 rounded-xl p-1 select-none touch-none border border-[#E5E5E5] cursor-pointer"
+              @pointermove="handlePointerMove"
+              @pointerup="handlePointerUp"
+              @pointercancel="handlePointerUp"
+            >
+              <div
+                v-for="p in 12"
+                :key="p"
+                class="flex-1 flex flex-col items-center justify-center transition-colors relative"
+                :class="[
+                  p >= classroomStartPeriod && p <= classroomEndPeriod
+                    ? 'bg-neutral-900 text-white font-medium shadow-xs z-10'
+                    : 'text-neutral-600 hover:text-neutral-900 hover:bg-neutral-200/50',
+                  p === classroomStartPeriod && p === classroomEndPeriod ? 'rounded-lg' : '',
+                  p === classroomStartPeriod && p !== classroomEndPeriod ? 'rounded-l-lg' : '',
+                  p === classroomEndPeriod && p !== classroomStartPeriod ? 'rounded-r-lg' : '',
+                ]"
+                @pointerdown="(e) => handlePointerDown(p, e)"
+              >
+                <span class="text-xs leading-none font-mono font-medium">{{ p }}</span>
+                <span
+                  class="text-[7.5px] leading-tight font-mono mt-0.5"
+                  :class="p >= classroomStartPeriod && p <= classroomEndPeriod ? 'text-neutral-300' : 'text-neutral-400'"
+                >
+                  {{ p <= 4 ? '早' : p === 5 ? '午' : p <= 9 ? '下' : '晚' }}
+                </span>
+              </div>
+            </div>
+
+            <!-- 提示与常用快捷预设 -->
+            <div class="flex flex-wrap items-center justify-between gap-1 text-[11px] pt-0.5">
+              <div class="text-[11px] text-neutral-400">
+                <span v-if="selectingAnchor !== null" class="text-amber-600 font-medium">
+                  👉 已定第 {{ selectingAnchor }} 节，点击任一节次完成连段选择
+                </span>
+                <span v-else>
+                  共选 {{ classroomEndPeriod - classroomStartPeriod + 1 }} 节连段
+                </span>
+              </div>
+
+              <!-- 快捷预设按钮 -->
+              <div class="flex items-center gap-1 overflow-x-auto pb-0.5">
+                <button
+                  type="button"
+                  class="px-1.5 py-0.5 rounded border text-[10px] cursor-pointer transition-colors"
+                  :class="classroomStartPeriod === 1 && classroomEndPeriod === 2 ? 'border-neutral-900 bg-neutral-900 text-white font-medium' : 'border-[#E5E5E5] bg-white text-neutral-600 hover:border-neutral-400'"
+                  @click="setPeriodPreset(1, 2)"
+                >
+                  1-2
+                </button>
+                <button
+                  type="button"
+                  class="px-1.5 py-0.5 rounded border text-[10px] cursor-pointer transition-colors"
+                  :class="classroomStartPeriod === 3 && classroomEndPeriod === 4 ? 'border-neutral-900 bg-neutral-900 text-white font-medium' : 'border-[#E5E5E5] bg-white text-neutral-600 hover:border-neutral-400'"
+                  @click="setPeriodPreset(3, 4)"
+                >
+                  3-4
+                </button>
+                <button
+                  type="button"
+                  class="px-1.5 py-0.5 rounded border text-[10px] cursor-pointer transition-colors"
+                  :class="classroomStartPeriod === 1 && classroomEndPeriod === 4 ? 'border-neutral-900 bg-neutral-900 text-white font-medium' : 'border-[#E5E5E5] bg-white text-neutral-600 hover:border-neutral-400'"
+                  @click="setPeriodPreset(1, 4)"
+                >
+                  上午(1-4)
+                </button>
+                <button
+                  type="button"
+                  class="px-1.5 py-0.5 rounded border text-[10px] cursor-pointer transition-colors"
+                  :class="classroomStartPeriod === 6 && classroomEndPeriod === 7 ? 'border-neutral-900 bg-neutral-900 text-white font-medium' : 'border-[#E5E5E5] bg-white text-neutral-600 hover:border-neutral-400'"
+                  @click="setPeriodPreset(6, 7)"
+                >
+                  6-7
+                </button>
+                <button
+                  type="button"
+                  class="px-1.5 py-0.5 rounded border text-[10px] cursor-pointer transition-colors"
+                  :class="classroomStartPeriod === 8 && classroomEndPeriod === 9 ? 'border-neutral-900 bg-neutral-900 text-white font-medium' : 'border-[#E5E5E5] bg-white text-neutral-600 hover:border-neutral-400'"
+                  @click="setPeriodPreset(8, 9)"
+                >
+                  8-9
+                </button>
+                <button
+                  type="button"
+                  class="px-1.5 py-0.5 rounded border text-[10px] cursor-pointer transition-colors"
+                  :class="classroomStartPeriod === 6 && classroomEndPeriod === 9 ? 'border-neutral-900 bg-neutral-900 text-white font-medium' : 'border-[#E5E5E5] bg-white text-neutral-600 hover:border-neutral-400'"
+                  @click="setPeriodPreset(6, 9)"
+                >
+                  下午(6-9)
+                </button>
+                <button
+                  type="button"
+                  class="px-1.5 py-0.5 rounded border text-[10px] cursor-pointer transition-colors"
+                  :class="classroomStartPeriod === 10 && classroomEndPeriod === 11 ? 'border-neutral-900 bg-neutral-900 text-white font-medium' : 'border-[#E5E5E5] bg-white text-neutral-600 hover:border-neutral-400'"
+                  @click="setPeriodPreset(10, 11)"
+                >
+                  10-11
+                </button>
+                <button
+                  type="button"
+                  class="px-1.5 py-0.5 rounded border text-[10px] cursor-pointer transition-colors"
+                  :class="classroomStartPeriod === 1 && classroomEndPeriod === 12 ? 'border-neutral-900 bg-neutral-900 text-white font-medium' : 'border-[#E5E5E5] bg-white text-neutral-600 hover:border-neutral-400'"
+                  @click="setPeriodPreset(1, 12)"
+                >
+                  全天
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
