@@ -520,7 +520,6 @@ const classroomPeriodMap: Record<string, [number, number]> = {
   '12': [12, 12],
   '1-4': [1, 4],
   '6-9': [6, 9],
-  '10-12': [10, 12],
   '1-12': [1, 12],
 }
 
@@ -1627,12 +1626,11 @@ function saveMonitor() {
               <option value="5">5 节 (11:30 - 12:15)</option>
               <option value="6-7">6-7 节 (13:30 - 15:05)</option>
               <option value="8-9">8-9 节 (15:20 - 16:55)</option>
-              <option value="10-11">10-11 节 (18:50 - 20:25)</option>
-              <option value="12">12 节 (20:30 - 21:15)</option>
+              <option value="10-11">10-11 节 (18:30 - 20:05)</option>
+              <option value="12">12 节 (20:10 - 20:55)</option>
               <option value="1-4">上午全段 (1-4 节)</option>
               <option value="6-9">下午全段 (6-9 节)</option>
-              <option value="10-12">晚上全段 (10-12 节)</option>
-              <option value="1-12">全天 (1-12 节)</option>
+              <option value="1-12">全天空闲 (1-12 节)</option>
             </select>
           </div>
         </div>
