@@ -32,7 +32,7 @@ const review = ref<{
 } | null>(null)
 
 const VERDICT_STYLE: Record<string, { label: string; cls: string }> = {
-  pass: { label: '审查通过', cls: 'bg-green-50 text-green-700 border-green-200' },
+  pass: { label: '审查通过', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
   warn: { label: '有警告', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
   fail: { label: '审查不通过', cls: 'bg-red-50 text-red-700 border-red-200' },
 }

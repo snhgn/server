@@ -134,6 +134,27 @@ html.dark body {
   color: #f2f2f2;
 }
 
+/* Dark Mode Selection Highlight */
+html[data-theme="dark"] ::selection,
+html.dark ::selection {
+  background-color: rgba(124, 150, 168, 0.4) !important;
+  color: #ffffff !important;
+}
+
+/* Dark Mode Scrollbars */
+html[data-theme="dark"] ::-webkit-scrollbar-thumb,
+html.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+}
+html[data-theme="dark"] ::-webkit-scrollbar-thumb:hover,
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
+html[data-theme="dark"] .dsw-scroll,
+html.dark .dsw-scroll {
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
 /* Background overrides in dark mode */
 html[data-theme="dark"] .bg-white,
 html.dark .bg-white {
@@ -228,6 +249,16 @@ html.dark .border-neutral-200\/60 {
   border-color: #2e333b !important;
 }
 
+html[data-theme="dark"] .border-neutral-300,
+html.dark .border-neutral-300 {
+  border-color: #3b424d !important;
+}
+
+html[data-theme="dark"] .border-neutral-400,
+html.dark .border-neutral-400 {
+  border-color: #4e5763 !important;
+}
+
 html[data-theme="dark"] .border-r-\[\#E5E5E5\]\/50,
 html.dark .border-r-\[\#E5E5E5\]\/50 {
   border-right-color: #2e333b !important;
@@ -245,6 +276,8 @@ html.dark .divide-\[\#E5E5E5\] > :not([hidden]) ~ :not([hidden]) {
 }
 
 /* Text overrides in dark mode */
+html[data-theme="dark"] .text-neutral-950,
+html.dark .text-neutral-950,
 html[data-theme="dark"] .text-neutral-900,
 html.dark .text-neutral-900 {
   color: #f4f4f5 !important;
@@ -292,11 +325,40 @@ html.dark input::placeholder {
   color: #71717a !important;
 }
 
-/* Primary buttons in dark mode (contrast elevation) */
+html[data-theme="dark"] input[type="range"],
+html.dark input[type="range"],
+html[data-theme="dark"] input[type="checkbox"],
+html.dark input[type="checkbox"],
+html[data-theme="dark"] input[type="radio"],
+html.dark input[type="radio"] {
+  accent-color: #f4f4f5 !important;
+}
+
+html[data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator,
+html.dark input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  cursor: pointer;
+}
+
+html[data-theme="dark"] input[type="file"]::file-selector-button,
+html.dark input[type="file"]::file-selector-button {
+  background-color: #23272e;
+  color: #f4f4f5;
+  border: 1px solid #383f4a;
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+/* Primary buttons and links in dark mode (contrast elevation) */
 html[data-theme="dark"] button.bg-neutral-900:not(.today-col-header):not(.no-invert),
 html.dark button.bg-neutral-900:not(.today-col-header):not(.no-invert),
 html[data-theme="dark"] button.bg-neutral-950:not(.today-col-header):not(.no-invert),
-html.dark button.bg-neutral-950:not(.today-col-header):not(.no-invert) {
+html.dark button.bg-neutral-950:not(.today-col-header):not(.no-invert),
+html[data-theme="dark"] a.bg-neutral-900:not(.no-invert),
+html.dark a.bg-neutral-900:not(.no-invert),
+html[data-theme="dark"] a.bg-neutral-950:not(.no-invert),
+html.dark a.bg-neutral-950:not(.no-invert) {
   background-color: #f4f4f5 !important;
   color: #0e1012 !important;
   border-color: #f4f4f5 !important;
@@ -305,8 +367,13 @@ html.dark button.bg-neutral-950:not(.today-col-header):not(.no-invert) {
 html[data-theme="dark"] button.bg-neutral-900:not(.today-col-header):not(.no-invert):hover,
 html.dark button.bg-neutral-900:not(.today-col-header):not(.no-invert):hover,
 html[data-theme="dark"] button.bg-neutral-950:not(.today-col-header):not(.no-invert):hover,
-html.dark button.bg-neutral-950:not(.today-col-header):not(.no-invert):hover {
+html.dark button.bg-neutral-950:not(.today-col-header):not(.no-invert):hover,
+html[data-theme="dark"] a.bg-neutral-900:not(.no-invert):hover,
+html.dark a.bg-neutral-900:not(.no-invert):hover,
+html[data-theme="dark"] a.bg-neutral-950:not(.no-invert):hover,
+html.dark a.bg-neutral-950:not(.no-invert):hover {
   background-color: #e4e4e7 !important;
+  color: #0e1012 !important;
 }
 
 html[data-theme="dark"] button.bg-neutral-900:disabled,
@@ -486,15 +553,29 @@ html.dark .hover\:border-neutral-400:hover {
   border-color: #555b63 !important;
 }
 
-/* Hover text flips in dark mode: from darkening to brightening */
+/* Hover & group-hover text flips in dark mode: from darkening to brightening */
 html[data-theme="dark"] .hover\:text-neutral-950:hover,
 html.dark .hover\:text-neutral-950:hover,
 html[data-theme="dark"] .hover\:text-neutral-900:hover,
 html.dark .hover\:text-neutral-900:hover,
+html[data-theme="dark"] .hover\:text-neutral-800:hover,
+html.dark .hover\:text-neutral-800:hover,
+html[data-theme="dark"] .hover\:text-neutral-700:hover,
+html.dark .hover\:text-neutral-700:hover,
 html[data-theme="dark"] .hover\:text-black:hover,
 html.dark .hover\:text-black:hover,
 html[data-theme="dark"] .group:hover .group-hover\:text-black,
-html.dark .group:hover .group-hover\:text-black {
+html.dark .group:hover .group-hover\:text-black,
+html[data-theme="dark"] .group:hover .group-hover\:text-neutral-950,
+html.dark .group:hover .group-hover\:text-neutral-950,
+html[data-theme="dark"] .group:hover .group-hover\:text-neutral-900,
+html.dark .group:hover .group-hover\:text-neutral-900,
+html[data-theme="dark"] .group:hover .group-hover\:text-neutral-800,
+html.dark .group:hover .group-hover\:text-neutral-800,
+html[data-theme="dark"] .group:hover .group-hover\:text-neutral-700,
+html.dark .group:hover .group-hover\:text-neutral-700,
+html[data-theme="dark"] .group:hover .group-hover\:text-neutral-600,
+html.dark .group:hover .group-hover\:text-neutral-600 {
   color: #ffffff !important;
 }
 
@@ -619,4 +700,154 @@ html.dark .hljs-attribute {
 html[data-theme="dark"] .hljs-tag,
 html.dark .hljs-tag {
   color: #7ee787 !important;
+}
+
+/* ---- Markdown Typography Styles in AI Workspace ---- */
+article.prose h1,
+article.prose h2,
+article.prose h3,
+article.prose h4 {
+  font-weight: 600;
+  margin-top: 1.15rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.35;
+  color: #111111;
+}
+article.prose h1 { font-size: 1.25rem; }
+article.prose h2 { font-size: 1.1rem; }
+article.prose h3 { font-size: 0.95rem; }
+article.prose h4 { font-size: 0.875rem; }
+
+article.prose p {
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.65;
+}
+
+article.prose ul,
+article.prose ol {
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+  padding-left: 1.25rem;
+}
+article.prose ul { list-style-type: disc; }
+article.prose ol { list-style-type: decimal; }
+article.prose li {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+article.prose blockquote {
+  border-left: 3px solid #e5e5e5;
+  padding-left: 0.75rem;
+  margin: 0.75rem 0;
+  color: #71717a;
+  font-style: italic;
+}
+
+article.prose code:not(.hljs) {
+  background-color: #f4f5f6;
+  color: #c2410c;
+  padding: 0.15rem 0.35rem;
+  border-radius: 0.25rem;
+  border: 1px solid #e5e5e5;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+
+article.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  font-size: 0.85rem;
+}
+article.prose th,
+article.prose td {
+  border: 1px solid #e5e5e5;
+  padding: 0.4rem 0.75rem;
+  text-align: left;
+}
+article.prose th {
+  background-color: #f8f9fa;
+  font-weight: 600;
+}
+
+article.prose a {
+  color: #2563eb;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+article.prose a:hover {
+  color: #1d4ed8;
+}
+
+article.prose hr {
+  border: none;
+  border-top: 1px solid #e5e5e5;
+  margin: 1rem 0;
+}
+
+/* Dark mode overrides for article.prose */
+html[data-theme="dark"] article.prose,
+html.dark article.prose {
+  color: #e4e4e7 !important;
+}
+
+html[data-theme="dark"] article.prose h1,
+html[data-theme="dark"] article.prose h2,
+html[data-theme="dark"] article.prose h3,
+html[data-theme="dark"] article.prose h4,
+html.dark article.prose h1,
+html.dark article.prose h2,
+html.dark article.prose h3,
+html.dark article.prose h4 {
+  color: #f4f4f5 !important;
+}
+
+html[data-theme="dark"] article.prose strong,
+html.dark article.prose strong {
+  color: #ffffff !important;
+  font-weight: 600;
+}
+
+html[data-theme="dark"] article.prose blockquote,
+html.dark article.prose blockquote {
+  border-left-color: #383f4a !important;
+  color: #8e939a !important;
+}
+
+html[data-theme="dark"] article.prose code:not(.hljs),
+html.dark article.prose code:not(.hljs) {
+  background-color: #20242b !important;
+  color: #ff7b72 !important;
+  border-color: #333a44 !important;
+}
+
+html[data-theme="dark"] article.prose table,
+html[data-theme="dark"] article.prose th,
+html[data-theme="dark"] article.prose td,
+html.dark article.prose table,
+html.dark article.prose th,
+html.dark article.prose td {
+  border-color: #2e333b !important;
+}
+
+html[data-theme="dark"] article.prose th,
+html.dark article.prose th {
+  background-color: #1a1d21 !important;
+  color: #f4f4f5 !important;
+}
+
+html[data-theme="dark"] article.prose a,
+html.dark article.prose a {
+  color: #79c0ff !important;
+}
+html[data-theme="dark"] article.prose a:hover,
+html.dark article.prose a:hover {
+  color: #a5d6ff !important;
+}
+
+html[data-theme="dark"] article.prose hr,
+html.dark article.prose hr {
+  border-top-color: #2e333b !important;
 }
