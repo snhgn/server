@@ -49,7 +49,6 @@ type ActiveTool =
   | 'classroom'
   | 'autoeval'
   | 'share_friends'
-  | 'common_free'
   | 'background'
   | 'appearance'
   | 'export_ics'
@@ -1156,17 +1155,6 @@ function saveMonitor() {
               <span class="text-[10px] text-neutral-400 mt-0.5">好友课表绑定</span>
             </button>
 
-            <!-- 寻找共同空闲 -->
-            <button
-              class="flex flex-col items-center justify-center p-3 rounded-lg border border-[#E5E5E5] bg-[#FAFAFA] hover:bg-neutral-100 hover:border-neutral-400 transition-all text-center cursor-pointer group"
-              @click="activeTool = 'common_free'"
-            >
-              <svg class="w-5 h-5 text-neutral-700 mb-1.5 group-hover:scale-105 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span class="font-medium text-neutral-800">共同空闲</span>
-              <span class="text-[10px] text-neutral-400 mt-0.5">寻找共同无课</span>
-            </button>
 
             <!-- 设置背景 (已可用) -->
             <button
@@ -2174,33 +2162,6 @@ function saveMonitor() {
       </div>
     </div>
 
-    <!-- 7. 寻找共同空闲时间弹窗 -->
-    <div v-if="activeTool === 'common_free'" class="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4" @click.self="activeTool = 'none'">
-      <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl border border-[#E5E5E5] space-y-4 max-h-[85vh] overflow-y-auto text-xs">
-        <div class="flex items-center justify-between border-b border-neutral-100 pb-3">
-          <div>
-            <h3 class="text-base font-medium text-neutral-900 font-sans">寻找共同空闲时间</h3>
-            <p class="text-[11px] text-neutral-400 font-mono">Find Mutual Free Periods</p>
-          </div>
-          <button class="text-neutral-400 hover:text-neutral-900 cursor-pointer" @click="activeTool = 'none'">✕</button>
-        </div>
-
-        <p class="text-neutral-500 leading-relaxed">
-          自动比对多位同学的课表，找出每周没课的共同空闲节次，方便聚餐、约自习或小组开会讨论。
-        </p>
-
-        <div class="border border-[#E5E5E5] rounded-lg p-3 bg-[#FAFAFA] space-y-2">
-          <div class="font-medium text-neutral-800">推荐本周空闲时段：</div>
-          <div class="text-neutral-600">· 周三 下午 6-7 节 (13:30 - 15:05)</div>
-          <div class="text-neutral-600">· 周五 下午 8-9 节 (15:20 - 16:55)</div>
-          <div class="text-neutral-600">· 周日 全天无课</div>
-        </div>
-
-        <button class="w-full py-2 bg-neutral-900 text-white rounded cursor-pointer hover:bg-neutral-800" @click="showAlert('多好友协同交叉比对脚本对接中')">
-          开始多维空闲比对
-        </button>
-      </div>
-    </div>
 
     <!-- 8. 设置课表背景 (纯前端完全可用) -->
     <div v-if="activeTool === 'background'" class="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4" @click.self="activeTool = 'none'">
