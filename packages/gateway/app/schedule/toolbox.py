@@ -220,30 +220,29 @@ def get_free_classrooms(
                     name = room_info
                     cap = ""
                 
-                # 智能识别教学楼归属
-                b_name = "其他教学区"
+                # 智能识别教学楼归属（北林教务实际仅有一教、二教、学研中心排课）
                 if "一教" in name or building == "001":
                     b_name = "第一教学楼 (一教)"
+                    short_b = "一教"
                 elif "二教" in name or building == "003":
                     b_name = "第二教学楼 (二教)"
+                    short_b = "二教"
                 elif any(name.startswith(x) for x in ["A", "B", "C", "学研"]) or building == "014":
-                    b_name = "学研大厦"
-                elif "主楼" in name or building == "004":
-                    b_name = "主楼"
-                elif "森工" in name or building == "006":
-                    b_name = "森工楼"
-                elif "生物" in name or building == "007":
-                    b_name = "生物楼"
+                    b_name = "学研中心"
+                    short_b = "学研中心"
                 elif building:
                     b_name = f"教学楼({building})"
+                    short_b = building
                 else:
                     b_name = "全校教学区"
+                    short_b = "全校"
 
                 free_rooms.append({
                     "name": name,
                     "raw": room_info,
                     "capacity": cap,
                     "building": b_name,
+                    "short_building": short_b,
                 })
     return free_rooms
 
