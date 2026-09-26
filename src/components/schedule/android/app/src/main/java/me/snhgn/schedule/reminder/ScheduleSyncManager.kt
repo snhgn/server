@@ -55,33 +55,51 @@ object ScheduleSyncManager {
         val oldRegisteredKeys = sp.getStringSet(AppConfig.KEY_REGISTERED_KEYS, emptySet())?.toMutableSet()
             ?: mutableSetOf()
 
-        val newCourseMap = validFutureCourses.associateBy { it.uniqueKey }
-        val newKeys = newCourseMap.keys
+        // 收集新课表需要生效的全部 Alarm Key
+        val targetStartKeys = mutableSetOf<String>()
+        val targetEndKeys = mutableSetOf<String>()
+        val currentActiveAlarmKeys = mutableSetOf<String>()
 
-        // 计算需要取消的闹钟：已注册但不再存在于新课表中的课程
-        val keysToCancel = oldRegisteredKeys - newKeys
-        for (key in keysToCancel) {
-            AlarmManagerHelper.cancelCourseAlarm(context, key)
-            Log.d(TAG, "取消已失效或已修改的课程闹钟: $key")
-        }
-
-        // 计算需要新增/重新注册的闹钟：新课表中的课程
         var registeredCount = 0
-        for ((key, course) in newCourseMap) {
-            // 每节课统一检查并注册闹钟
-            val success = AlarmManagerHelper.registerCourseAlarm(context, course)
-            if (success) {
+        for (course in validFutureCourses) {
+            val (startOk, endOk) = AlarmManagerHelper.registerCourseAlarms(context, course)
+            if (startOk) {
+                targetStartKeys.add(course.startKey)
+                currentActiveAlarmKeys.add(course.startKey)
+                registeredCount++
+            }
+            if (endOk) {
+                targetEndKeys.add(course.endKey)
+                currentActiveAlarmKeys.add(course.endKey)
                 registeredCount++
             }
         }
 
+        // 计算需要取消的旧闹钟：已注册但不再存在于新课表中的闹钟
+        val keysToCancel = oldRegisteredKeys - currentActiveAlarmKeys
+        for (key in keysToCancel) {
+            when {
+                key.contains("_start_") -> {
+                    AlarmManagerHelper.cancelAlarmByKey(context, AlarmManagerHelper.ACTION_COURSE_START, key)
+                }
+                key.contains("_end_") -> {
+                    AlarmManagerHelper.cancelAlarmByKey(context, AlarmManagerHelper.ACTION_COURSE_END, key)
+                }
+                else -> {
+                    // 兼容旧格式 Key
+                    AlarmManagerHelper.cancelCourseAlarm(context, key)
+                }
+            }
+            Log.d(TAG, "取消已失效或已修改的闹钟: $key")
+        }
+
         // 4. 更新本地已注册的 Key 列表
-        sp.edit().putStringSet(AppConfig.KEY_REGISTERED_KEYS, newKeys).apply()
+        sp.edit().putStringSet(AppConfig.KEY_REGISTERED_KEYS, currentActiveAlarmKeys).apply()
 
         // 5. 安排下一次每日凌晨自动同步任务
         AlarmManagerHelper.scheduleDailySync(context)
 
-        Log.d(TAG, "课表同步完成！未来有效课程数: ${validFutureCourses.size}, 成功注册闹钟: $registeredCount")
+        Log.d(TAG, "课表同步完成！未来有效课程数: ${validFutureCourses.size}, 成功注册闹钟数: $registeredCount")
         Result.success(registeredCount)
     }
 

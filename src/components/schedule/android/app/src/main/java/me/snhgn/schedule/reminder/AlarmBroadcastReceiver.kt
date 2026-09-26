@@ -35,8 +35,12 @@ class AlarmBroadcastReceiver : BroadcastReceiver() {
                         ScheduleSyncManager.syncSchedule(context)
                     }
 
-                    AlarmManagerHelper.ACTION_COURSE_REMINDER -> {
-                        handleCourseReminder(context, intent)
+                    AlarmManagerHelper.ACTION_COURSE_START -> {
+                        handleCourseStart(context, intent)
+                    }
+
+                    AlarmManagerHelper.ACTION_COURSE_END -> {
+                        handleCourseEnd(context, intent)
                     }
 
                     else -> {
@@ -52,9 +56,9 @@ class AlarmBroadcastReceiver : BroadcastReceiver() {
     }
 
     /**
-     * 课前 5 分钟二次校验与提醒触发
+     * 课前 5 分钟 (开始 Alarm)：二次校验并启动短生命周期流体云任务
      */
-    private suspend fun handleCourseReminder(context: Context, intent: Intent) {
+    private suspend fun handleCourseStart(context: Context, intent: Intent) {
         val courseId = intent.getLongExtra(AlarmManagerHelper.EXTRA_COURSE_ID, 0L)
         val defaultName = intent.getStringExtra(AlarmManagerHelper.EXTRA_COURSE_NAME) ?: "课程"
         val defaultRoom = intent.getStringExtra(AlarmManagerHelper.EXTRA_CLASSROOM) ?: "待定"
@@ -62,7 +66,7 @@ class AlarmBroadcastReceiver : BroadcastReceiver() {
         val endTime = intent.getStringExtra(AlarmManagerHelper.EXTRA_END_TIME) ?: ""
         val uniqueKey = intent.getStringExtra(AlarmManagerHelper.EXTRA_UNIQUE_KEY) ?: ""
 
-        Log.d(TAG, "开始核验即将上课的课程: id=$courseId, name=$defaultName, startTime=$startTime")
+        Log.d(TAG, "【开始 Alarm 触发】开始核验即将上课的课程: id=$courseId, name=$defaultName, startTime=$startTime")
 
         // 1. 优先尝试从服务端获取实时最新课程列表
         val fetchResult = ApiClient.fetchCourses()
@@ -74,8 +78,10 @@ class AlarmBroadcastReceiver : BroadcastReceiver() {
             // 查找对应课程
             validCourse = latestList.find { it.id == courseId && it.startTime == startTime }
             if (validCourse == null) {
-                Log.w(TAG, "课程已取消或时间已变更，放弃提醒并重新同步课表: id=$courseId")
-                AlarmManagerHelper.cancelCourseAlarm(context, uniqueKey)
+                Log.w(TAG, "课程已在远端取消或时间已变更，取消提醒与对应结束闹钟: id=$courseId")
+                // 取消开始闹钟与对应的结束闹钟
+                val endKey = "${courseId}_end_$endTime"
+                AlarmManagerHelper.cancelCourseAlarms(context, uniqueKey, endKey)
                 ScheduleSyncManager.syncSchedule(context)
                 return
             }
@@ -96,11 +102,11 @@ class AlarmBroadcastReceiver : BroadcastReceiver() {
             }
         }
 
-        // 3. 课程校验确认有效，启动流体云/灵动岛悬浮胶囊服务
+        // 3. 课程校验确认有效，启动短生命周期流体云/灵动岛悬浮胶囊前台服务
         if (validCourse != null) {
             val now = System.currentTimeMillis()
             if (validCourse.endMillis > now) {
-                Log.d(TAG, "课程有效，唤起流体云悬浮胶囊: ${validCourse.courseName}")
+                Log.d(TAG, "课程有效，唤起短生命周期流体云悬浮胶囊: ${validCourse.courseName}")
                 FloatingWindowService.startService(context, validCourse)
             } else {
                 Log.d(TAG, "课程已经结束，跳过提醒: ${validCourse.courseName}")
@@ -108,5 +114,17 @@ class AlarmBroadcastReceiver : BroadcastReceiver() {
         } else {
             Log.w(TAG, "未能确认课程有效性，静默结束本次任务")
         }
+    }
+
+    /**
+     * 下课时间到达 (结束 Alarm)：精准终结短生命周期任务并释放全部资源
+     */
+    private fun handleCourseEnd(context: Context, intent: Intent) {
+        val courseName = intent.getStringExtra(AlarmManagerHelper.EXTRA_COURSE_NAME) ?: "课程"
+        val courseId = intent.getLongExtra(AlarmManagerHelper.EXTRA_COURSE_ID, 0L)
+        Log.d(TAG, "【结束 Alarm 触发】下课时间到达，通知关闭流体云悬浮窗并释放前台服务: id=$courseId, name=$courseName")
+
+        // 发送关闭指令给 FloatingWindowService
+        FloatingWindowService.stopService(context)
     }
 }

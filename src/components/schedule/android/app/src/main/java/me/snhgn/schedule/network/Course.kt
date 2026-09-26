@@ -23,6 +23,18 @@ data class Course(
         get() = "${id}_$startTime"
 
     /**
+     * 开始闹钟唯一 Key (课前 5 分钟)
+     */
+    val startKey: String
+        get() = "${id}_start_$startTime"
+
+    /**
+     * 结束闹钟唯一 Key (课程结束时间)
+     */
+    val endKey: String
+        get() = "${id}_end_$endTime"
+
+    /**
      * 上课时间戳 (毫秒)
      */
     val startMillis: Long

@@ -41,6 +41,9 @@ class FloatingWindowService : Service() {
         private const val CHANNEL_ID = "channel_course_pill"
         private const val NOTIFICATION_ID = 2001
 
+        const val ACTION_START_REMINDER = "me.snhgn.schedule.ACTION_START_REMINDER"
+        const val ACTION_STOP_REMINDER = "me.snhgn.schedule.ACTION_STOP_REMINDER"
+
         private const val EXTRA_COURSE_NAME = "course_name"
         private const val EXTRA_CLASSROOM = "classroom"
         private const val EXTRA_START_MILLIS = "start_millis"
@@ -48,6 +51,7 @@ class FloatingWindowService : Service() {
 
         fun startService(context: Context, course: Course) {
             val intent = Intent(context, FloatingWindowService::class.java).apply {
+                action = ACTION_START_REMINDER
                 putExtra(EXTRA_COURSE_NAME, course.courseName)
                 putExtra(EXTRA_CLASSROOM, course.classRoom)
                 putExtra(EXTRA_START_MILLIS, course.startMillis)
@@ -61,6 +65,18 @@ class FloatingWindowService : Service() {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "启动 FloatingWindowService 异常: ${e.message}", e)
+            }
+        }
+
+        fun stopService(context: Context) {
+            val intent = Intent(context, FloatingWindowService::class.java).apply {
+                action = ACTION_STOP_REMINDER
+            }
+            try {
+                // 停止指令直接通过 startService 派发给运行中的 Service
+                context.startService(intent)
+            } catch (e: Exception) {
+                Log.e(TAG, "发送停止 FloatingWindowService 指令异常: ${e.message}", e)
             }
         }
     }
@@ -79,13 +95,14 @@ class FloatingWindowService : Service() {
     private var tvStatus: TextView? = null
     private var ivClose: ImageView? = null
 
-    // 每秒倒计时刷新任务
+    // 每秒倒计时刷新任务 (纯本地系统时间计算，无网络请求)
     private val tickerRunnable = object : Runnable {
         override fun run() {
             updateCapsuleContent()
             val now = System.currentTimeMillis()
+            // 兜底保护：若由于系统时间跃变导致结束 Alarm 异常，Service 在下课后也安全退出
             if (now >= endMillis && endMillis > 0) {
-                Log.d(TAG, "课程已结束，自动关闭流体云胶囊并终止服务")
+                Log.d(TAG, "课程到达下课时间点，安全退出流体云提醒任务")
                 stopSelf()
             } else {
                 handler.postDelayed(this, 1000L)
@@ -103,6 +120,13 @@ class FloatingWindowService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
+        val action = intent.action
+        if (ACTION_STOP_REMINDER == action) {
+            Log.d(TAG, "收到明确关闭指令 (ACTION_STOP_REMINDER)，立即结束短生命周期任务并销毁浮窗")
             stopSelf()
             return START_NOT_STICKY
         }
