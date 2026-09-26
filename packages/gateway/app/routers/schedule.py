@@ -12,6 +12,7 @@
 """
 import asyncio
 import logging
+import json
 import secrets
 import sqlite3
 
@@ -21,7 +22,7 @@ from pydantic import BaseModel
 from .. import sessions
 from ..auth import invalidate_session_cache, optional_user, require_admin, require_user
 from ..config import settings
-from ..schedule import service, toolbox
+from ..schedule import db as schedule_db, service, toolbox
 
 logger = logging.getLogger("gateway.schedule")
 router = APIRouter(prefix="/api/schedule", tags=["schedule"])
@@ -314,4 +315,101 @@ async def get_level_exams(req: ToolboxAuthRequest, response: Response) -> list:
     except Exception as e:
         logger.error("Failed to fetch level exams: %s", e)
         raise HTTPException(502, "教务系统等级考试查询暂时不可用")
+
+
+# ===================== 4位邀请码课表共享 API 路由 =====================
+
+
+class CreateShareRequest(BaseModel):
+    student_id: str
+    owner_name: str = ""
+    regenerate: bool = False
+
+
+@router.post("/share/create")
+def create_share_code(req: CreateShareRequest, response: Response) -> dict:
+    """生成或获取用户的4位共享课表邀请码（不泄露学号，不以学号直接绑定）。"""
+    _set_no_cache(response)
+    sid = req.student_id.strip()
+    if not sid:
+        raise HTTPException(400, "请提供学号以生成邀请码")
+
+    # 优先查找该学生是否已有缓存课表
+    cache = service.get_by_student(sid)
+    if not cache:
+        raise HTTPException(400, "尚未检索到您的课表，请先查询并保存个人课表后再生成邀请码")
+
+    raw_cache = schedule_db.get_cache_by_student(sid)
+    sched_json = raw_cache["schedule_json"] if raw_cache else json.dumps(cache.get("courses", []))
+    sem = cache.get("semester") or "2026-2027-1"
+
+    code = schedule_db.create_or_update_share(
+        student_id=sid,
+        owner_name=req.owner_name.strip(),
+        schedule_json=sched_json,
+        semester=sem,
+        regenerate=req.regenerate,
+    )
+    return {
+        "code": code,
+        "owner_name": req.owner_name.strip(),
+        "share_url": f"/schedule?code={code}",
+    }
+
+
+@router.get("/share/my")
+def get_my_share_code(response: Response, student_id: str = Query(..., description="学号")) -> dict:
+    """查询指定学号已生成的4位邀请码。"""
+    _set_no_cache(response)
+    sid = student_id.strip()
+    if not sid:
+        raise HTTPException(400, "请提供学号")
+    share = schedule_db.get_share_by_student(sid)
+    if not share:
+        return {"has_code": False}
+    return {
+        "has_code": True,
+        "code": share["code"],
+        "owner_name": share["owner_name"],
+        "share_url": f"/schedule?code={share['code']}",
+    }
+
+
+@router.get("/share/{code}")
+def view_shared_schedule(code: str, response: Response) -> dict:
+    """通过4位邀请码查看共享课表（完全不泄露分享者的学号）。"""
+    _set_no_cache(response)
+    c = code.strip().upper()
+    if not c or len(c) != 4:
+        raise HTTPException(404, "无效的4位邀请码")
+
+    share = schedule_db.get_share_by_code(c)
+    if not share:
+        raise HTTPException(404, "邀请码不存在或已失效")
+
+    # 尝试从该同学最新的 schedule_cache 读取最新课表，若无则使用分享快照
+    sid = share["student_id"]
+    latest_cache = service.get_by_student(sid) if sid else None
+
+    if latest_cache and latest_cache.get("courses"):
+        courses = latest_cache["courses"]
+        sem = latest_cache.get("semester") or share["semester"]
+        up_time = latest_cache.get("updated_time") or share["updated_at"]
+    else:
+        try:
+            courses = json.loads(share["schedule_json"]) if share["schedule_json"] else []
+        except Exception:
+            courses = []
+        sem = share["semester"]
+        up_time = share["updated_at"]
+
+    # 严格杜绝返回 student_id 或 real user_id，确保隐私彻底隔绝
+    return {
+        "code": share["code"],
+        "owner_name": share["owner_name"] or "同学",
+        "semester": sem,
+        "updated_time": up_time,
+        "courses": courses,
+    }
+
 

@@ -21,6 +21,19 @@ CREATE TABLE IF NOT EXISTS schedule_cache (
     student_id    TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_schedule_student ON schedule_cache(student_id);
+
+CREATE TABLE IF NOT EXISTS schedule_shares (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    code          TEXT NOT NULL UNIQUE,
+    student_id    TEXT NOT NULL,
+    owner_name    TEXT NOT NULL DEFAULT '',
+    schedule_json TEXT NOT NULL DEFAULT '',
+    semester      TEXT NOT NULL DEFAULT '',
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_share_code ON schedule_shares(code);
+CREATE INDEX IF NOT EXISTS idx_share_student ON schedule_shares(student_id);
 """
 
 
@@ -91,3 +104,79 @@ def list_caches() -> list[dict]:
             " ORDER BY updated_time DESC"
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+SHARE_CODE_CHARS = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"  # 32 个易读字符（去除 0, O, 1, I 防混淆）
+
+
+def generate_unique_share_code() -> str:
+    import secrets
+    with _conn() as conn:
+        for _ in range(200):
+            code = "".join(secrets.choice(SHARE_CODE_CHARS) for _ in range(4))
+            row = conn.execute("SELECT 1 FROM schedule_shares WHERE code=?", (code,)).fetchone()
+            if not row:
+                return code
+    raise RuntimeError("无法生成唯一的4位邀请码")
+
+
+def get_share_by_code(code: str) -> dict | None:
+    c = code.strip().upper()
+    if not c:
+        return None
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT code, student_id, owner_name, schedule_json, semester, created_at, updated_at"
+            " FROM schedule_shares WHERE code=?",
+            (c,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def get_share_by_student(student_id: str) -> dict | None:
+    sid = student_id.strip()
+    if not sid:
+        return None
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT code, student_id, owner_name, schedule_json, semester, created_at, updated_at"
+            " FROM schedule_shares WHERE student_id=? ORDER BY updated_at DESC LIMIT 1",
+            (sid,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def create_or_update_share(student_id: str, owner_name: str, schedule_json: str, semester: str, regenerate: bool = False) -> str:
+    """为指定学号创建或更新4位邀请码。
+    如已有且 regenerate=False，保留原码并刷新课表快照与备注名；
+    如 regenerate=True，删除旧码生成全新4位码。
+    """
+    sid = student_id.strip()
+    from datetime import datetime, timezone
+    now_str = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+
+    existing = get_share_by_student(sid)
+    if existing and not regenerate:
+        code = existing["code"]
+        name = owner_name.strip() or existing["owner_name"]
+        with _conn() as conn:
+            conn.execute(
+                "UPDATE schedule_shares SET owner_name=?, schedule_json=?, semester=?, updated_at=?"
+                " WHERE code=?",
+                (name, schedule_json, semester, now_str, code),
+            )
+        return code
+
+    # 需要生成新码
+    with _conn() as conn:
+        if existing:
+            conn.execute("DELETE FROM schedule_shares WHERE student_id=?", (sid,))
+        code = generate_unique_share_code()
+        name = owner_name.strip()
+        conn.execute(
+            "INSERT INTO schedule_shares (code, student_id, owner_name, schedule_json, semester, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (code, sid, name, schedule_json, semester, now_str, now_str),
+        )
+        return code
+
