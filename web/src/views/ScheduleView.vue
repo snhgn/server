@@ -448,10 +448,28 @@ function goToToday() {
   }
 }
 
+// APP 端全屏沉浸与环境识别
+const isApp = computed(() => {
+  if (typeof window === 'undefined') return false
+  return route.query.app === '1' || navigator.userAgent.includes('SnhgnScheduleAndroid')
+})
+
 const showWeekPicker = ref(false)
 const edgePullDirection = ref<'prev' | 'next' | null>(null)
 const edgePullDistance = ref(0)
 const PULL_THRESHOLD = 40
+const wasSwiping = ref(false)
+let swipingResetTimer: ReturnType<typeof setTimeout> | null = null
+
+function openDetail(c: Course) {
+  if (wasSwiping.value) return
+  detail.value = c
+}
+
+function handleCellClick(day: number, slotBlock: number) {
+  if (wasSwiping.value) return
+  openAddCustomEventModal(day, slotBlock)
+}
 
 let touchStartX = 0
 let touchStartY = 0
@@ -459,8 +477,13 @@ let edgePullStartX = 0
 let isTouching = false
 
 function onTouchStart(e: TouchEvent) {
-  if (!gridContainer.value || e.touches.length !== 1) return
+  if ((!gridContainer.value && !isApp.value) || e.touches.length !== 1) return
   isTouching = true
+  wasSwiping.value = false
+  if (swipingResetTimer) {
+    clearTimeout(swipingResetTimer)
+    swipingResetTimer = null
+  }
   touchStartX = e.touches[0].clientX
   touchStartY = e.touches[0].clientY
   edgePullStartX = e.touches[0].clientX
@@ -469,14 +492,14 @@ function onTouchStart(e: TouchEvent) {
 }
 
 function onTouchMove(e: TouchEvent) {
-  if (!isTouching || !gridContainer.value || e.touches.length !== 1) return
+  if (!isTouching || (!gridContainer.value && !isApp.value) || e.touches.length !== 1) return
   const currentX = e.touches[0].clientX
   const currentY = e.touches[0].clientY
   const dx = currentX - touchStartX
   const dy = currentY - touchStartY
 
   // 必须主要是水平滑动手势
-  if (Math.abs(dx) <= Math.abs(dy) || Math.abs(dx) < 10) {
+  if (Math.abs(dx) <= Math.abs(dy) || Math.abs(dx) < 8) {
     if (edgePullDirection.value) {
       edgePullDirection.value = null
       edgePullDistance.value = 0
@@ -484,7 +507,27 @@ function onTouchMove(e: TouchEvent) {
     return
   }
 
+  // 滑动位移超过 10px 时锁定为正在滑动，抬手时抑制卡片点击事件
+  if (Math.abs(dx) > 10) {
+    wasSwiping.value = true
+  }
+
+  // App 模式：由于页面全屏且无横向滚动条，任意位置左右滑都可以直接触发切周
+  if (isApp.value) {
+    if (dx > 0) {
+      // 向右滑 -> 上一周
+      edgePullDirection.value = 'prev'
+      edgePullDistance.value = Math.min(80, dx * 0.8)
+    } else {
+      // 向左滑 -> 下一周
+      edgePullDirection.value = 'next'
+      edgePullDistance.value = Math.min(80, Math.abs(dx) * 0.8)
+    }
+    return
+  }
+
   const container = gridContainer.value
+  if (!container) return
   const currentScrollLeft = container.scrollLeft
   const maxLeft = Math.max(0, container.scrollWidth - container.clientWidth)
   const isAtLeftEdge = currentScrollLeft <= 2
@@ -531,12 +574,25 @@ function onTouchEnd() {
       switchToAdjacentWeek(currentWeek.value + 1, 'start')
     }
   }
+
+  if (wasSwiping.value) {
+    if (swipingResetTimer) clearTimeout(swipingResetTimer)
+    swipingResetTimer = setTimeout(() => {
+      wasSwiping.value = false
+    }, 200)
+  }
 }
 
 function onTouchCancel() {
   isTouching = false
   edgePullDirection.value = null
   edgePullDistance.value = 0
+  if (wasSwiping.value) {
+    if (swipingResetTimer) clearTimeout(swipingResetTimer)
+    swipingResetTimer = setTimeout(() => {
+      wasSwiping.value = false
+    }, 200)
+  }
 }
 
 let wheelAccumX = 0
@@ -970,13 +1026,6 @@ const todayState = computed<TodayState>(() => {
   return { type: 'none', course: null, label: '今日暂无课程安排' }
 })
 
-// APP 端全屏沉浸与环境识别
-const isApp = computed(() => {
-  if (typeof window === 'undefined') return false
-  return route.query.app === '1' || navigator.userAgent.includes('SnhgnScheduleAndroid')
-})
-
-
 // 移动端专用日视图 / 日程流配置
 const mobileViewMode = ref<'agenda' | 'week'>(
   isApp.value ? 'week' : ((localStorage.getItem('bjfu-mobile-view-mode') as 'agenda' | 'week') || 'agenda')
@@ -1391,7 +1440,8 @@ function deleteCustomEvent(id: string) {
       <!-- App 课表全屏网格 (占满剩余100%高度，0滚动条，横滑切周) -->
       <div
         v-if="schedule"
-        class="flex-1 min-h-0 flex flex-col rounded-xl border border-neutral-200/90 dark:border-neutral-800 bg-white dark:bg-[#131418] shadow-xs overflow-hidden relative"
+        class="flex-1 min-h-0 flex flex-col rounded-xl border border-neutral-200/90 dark:border-neutral-800 bg-white dark:bg-[#131418] shadow-xs overflow-hidden relative touch-pan-y"
+        style="touch-action: pan-y;"
         @touchstart.passive="onTouchStart"
         @touchmove.passive="onTouchMove"
         @touchend="onTouchEnd"
@@ -1474,7 +1524,7 @@ function deleteCustomEvent(id: string) {
                 v-if="isCellFree(d, sIdx + 1)"
                 class="rounded border border-neutral-100 dark:border-neutral-800/40 bg-white dark:bg-[#131418] p-0.5 overflow-hidden transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/30 cursor-pointer"
                 :style="{ gridColumn: d + 1, gridRow: sIdx + 1 }"
-                @click="openAddCustomEventModal(d, sIdx + 1)"
+                @click="handleCellClick(d, sIdx + 1)"
               />
             </template>
           </template>
@@ -1494,7 +1544,7 @@ function deleteCustomEvent(id: string) {
               gridColumn: c.day + 1,
               gridRow: `${c.startBlock} / span ${c.rowSpan}`,
             }"
-            @click.stop="detail = c"
+            @click.stop="openDetail(c)"
           >
             <div class="min-w-0">
               <div
@@ -2061,7 +2111,7 @@ function deleteCustomEvent(id: string) {
                   v-if="isCellFree(d, sIdx + 1)"
                   class="relative rounded border border-neutral-100 dark:border-neutral-800 min-h-[50px] sm:min-h-[72px] bg-white dark:bg-[#131418] p-0.5 sm:p-1 group transition-colors hover:border-dashed hover:border-emerald-400/80 hover:bg-emerald-50/20 dark:hover:bg-emerald-950/10 cursor-pointer"
                   :style="{ gridColumn: d + 1, gridRow: sIdx + 2 }"
-                  @click="openAddCustomEventModal(d, sIdx + 1)"
+                  @click="handleCellClick(d, sIdx + 1)"
                 >
                   <!-- Free cell hover prompt: + 安排 -->
                   <div class="w-full h-full min-h-[46px] sm:min-h-[66px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none select-none">
@@ -2093,7 +2143,7 @@ function deleteCustomEvent(id: string) {
                 gridColumn: c.day + 1,
                 gridRow: `${c.startBlock + 1} / span ${c.rowSpan}`,
               }"
-              @click.stop="detail = c"
+              @click.stop="openDetail(c)"
             >
               <div>
                 <div class="flex items-start justify-between gap-0.5">
