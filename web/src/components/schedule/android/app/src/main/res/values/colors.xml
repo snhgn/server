@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- snhgn 设计系统配色 (深邃极简、单色自洽) -->
+    <color name="bg_root">#0E1012</color>
+    <color name="bg_surface">#18181B</color>
+    <color name="bg_surface_elevated">#27272A</color>
+    <color name="border_subtle">#333F3F46</color>
+    <color name="text_primary">#FAFAFA</color>
+    <color name="text_secondary">#A1A1AA</color>
+    <color name="text_muted">#71717A</color>
+    <color name="accent_green">#4ADE80</color>
+    <color name="accent_amber">#FBBF24</color>
+    <color name="accent_red">#F87171</color>
+    <color name="capsule_bg">#E618181B</color>
+</resources>
