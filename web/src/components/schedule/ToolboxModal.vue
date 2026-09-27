@@ -512,17 +512,17 @@ function toggleAllTermsCollapse() {
 }
 
 function getAttributeBadgeClass(attr?: string) {
-  if (!attr) return 'bg-neutral-100 text-neutral-600'
+  if (!attr) return 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300'
   if (attr.includes('必修') || attr.includes('核心')) {
-    return 'bg-blue-50 text-blue-700 border border-blue-200/60'
+    return 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800/60'
   }
   if (attr.includes('选修')) {
-    return 'bg-emerald-50 text-emerald-700 border border-emerald-200/60'
+    return 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60'
   }
   if (attr.includes('实践') || attr.includes('实验') || attr.includes('实习') || attr.includes('论文') || attr.includes('设计')) {
-    return 'bg-amber-50 text-amber-700 border border-amber-200/60'
+    return 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200/60 dark:border-amber-800/60'
   }
-  return 'bg-neutral-100 text-neutral-600'
+  return 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300'
 }
 
 // ================= 4. 空闲教室查询 =================
@@ -1593,27 +1593,27 @@ async function saveMonitor() {
           <!-- 课程列表表格 -->
           <div v-else-if="displayedCourses.length" class="border border-[#E5E5E5] rounded-lg overflow-hidden">
             <table class="w-full text-left text-xs font-mono">
-              <thead class="bg-[#FAFAFA] border-b border-[#E5E5E5] text-neutral-500 text-[11px]">
+              <thead class="bg-[#FAFAFA] dark:bg-[#16191c] border-b border-[#E5E5E5] dark:border-neutral-800 text-neutral-500 dark:text-neutral-400 text-[11px]">
                 <tr>
-                  <th class="p-2.5 font-normal">课程名称</th>
-                  <th class="p-2.5 font-normal">学期</th>
-                  <th class="p-2.5 font-normal">性质</th>
-                  <th class="p-2.5 font-normal">学分</th>
-                  <th class="p-2.5 font-normal text-right">成绩</th>
+                  <th class="p-2.5 font-normal min-w-[140px]">课程名称</th>
+                  <th class="p-2.5 font-normal whitespace-nowrap">学期</th>
+                  <th class="p-2.5 font-normal whitespace-nowrap min-w-[60px]">性质</th>
+                  <th class="p-2.5 font-normal whitespace-nowrap">学分</th>
+                  <th class="p-2.5 font-normal text-right whitespace-nowrap">成绩</th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-neutral-100">
-                <tr v-for="c in displayedCourses" :key="c.code + c.term" class="hover:bg-neutral-50/70 transition-colors">
-                  <td class="p-2.5 font-sans font-medium text-neutral-900">
+              <tbody class="divide-y divide-neutral-100 dark:divide-neutral-800">
+                <tr v-for="c in displayedCourses" :key="c.code + c.term" class="hover:bg-neutral-50/70 dark:hover:bg-neutral-800/40 transition-colors">
+                  <td class="p-2.5 font-sans font-medium text-neutral-900 dark:text-neutral-100 min-w-[140px]">
                     <div>{{ c.name }}</div>
                     <div class="text-[10px] text-neutral-400 font-mono">{{ c.code }}</div>
                   </td>
-                  <td class="p-2.5 text-neutral-400 text-[11px]">{{ c.term }}</td>
-                  <td class="p-2.5 text-neutral-500">
-                    <span class="px-1.5 py-0.5 bg-neutral-100 text-neutral-600 rounded text-[10px]">{{ c.attribute || '必修' }}</span>
+                  <td class="p-2.5 text-neutral-400 text-[11px] whitespace-nowrap">{{ c.term }}</td>
+                  <td class="p-2.5 text-neutral-500 whitespace-nowrap">
+                    <span class="inline-flex items-center justify-center px-1.5 py-0.5 bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 rounded text-[10px] whitespace-nowrap">{{ c.attribute || '必修' }}</span>
                   </td>
-                  <td class="p-2.5 text-neutral-700">{{ c.credit }}</td>
-                  <td class="p-2.5 text-right font-semibold" :class="Number(c.score) >= 90 || c.score === '优秀' || c.score === '优' ? 'text-emerald-600 font-bold' : (Number(c.score) < 60 || c.score === '不及格' ? 'text-red-500' : 'text-neutral-900')">
+                  <td class="p-2.5 text-neutral-700 dark:text-neutral-300 whitespace-nowrap">{{ c.credit }}</td>
+                  <td class="p-2.5 text-right font-semibold whitespace-nowrap" :class="Number(c.score) >= 90 || c.score === '优秀' || c.score === '优' ? 'text-emerald-600 font-bold' : (Number(c.score) < 60 || c.score === '不及格' ? 'text-red-500' : 'text-neutral-900 dark:text-white')">
                     {{ c.score }}
                   </td>
                 </tr>
@@ -1927,34 +1927,34 @@ async function saveMonitor() {
               <!-- 学期课程表格（折叠时隐藏） -->
               <div v-show="!isTermCollapsed(group.termKey)" class="overflow-x-auto">
                 <table class="w-full text-left text-xs font-mono">
-                  <thead class="bg-[#FAFAFA] border-b border-neutral-100 text-neutral-500 text-[11px]">
+                  <thead class="bg-[#FAFAFA] dark:bg-[#16191c] border-b border-neutral-100 dark:border-neutral-800 text-neutral-500 dark:text-neutral-400 text-[11px]">
                     <tr>
-                      <th class="p-2.5 font-normal">课程名称</th>
-                      <th class="p-2.5 font-normal">课程性质</th>
-                      <th class="p-2.5 font-normal">开课单位</th>
-                      <th class="p-2.5 font-normal text-right">学分 / 学时</th>
+                      <th class="p-2.5 font-normal min-w-[140px]">课程名称</th>
+                      <th class="p-2.5 font-normal whitespace-nowrap min-w-[70px] w-20">课程性质</th>
+                      <th class="p-2.5 font-normal whitespace-nowrap min-w-[90px]">开课单位</th>
+                      <th class="p-2.5 font-normal text-right whitespace-nowrap min-w-[80px]">学分 / 学时</th>
                     </tr>
                   </thead>
-                  <tbody class="divide-y divide-neutral-100">
+                  <tbody class="divide-y divide-neutral-100 dark:divide-neutral-800">
                     <tr
                       v-for="item in group.courses"
                       :key="item.code + item.name"
-                      class="hover:bg-neutral-50/70 transition-colors"
+                      class="hover:bg-neutral-50/70 dark:hover:bg-neutral-800/40 transition-colors"
                     >
-                      <td class="p-2.5 font-sans font-medium text-neutral-900">
+                      <td class="p-2.5 font-sans font-medium text-neutral-900 dark:text-neutral-100 min-w-[140px]">
                         <div>{{ item.name }}</div>
                         <div class="text-[10px] text-neutral-400 font-mono">{{ item.code }}</div>
                       </td>
-                      <td class="p-2.5">
+                      <td class="p-2.5 whitespace-nowrap">
                         <span
-                          class="px-1.5 py-0.5 rounded text-[10px] font-sans"
+                          class="inline-flex items-center justify-center px-2 py-0.5 rounded text-[10px] font-sans whitespace-nowrap tracking-wide select-none"
                           :class="getAttributeBadgeClass(item.attribute)"
                         >
                           {{ item.attribute || '其他' }}
                         </span>
                       </td>
-                      <td class="p-2.5 text-neutral-400 text-[11px]">{{ item.dept || '—' }}</td>
-                      <td class="p-2.5 text-right font-medium text-neutral-900 font-mono">
+                      <td class="p-2.5 text-neutral-400 text-[11px] whitespace-nowrap">{{ item.dept || '—' }}</td>
+                      <td class="p-2.5 text-right font-medium text-neutral-900 dark:text-neutral-100 font-mono whitespace-nowrap">
                         {{ item.credit }} 分 <span class="text-neutral-400 font-normal">({{ item.hours }}h)</span>
                       </td>
                     </tr>
