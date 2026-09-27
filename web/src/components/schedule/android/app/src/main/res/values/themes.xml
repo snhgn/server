@@ -1,6 +1,10 @@
 <resources>
     <!-- 极简无标题栏深色主题 -->
     <style name="Theme.SnhgnSchedule" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/text_primary</item>
+        <item name="colorPrimaryVariant">@color/bg_surface</item>
+        <item name="colorOnPrimary">@color/bg_root</item>
+        <item name="colorSecondary">@color/accent_green</item>
         <item name="android:statusBarColor">@color/bg_root</item>
         <item name="android:navigationBarColor">@color/bg_root</item>
         <item name="android:windowBackground">@color/bg_root</item>

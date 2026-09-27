@@ -56,7 +56,7 @@
         <!-- 权限引导页面 -->
         <activity
             android:name=".ui.PermissionGuideActivity"
-            android:exported="false"
+            android:exported="true"
             android:theme="@style/Theme.SnhgnSchedule" />
 
         <!-- 课程闹钟广播接收器 (内部广播，不导出) -->
@@ -83,7 +83,7 @@
         <service
             android:name=".reminder.FloatingWindowService"
             android:enabled="true"
-            android:exported="false"
+            android:exported="true"
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"

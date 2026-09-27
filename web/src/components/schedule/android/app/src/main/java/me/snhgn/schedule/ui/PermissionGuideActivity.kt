@@ -80,23 +80,42 @@ class PermissionGuideActivity : AppCompatActivity() {
     private fun refreshPermissionStates() {
         // 1. 悬浮窗
         val hasOverlay = PermissionHelper.hasOverlayPermission(this)
-        tvOverlayStatus.text = if (hasOverlay) "✓ 已开启" else "未开启（点击设置）"
-        tvOverlayStatus.setTextColor(if (hasOverlay) 0xFF4ADE80.toInt() else 0xFFF87171.toInt())
+        applyBadgeState(tvOverlayStatus, hasOverlay, "✓ 已开启", "去开启 →")
 
         // 2. 精确闹钟
         val hasAlarm = PermissionHelper.hasExactAlarmPermission(this)
-        tvAlarmStatus.text = if (hasAlarm) "✓ 已开启" else "未开启（点击设置）"
-        tvAlarmStatus.setTextColor(if (hasAlarm) 0xFF4ADE80.toInt() else 0xFFF87171.toInt())
+        applyBadgeState(tvAlarmStatus, hasAlarm, "✓ 已开启", "去开启 →")
 
         // 3. 电池优化
         val isBatteryIgnored = PermissionHelper.isIgnoringBatteryOptimizations(this)
-        tvBatteryStatus.text = if (isBatteryIgnored) "✓ 已优化" else "建议允许（点击设置）"
-        tvBatteryStatus.setTextColor(if (isBatteryIgnored) 0xFF4ADE80.toInt() else 0xFFFBBF24.toInt())
+        applyBadgeState(tvBatteryStatus, isBatteryIgnored, "✓ 已优化", "去允许 →", isWarning = true)
 
         // 4. 通知
         val hasNotification = PermissionHelper.hasNotificationPermission(this)
-        tvNotificationStatus.text = if (hasNotification) "✓ 已开启" else "未开启（点击设置）"
-        tvNotificationStatus.setTextColor(if (hasNotification) 0xFF4ADE80.toInt() else 0xFFF87171.toInt())
+        applyBadgeState(tvNotificationStatus, hasNotification, "✓ 已开启", "去开启 →")
+    }
+
+    private fun applyBadgeState(
+        textView: TextView,
+        isGranted: Boolean,
+        grantedText: String,
+        deniedText: String,
+        isWarning: Boolean = false
+    ) {
+        if (isGranted) {
+            textView.text = grantedText
+            textView.setBackgroundResource(R.drawable.bg_badge_success)
+            textView.setTextColor(0xFF4ADE80.toInt())
+        } else {
+            textView.text = deniedText
+            if (isWarning) {
+                textView.setBackgroundResource(R.drawable.bg_badge_warning)
+                textView.setTextColor(0xFFFBBF24.toInt())
+            } else {
+                textView.setBackgroundResource(R.drawable.bg_badge_action)
+                textView.setTextColor(0xFF9CA3AF.toInt())
+            }
+        }
     }
 
     private fun completeGuideAndEnterMain() {

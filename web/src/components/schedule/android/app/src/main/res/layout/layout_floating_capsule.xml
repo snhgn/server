@@ -2,20 +2,28 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
-    android:background="@drawable/bg_capsule"
-    android:elevation="12dp"
+    android:background="@drawable/bg_capsule_modern"
+    android:elevation="16dp"
     android:gravity="center_vertical"
     android:orientation="horizontal"
-    android:paddingStart="16dp"
-    android:paddingTop="9dp"
-    android:paddingEnd="12dp"
-    android:paddingBottom="9dp">
+    android:paddingStart="14dp"
+    android:paddingTop="8dp"
+    android:paddingEnd="10dp"
+    android:paddingBottom="8dp">
 
-    <!-- 左侧课程信息：名称与教室 -->
+    <!-- 左侧状态呼吸灯 -->
+    <ImageView
+        android:layout_width="12dp"
+        android:layout_height="12dp"
+        android:layout_marginEnd="10dp"
+        android:contentDescription="Live"
+        android:src="@drawable/ic_live_dot" />
+
+    <!-- 课程信息：名称与教室 -->
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginEnd="14dp"
+        android:layout_marginEnd="12dp"
         android:orientation="vertical">
 
         <TextView
@@ -23,11 +31,12 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:ellipsize="end"
+            android:fontFamily="sans-serif-medium"
             android:maxLines="1"
             android:maxWidth="160dp"
             android:text="高等数学"
             android:textColor="@color/text_primary"
-            android:textSize="14sp"
+            android:textSize="13.5sp"
             android:textStyle="bold" />
 
         <TextView
@@ -40,7 +49,7 @@
             android:maxWidth="160dp"
             android:text="教2-301"
             android:textColor="@color/text_secondary"
-            android:textSize="12sp" />
+            android:textSize="11.5sp" />
     </LinearLayout>
 
     <!-- 右侧状态胶囊：倒计时 / 正在上课 -->
@@ -48,22 +57,24 @@
         android:id="@+id/tv_capsule_status"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:background="@drawable/bg_capsule_status"
+        android:background="@drawable/bg_capsule_chip"
+        android:fontFamily="sans-serif-medium"
         android:includeFontPadding="false"
+        android:letterSpacing="0.02"
         android:text="还有 04:32"
         android:textColor="@color/accent_green"
-        android:textSize="12sp"
+        android:textSize="11.5sp"
         android:textStyle="bold" />
 
-    <!-- 关闭按钮 -->
+    <!-- 极简关闭按钮 -->
     <ImageView
         android:id="@+id/iv_capsule_close"
-        android:layout_width="22dp"
-        android:layout_height="22dp"
-        android:layout_marginStart="8dp"
+        android:layout_width="26dp"
+        android:layout_height="26dp"
+        android:layout_marginStart="6dp"
         android:background="?android:attr/selectableItemBackgroundBorderless"
         android:contentDescription="关闭提醒"
-        android:padding="3dp"
+        android:padding="5dp"
         android:src="@drawable/ic_close" />
 
 </LinearLayout>
