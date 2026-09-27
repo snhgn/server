@@ -881,6 +881,91 @@ const todayState = computed<TodayState>(() => {
   return { type: 'none', course: null, label: '今日暂无课程安排' }
 })
 
+// APP 端全屏沉浸与环境识别
+const isApp = computed(() => {
+  if (typeof window === 'undefined') return false
+  return route.query.app === '1' || navigator.userAgent.includes('SnhgnScheduleAndroid')
+})
+
+
+// 移动端专用日视图 / 日程流配置
+const mobileViewMode = ref<'agenda' | 'week'>(
+  isApp.value ? 'week' : ((localStorage.getItem('bjfu-mobile-view-mode') as 'agenda' | 'week') || 'agenda')
+)
+const selectedDay = ref<number>(nowDay.value)
+
+function selectDay(d: number) {
+  selectedDay.value = d
+}
+
+function setMobileViewMode(mode: 'agenda' | 'week') {
+  mobileViewMode.value = mode
+  localStorage.setItem('bjfu-mobile-view-mode', mode)
+  if (mode === 'week') {
+    nextTick(() => scrollToToday())
+  }
+}
+
+const selectedDayCourses = computed(() => {
+  return weekCourses.value
+    .filter((c) => c.day === selectedDay.value)
+    .sort((a, b) => a.start - b.start)
+})
+
+function dayHasCourses(d: number): boolean {
+  return weekCourses.value.some((c) => c.day === d)
+}
+
+function getCourseLiveState(c: Course): { isLive: boolean; label: string } {
+  if (currentWeek.value !== systemWeek() || selectedDay.value !== nowDay.value) {
+    return { isLive: false, label: '' }
+  }
+  const now = new Date()
+  const mins = now.getHours() * 60 + now.getMinutes()
+  const b = periodSlots[blockOf(c.start) - 1]
+  if (!b) return { isLive: false, label: '' }
+  if (mins >= b.from && mins < b.to) {
+    return { isLive: true, label: '正在上课' }
+  }
+  if (mins < b.from && b.from - mins <= 35) {
+    return { isLive: false, label: `${b.from - mins}分钟后开始` }
+  }
+  return { isLive: false, label: '' }
+}
+
+let agendaTouchStartX = 0
+let agendaTouchStartY = 0
+
+function onAgendaTouchStart(e: TouchEvent) {
+  if (e.touches.length !== 1) return
+  agendaTouchStartX = e.touches[0].clientX
+  agendaTouchStartY = e.touches[0].clientY
+}
+
+function onAgendaTouchEnd(e: TouchEvent) {
+  if (e.changedTouches.length !== 1) return
+  const dx = e.changedTouches[0].clientX - agendaTouchStartX
+  const dy = e.changedTouches[0].clientY - agendaTouchStartY
+  if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 40) {
+    const maxDay = showWeekend.value ? 7 : 5
+    if (dx < 0) {
+      if (selectedDay.value < maxDay) {
+        selectedDay.value++
+      } else if (currentWeek.value < TOTAL_WEEKS) {
+        changeWeek(1)
+        selectedDay.value = 1
+      }
+    } else {
+      if (selectedDay.value > 1) {
+        selectedDay.value--
+      } else if (currentWeek.value > 1) {
+        changeWeek(-1)
+        selectedDay.value = maxDay
+      }
+    }
+  }
+}
+
 interface PlacedCourse extends Course {
   key: string
   stackIndex: number
@@ -1125,7 +1210,10 @@ function deleteCustomEvent(id: string) {
 </script>
 
 <template>
-  <div class="relative min-h-[calc(100vh-8rem)] py-4 sm:py-12">
+  <div
+    class="relative select-none"
+    :class="isApp ? 'h-full w-full flex flex-col overflow-hidden p-1 sm:p-2 bg-[#FAFAFA] dark:bg-[#0A0B0D]' : 'min-h-[calc(100vh-8rem)] py-4 sm:py-12'"
+  >
     <!-- Custom Background Wallpaper Layer -->
     <div
       v-if="bgConfig.url"
@@ -1137,28 +1225,276 @@ function deleteCustomEvent(id: string) {
       }"
     />
 
-    <!-- Top Header -->
-    <header class="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 border-b border-[#E5E5E5]/70 pb-3 sm:pb-6 mb-3 sm:mb-8">
+    <!-- ==================== APP 专属模式：一页全显，无需滑动，全屏课表 ==================== -->
+    <template v-if="isApp">
+      <!-- App 极简顶栏 (高度仅 ~36px，所有非课表内容折叠于此) -->
+      <header class="shrink-0 flex items-center justify-between px-1.5 py-1 mb-1 border-b border-neutral-200/80 dark:border-neutral-800 text-xs font-mono">
+        <div class="flex items-center gap-1.5">
+          <button
+            type="button"
+            class="flex items-center gap-1 px-2.5 py-1 rounded-full bg-neutral-900 text-white dark:bg-emerald-400 dark:text-neutral-950 font-bold text-xs shadow-xs active:scale-95 transition-transform cursor-pointer"
+            title="点击切换周次"
+            @click="showWeekPicker = true"
+          >
+            <span>第 {{ currentWeek }} 周</span>
+            <svg class="w-3 h-3 opacity-70" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+            </svg>
+          </button>
+          <span v-if="schedule" class="text-[11px] text-neutral-400 dark:text-neutral-500 font-sans hidden xs:inline">
+            {{ semesterLabel(schedule.semester) }}
+          </span>
+        </div>
+
+        <div class="flex items-center gap-1">
+          <button
+            type="button"
+            class="px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors cursor-pointer"
+            :class="currentWeek === systemWeek() ? 'bg-neutral-200 dark:bg-neutral-800 text-neutral-900 dark:text-white border-neutral-300 dark:border-neutral-700 font-semibold' : 'text-neutral-500 border-transparent hover:bg-neutral-100 dark:hover:bg-neutral-800'"
+            title="快速回今天"
+            @click="goToToday"
+          >
+            今天
+          </button>
+
+          <button
+            type="button"
+            class="px-1.5 py-0.5 rounded-md text-[11px] font-medium text-neutral-500 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 border border-transparent cursor-pointer"
+            :title="showWeekend ? '切换为5天模式' : '切换为7天模式'"
+            @click="showWeekend = !showWeekend"
+          >
+            {{ showWeekend ? '7天' : '5天' }}
+          </button>
+
+          <button
+            type="button"
+            class="p-1 rounded-md text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 cursor-pointer"
+            title="添加安排"
+            @click="openAddCustomEventModal(nowDay)"
+          >
+            <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/>
+            </svg>
+          </button>
+
+          <button
+            type="button"
+            class="flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 border border-neutral-300/70 dark:border-neutral-700 transition-colors cursor-pointer active:scale-95"
+            title="打开实用工具箱"
+            @click="showToolbox = true"
+          >
+            <span>🧰</span>
+            <span>工具箱</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- App 课表全屏网格 (占满剩余100%高度，0滚动条，横滑切周) -->
+      <div
+        v-if="schedule"
+        class="flex-1 min-h-0 flex flex-col rounded-xl border border-neutral-200/90 dark:border-neutral-800 bg-white dark:bg-[#131418] shadow-xs overflow-hidden relative"
+        @touchstart.passive="onTouchStart"
+        @touchmove.passive="onTouchMove"
+        @touchend="onTouchEnd"
+        @touchcancel="onTouchCancel"
+      >
+        <!-- Floating edge swipe week switcher indicator -->
+        <transition
+          enter-active-class="transition duration-150 ease-out"
+          enter-from-class="opacity-0 -translate-y-2 scale-95"
+          enter-to-class="opacity-100 translate-y-0 scale-100"
+          leave-active-class="transition duration-150 ease-in"
+          leave-from-class="opacity-100 translate-y-0 scale-100"
+          leave-to-class="opacity-0 -translate-y-2 scale-95"
+        >
+          <div
+            v-if="edgePullDirection"
+            class="absolute left-1/2 -translate-x-1/2 top-2 z-40 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono shadow-lg border backdrop-blur-md pointer-events-none transition-all duration-150 select-none"
+            :class="[
+              edgePullDistance >= PULL_THRESHOLD
+                ? 'bg-neutral-900 text-white border-neutral-800 scale-105 shadow-neutral-900/20 dark:bg-white dark:text-neutral-950 dark:border-white'
+                : 'bg-white/95 text-neutral-700 border-neutral-200 dark:bg-[#1a1d21]/95 dark:text-neutral-200 dark:border-neutral-700'
+            ]"
+          >
+            <template v-if="edgePullDirection === 'prev'">
+              <span v-if="currentWeek <= 1">已是第 1 周</span>
+              <template v-else>
+                <span>←</span>
+                <span>{{ edgePullDistance >= PULL_THRESHOLD ? `松开至第 ${currentWeek - 1} 周` : `滑至第 ${currentWeek - 1} 周` }}</span>
+              </template>
+            </template>
+            <template v-else-if="edgePullDirection === 'next'">
+              <span v-if="currentWeek >= TOTAL_WEEKS">已是最后一周</span>
+              <template v-else>
+                <span>{{ edgePullDistance >= PULL_THRESHOLD ? `松开至第 ${currentWeek + 1} 周` : `滑至第 ${currentWeek + 1} 周` }}</span>
+                <span>→</span>
+              </template>
+            </template>
+          </div>
+        </transition>
+
+        <!-- Weekday Header Row (~26px) -->
+        <div
+          class="shrink-0 h-[26px] grid gap-0.5 border-b border-neutral-100 dark:border-neutral-800/80 bg-[#FAFAFA] dark:bg-[#17191e] px-0.5 select-none"
+          :class="showWeekend ? 'grid-cols-[24px_repeat(7,1fr)]' : 'grid-cols-[28px_repeat(5,1fr)]'"
+        >
+          <div class="flex items-center justify-center font-mono text-[8px] text-neutral-400">
+            节
+          </div>
+          <div
+            v-for="(day, idx) in displayedWeekdays"
+            :key="day"
+            class="flex items-center justify-center gap-1 font-mono leading-none rounded-sm transition-colors"
+            :class="isToday(idx) ? 'bg-neutral-900 text-white dark:bg-emerald-400 dark:text-neutral-950 font-bold' : 'text-neutral-600 dark:text-neutral-400'"
+          >
+            <span class="text-[9.5px]">{{ day.replace('周', '') }}</span>
+            <span class="text-[7.5px] opacity-75">{{ getDateLabel(currentWeek, idx) }}</span>
+          </div>
+        </div>
+
+        <!-- 7 Period Rows (each takes 1fr of remaining screen height) -->
+        <div class="flex-1 min-h-0 grid grid-rows-7 gap-0.5 p-0.5">
+          <div
+            v-for="(slot, sIdx) in periodSlots"
+            :key="slot.label"
+            class="grid gap-0.5 min-h-0"
+            :class="showWeekend ? 'grid-cols-[24px_repeat(7,1fr)]' : 'grid-cols-[28px_repeat(5,1fr)]'"
+          >
+            <!-- Period Slot Label Cell -->
+            <div class="flex flex-col items-center justify-center rounded-sm bg-[#FAFAFA] dark:bg-neutral-900/60 font-mono text-neutral-400 border border-neutral-100 dark:border-neutral-800/50 leading-tight select-none">
+              <span class="text-[8.5px] font-bold text-neutral-700 dark:text-neutral-300">{{ slot.label }}</span>
+              <span class="text-[7px] text-neutral-400 scale-90">{{ formatSlotMinute(slot.from) }}</span>
+            </div>
+
+            <!-- Day Cells for this Period Slot -->
+            <div
+              v-for="d in daysCount"
+              :key="`${sIdx}-${d}`"
+              class="relative rounded border border-neutral-100 dark:border-neutral-800/40 bg-white dark:bg-[#131418] p-0.5 overflow-hidden transition-colors"
+              :class="{ 'hover:bg-neutral-50 dark:hover:bg-neutral-800/30 cursor-pointer': isCellFree(d, sIdx + 1) }"
+              @click="isCellFree(d, sIdx + 1) && openAddCustomEventModal(d, sIdx + 1)"
+            >
+              <!-- Course in this cell -->
+              <template v-for="c in placedCourses" :key="c.key">
+                <div
+                  v-if="c.day === d && blockOf(c.start) === sIdx + 1"
+                  class="w-full h-full rounded p-1 flex flex-col justify-between overflow-hidden relative cursor-pointer active:scale-[0.98] transition-transform select-none"
+                  :class="[
+                    c.isCustom ? 'border border-emerald-300 dark:border-emerald-700 shadow-xs' : 'border border-black/5 dark:border-white/5',
+                    colorfulCards || c.isCustom ? 'course-card-colorful' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white'
+                  ]"
+                  :style="getCourseCardStyle(c)"
+                  @click.stop="detail = c"
+                >
+                  <div class="min-w-0">
+                    <div class="font-medium text-[9.5px] leading-tight line-clamp-3 font-sans break-all">
+                      {{ c.name }}
+                    </div>
+                  </div>
+                  <div class="flex items-center justify-between text-[7.5px] font-mono opacity-80 mt-auto pt-0.5 truncate">
+                    <span class="truncate">{{ c.room || (c.isCustom ? '自建' : '') }}</span>
+                    <span v-if="getCourseLiveState(c).isLive" class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping shrink-0" />
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- App Mode Login / Sync placeholder if needed -->
+      <section v-else-if="showForm" class="flex-1 flex flex-col justify-center max-w-sm mx-auto p-4 font-sans">
+        <h2 class="text-base font-semibold text-neutral-900 dark:text-white mb-2">登录并同步课表</h2>
+        <form class="space-y-3 font-mono text-xs" @submit.prevent="fetchSchedule(true)">
+          <input v-model="studentId" type="text" placeholder="教务学号" class="w-full rounded border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-neutral-900 dark:text-white" />
+          <input v-model="password" type="password" placeholder="教务密码" class="w-full rounded border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-neutral-900 dark:text-white" />
+          <p v-if="error" class="text-red-500 text-xs">{{ error }}</p>
+          <button type="submit" :disabled="loading" class="w-full rounded bg-neutral-900 dark:bg-white text-white dark:text-neutral-950 py-2.5 font-bold cursor-pointer">
+            {{ loading ? '正在同步...' : '立即同步课表' }}
+          </button>
+        </form>
+      </section>
+    </template>
+
+    <!-- ==================== 网页端模式 (原有完整排版) ==================== -->
+    <template v-else>
+      <!-- Mobile Top Header (sm:hidden) -->
+      <header class="sm:hidden relative z-10 flex items-center justify-between pb-2.5 mb-2.5 border-b border-[#E5E5E5]/70 dark:border-neutral-800">
+      <div class="flex items-center gap-2">
+        <h1 class="text-base font-semibold tracking-tight text-neutral-900 dark:text-neutral-100 flex items-center gap-1.5">
+          <BrandWordmark size="xs" :animated-dot="false" />
+          <span>课表</span>
+        </h1>
+        <button
+          v-if="schedule && !showForm"
+          type="button"
+          class="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-xs font-mono font-medium text-neutral-800 dark:text-neutral-200 transition-colors cursor-pointer"
+          title="点击切换周次"
+          @click="showWeekPicker = true"
+        >
+          <span>第 {{ currentWeek }} 周</span>
+          <svg class="w-3 h-3 text-neutral-400" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+          </svg>
+        </button>
+      </div>
+
+      <div v-if="schedule && !showForm" class="flex items-center gap-1.5 font-mono text-xs">
+        <button
+          type="button"
+          class="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 font-medium border border-emerald-200 dark:border-emerald-800/80 active:scale-95 transition-all cursor-pointer"
+          title="添加安排"
+          @click="openAddCustomEventModal(selectedDay)"
+        >
+          <span class="font-bold text-xs leading-none">+</span>
+          <span>安排</span>
+        </button>
+        <button
+          type="button"
+          class="p-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-300 active:scale-95 transition-all cursor-pointer"
+          title="刷新课表"
+          :disabled="loading"
+          @click="refresh"
+        >
+          <svg class="w-4 h-4" :class="{ 'animate-spin': loading }" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/>
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="p-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-300 active:scale-95 transition-all cursor-pointer"
+          title="更多功能"
+          @click="showToolbox = true"
+        >
+          <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M6 10a2 2 0 11-4 0 2 2 0 014 0zM12 10a2 2 0 11-4 0 2 2 0 014 0zM16 12a2 2 0 100-4 2 2 0 000 4z"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Desktop Top Header (hidden sm:flex) -->
+    <header class="hidden sm:flex relative z-10 flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 border-b border-[#E5E5E5]/70 dark:border-neutral-800 pb-3 sm:pb-6 mb-3 sm:mb-8">
       <div>
         <div class="flex items-center gap-2 font-mono text-[11px] sm:text-xs text-neutral-400 uppercase tracking-widest mb-0.5 sm:mb-1.5">
           <BrandWordmark size="xs" :animated-dot="false" />
           <span class="text-neutral-300">·</span>
           <span>北林课表</span>
           <span class="text-neutral-300">·</span>
-          <span class="text-neutral-400 font-mono text-[10px] lowercase bg-neutral-100 px-1.5 py-0.5 rounded">v1.4.2</span>
+          <span class="text-neutral-400 font-mono text-[10px] lowercase bg-neutral-100 dark:bg-neutral-800 px-1.5 py-0.5 rounded">v1.4.2</span>
           <span v-if="schedule" class="text-neutral-300">·</span>
-          <span v-if="schedule" class="text-neutral-600 font-sans font-normal">{{ semesterLabel(schedule.semester) }}</span>
+          <span v-if="schedule" class="text-neutral-600 dark:text-neutral-400 font-sans font-normal">{{ semesterLabel(schedule.semester) }}</span>
         </div>
-        <h1 class="text-xl sm:text-2xl font-light tracking-tight text-neutral-900 font-sans">
+        <h1 class="text-xl sm:text-2xl font-light tracking-tight text-neutral-900 dark:text-neutral-100 font-sans">
           智能课表
         </h1>
       </div>
 
       <div class="flex items-center gap-2 sm:gap-2.5 flex-wrap">
         <!-- Week Navigation -->
-        <nav v-if="schedule && !showForm" class="flex items-center rounded border border-[#E5E5E5] bg-white font-mono text-xs shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+        <nav v-if="schedule && !showForm" class="flex items-center rounded border border-[#E5E5E5] dark:border-neutral-800 bg-white dark:bg-neutral-900 font-mono text-xs shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
           <button
-            class="px-2 sm:px-2.5 py-0.5 sm:py-1 text-neutral-600 hover:text-neutral-950 disabled:opacity-30 cursor-pointer"
+            class="px-2 sm:px-2.5 py-0.5 sm:py-1 text-neutral-600 dark:text-neutral-400 hover:text-neutral-950 dark:hover:text-white disabled:opacity-30 cursor-pointer"
             :disabled="currentWeek <= 1"
             title="上一周"
             @click="changeWeek(-1)"
@@ -1167,7 +1503,7 @@ function deleteCustomEvent(id: string) {
           </button>
           <button
             type="button"
-            class="flex items-center gap-1 px-2 sm:px-2.5 py-0.5 sm:py-1 font-medium text-neutral-900 hover:bg-neutral-50 hover:text-neutral-950 border-x border-[#E5E5E5]/80 text-[11px] sm:text-xs cursor-pointer transition-colors"
+            class="flex items-center gap-1 px-2 sm:px-2.5 py-0.5 sm:py-1 font-medium text-neutral-900 dark:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-800 border-x border-[#E5E5E5]/80 dark:border-neutral-800 text-[11px] sm:text-xs cursor-pointer transition-colors"
             title="点击快速跳转周次"
             @click="showWeekPicker = true"
           >
@@ -1177,7 +1513,7 @@ function deleteCustomEvent(id: string) {
             </svg>
           </button>
           <button
-            class="px-2 sm:px-2.5 py-0.5 sm:py-1 text-neutral-600 hover:text-neutral-950 disabled:opacity-30 cursor-pointer"
+            class="px-2 sm:px-2.5 py-0.5 sm:py-1 text-neutral-600 dark:text-neutral-400 hover:text-neutral-950 dark:hover:text-white disabled:opacity-30 cursor-pointer"
             :disabled="currentWeek >= TOTAL_WEEKS"
             title="下一周"
             @click="changeWeek(1)"
@@ -1200,7 +1536,7 @@ function deleteCustomEvent(id: string) {
           </button>
           <button
             v-if="schedule && !showForm"
-            class="rounded border border-[#E5E5E5] bg-white px-2 sm:px-2.5 py-0.5 sm:py-1 text-neutral-600 hover:text-neutral-900 hover:border-neutral-400 transition-colors cursor-pointer text-[11px] sm:text-xs font-medium"
+            class="rounded border border-[#E5E5E5] dark:border-neutral-800 bg-white dark:bg-neutral-900 px-2 sm:px-2.5 py-0.5 sm:py-1 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:border-neutral-400 transition-colors cursor-pointer text-[11px] sm:text-xs font-medium"
             :class="{ 'bg-neutral-100 text-neutral-900 border-neutral-300 font-semibold dark:bg-[#252a32] dark:text-white dark:border-[#434b57]': currentWeek === systemWeek() }"
             title="快速跳转到当天"
             @click="goToToday"
@@ -1209,7 +1545,7 @@ function deleteCustomEvent(id: string) {
           </button>
           <button
             v-if="schedule && !showForm"
-            class="rounded border border-[#E5E5E5] bg-white px-2 sm:px-2.5 py-0.5 sm:py-1 text-neutral-600 hover:text-neutral-900 hover:border-neutral-400 disabled:opacity-50 transition-colors cursor-pointer text-[11px] sm:text-xs"
+            class="rounded border border-[#E5E5E5] dark:border-neutral-800 bg-white dark:bg-neutral-900 px-2 sm:px-2.5 py-0.5 sm:py-1 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:border-neutral-400 disabled:opacity-50 transition-colors cursor-pointer text-[11px] sm:text-xs"
             title="刷新最新课表"
             :disabled="loading"
             @click="refresh"
@@ -1218,7 +1554,7 @@ function deleteCustomEvent(id: string) {
           </button>
           <button
             v-if="schedule && !showForm"
-            class="rounded border border-[#E5E5E5] bg-white px-2.5 sm:px-3 py-0.5 sm:py-1 text-neutral-700 hover:text-neutral-950 hover:border-neutral-400 transition-colors cursor-pointer text-[11px] sm:text-xs font-medium flex items-center gap-1"
+            class="rounded border border-[#E5E5E5] dark:border-neutral-800 bg-white dark:bg-neutral-900 px-2.5 sm:px-3 py-0.5 sm:py-1 text-neutral-700 dark:text-neutral-300 hover:text-neutral-950 dark:hover:text-white hover:border-neutral-400 transition-colors cursor-pointer text-[11px] sm:text-xs font-medium flex items-center gap-1"
             title="工具箱与更多功能"
             @click="showToolbox = true"
           >
@@ -1322,14 +1658,17 @@ function deleteCustomEvent(id: string) {
     <template v-else-if="schedule">
       
       <!-- Today's Status Banner -->
-      <div class="mb-3 sm:mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 rounded border border-[#E5E5E5] bg-white px-2.5 py-1.5 sm:p-3 font-mono text-[11px] sm:text-xs shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+      <div
+        class="mb-3 sm:mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 rounded border border-[#E5E5E5] dark:border-neutral-800 bg-white dark:bg-neutral-900 px-2.5 py-1.5 sm:p-3 font-mono text-[11px] sm:text-xs shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
+        :class="{ 'hidden sm:flex': mobileViewMode === 'agenda' }"
+      >
         <div class="flex items-center gap-2 sm:gap-2.5">
           <span class="h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full bg-neutral-900 dark:bg-emerald-400 shrink-0 shadow-xs" />
-          <span class="font-medium text-neutral-900 shrink-0">{{ todayState.label }}:</span>
-          <span v-if="todayState.course" class="text-neutral-700 font-sans font-medium truncate">
+          <span class="font-medium text-neutral-900 dark:text-neutral-100 shrink-0">{{ todayState.label }}:</span>
+          <span v-if="todayState.course" class="text-neutral-700 dark:text-neutral-300 font-sans font-medium truncate">
             {{ todayState.course.name }} ({{ todayState.course.room }})
           </span>
-          <span v-else class="text-neutral-400 font-sans">
+          <span v-else class="text-neutral-400 dark:text-neutral-500 font-sans">
             今日暂无安排课程
           </span>
         </div>
@@ -1351,8 +1690,153 @@ function deleteCustomEvent(id: string) {
         </div>
       </div>
 
+      <!-- 移动端视图切换与日选择器 (仅在手机端显示) -->
+      <div class="sm:hidden mb-3 space-y-2.5">
+        <!-- 顶部视图切换药丸 (日视图 vs 周视图) -->
+        <div class="flex items-center justify-between">
+          <div class="inline-flex p-0.5 rounded-lg bg-neutral-100 dark:bg-neutral-800 text-xs font-medium">
+            <button
+              type="button"
+              class="px-3 py-1 rounded-md transition-all cursor-pointer"
+              :class="mobileViewMode === 'agenda' ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white shadow-xs font-semibold' : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-900'"
+              @click="setMobileViewMode('agenda')"
+            >
+              📅 今日日程
+            </button>
+            <button
+              type="button"
+              class="px-3 py-1 rounded-md transition-all cursor-pointer"
+              :class="mobileViewMode === 'week' ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white shadow-xs font-semibold' : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-900'"
+              @click="setMobileViewMode('week')"
+            >
+              🗓️ 整周课表
+            </button>
+          </div>
+
+          <!-- 快速定位今天 -->
+          <button
+            v-if="currentWeek !== systemWeek() || selectedDay !== nowDay"
+            type="button"
+            class="text-xs font-mono text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 rounded-full px-2.5 py-0.5 cursor-pointer"
+            @click="goToToday(); selectedDay = nowDay"
+          >
+            回今天
+          </button>
+        </div>
+
+        <!-- 7 天水平滑动日期选择条 (仅在日程流模式下展示) -->
+        <div v-if="mobileViewMode === 'agenda'" class="grid grid-cols-7 gap-1 bg-white dark:bg-[#131418] border border-[#E5E5E5] dark:border-neutral-800 rounded-xl p-1.5 shadow-xs">
+          <button
+            v-for="(day, idx) in displayedWeekdays"
+            :key="day"
+            type="button"
+            class="flex flex-col items-center justify-center py-1.5 rounded-lg transition-all cursor-pointer relative"
+            :class="[
+              selectedDay === idx + 1
+                ? 'bg-neutral-900 text-white dark:bg-emerald-400 dark:text-neutral-950 shadow-xs font-bold'
+                : isToday(idx)
+                  ? 'bg-neutral-100 text-neutral-900 dark:bg-neutral-800/80 dark:text-neutral-100 font-semibold'
+                  : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800/50'
+            ]"
+            @click="selectDay(idx + 1)"
+          >
+            <span class="text-[11px] leading-tight">{{ day.replace('周', '') }}</span>
+            <span class="text-[9px] mt-0.5 font-mono scale-95 opacity-80">{{ getDateLabel(currentWeek, idx) }}</span>
+            <span
+              v-if="dayHasCourses(idx + 1)"
+              class="w-1 h-1 rounded-full mt-0.5 transition-colors"
+              :class="selectedDay === idx + 1 ? 'bg-emerald-400 dark:bg-neutral-950' : 'bg-emerald-500/70 dark:bg-emerald-400/80'"
+            />
+          </button>
+        </div>
+      </div>
+
+      <!-- 移动端今日日程流 (极简卡片流) -->
+      <div
+        v-if="mobileViewMode === 'agenda'"
+        class="sm:hidden space-y-3 min-h-[300px]"
+        @touchstart.passive="onAgendaTouchStart"
+        @touchend="onAgendaTouchEnd"
+      >
+        <template v-if="selectedDayCourses.length > 0">
+          <div
+            v-for="c in selectedDayCourses"
+            :key="c.id || `${c.day}-${c.start}-${c.name}`"
+            class="relative rounded-2xl border border-neutral-200/90 dark:border-neutral-800/90 bg-white dark:bg-[#131418] p-4 shadow-xs transition-all active:scale-[0.99] cursor-pointer"
+            :style="getCourseCardStyle(c)"
+            @click="detail = c"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center gap-1.5 font-mono text-xs text-neutral-500 dark:text-neutral-400">
+                <span class="font-semibold text-neutral-800 dark:text-neutral-200">
+                  {{ slotTimeOf(c.start) }}
+                </span>
+                <span class="text-[10px] px-1.5 py-0.2 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300">
+                  {{ periodSlots[blockOf(c.start) - 1]?.label }} 节
+                </span>
+              </div>
+
+              <span
+                v-if="getCourseLiveState(c).isLive"
+                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-sans font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+              >
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                正在上课
+              </span>
+              <span
+                v-else-if="getCourseLiveState(c).label"
+                class="px-2 py-0.5 rounded-full text-[10px] font-mono text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20"
+              >
+                {{ getCourseLiveState(c).label }}
+              </span>
+            </div>
+
+            <div class="text-base font-semibold text-neutral-900 dark:text-neutral-50 mb-2 leading-snug">
+              {{ c.name }}
+            </div>
+
+            <div class="flex items-center gap-2 flex-wrap text-xs text-neutral-600 dark:text-neutral-400">
+              <span class="inline-flex items-center gap-1 px-2 py-0.8 rounded-lg bg-neutral-100 dark:bg-neutral-800/80 font-mono text-neutral-700 dark:text-neutral-300">
+                📍 {{ c.room || (c.isCustom ? '无地点' : '待定教室') }}
+              </span>
+              <span v-if="c.teacher" class="inline-flex items-center gap-1 px-2 py-0.8 rounded-lg bg-neutral-100 dark:bg-neutral-800/80 text-neutral-600 dark:text-neutral-300">
+                👤 {{ c.teacher }}
+              </span>
+              <span class="text-[11px] font-mono text-neutral-400 dark:text-neutral-500 ml-auto">
+                {{ weekCount(c.weeks) }}
+              </span>
+            </div>
+          </div>
+        </template>
+
+        <div
+          v-else
+          class="rounded-2xl border border-dashed border-neutral-200 dark:border-neutral-800 bg-neutral-50/50 dark:bg-[#131418]/50 p-8 text-center"
+        >
+          <div class="text-3xl mb-2">☕</div>
+          <div class="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+            {{ isToday(selectedDay - 1) ? '今天没有课程安排' : '该日没有排课' }}
+          </div>
+          <div class="text-xs text-neutral-400 dark:text-neutral-500 mb-4">
+            自由安排自习或放松休息
+          </div>
+          <button
+            type="button"
+            class="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-full text-xs font-medium bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 hover:opacity-90 cursor-pointer shadow-xs"
+            @click="openAddCustomEventModal(selectedDay, 1)"
+          >
+            <span>+</span>
+            <span>添加个人日程</span>
+          </button>
+        </div>
+
+        <div class="text-center pt-2 pb-1 text-[11px] text-neutral-400 dark:text-neutral-600 font-mono">
+          ← 左右滑动切换前后日期 →
+        </div>
+      </div>
+
       <!-- Timetable Grid with Edge Swipe Support -->
-      <div class="relative">
+      <div class="relative" :class="{ 'hidden sm:block': mobileViewMode === 'agenda' }">
         <!-- Floating edge swipe week switcher indicator -->
         <transition
           enter-active-class="transition duration-150 ease-out"
@@ -1523,6 +2007,7 @@ function deleteCustomEvent(id: string) {
       <div class="inline-block h-5 w-5 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-900 mb-3" />
       <p class="font-sans text-neutral-600 text-sm">正在同步最新课表...</p>
     </div>
+    </template>
 
     <!-- Course Detail Modal -->
     <div

@@ -8,7 +8,7 @@ object AppConfig {
      * 前台 WebView 打开的课程表网址
      * 支持全屏独立浏览、Cookie 与 LocalStorage 登录持久化
      */
-    const val WEBVIEW_URL = "https://snhgn.me/schedule"
+    const val WEBVIEW_URL = "https://snhgn.me/schedule?app=1"
 
     /**
      * 后端课程同步 API 地址 (GET)

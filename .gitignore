@@ -61,6 +61,7 @@ eval_cuts/
 # 调试图片
 debug_*.png
 contact_sheet*.png
+current_device_screen*.png
 
 # ===== Docker 持久化卷 =====
 **/wheels/

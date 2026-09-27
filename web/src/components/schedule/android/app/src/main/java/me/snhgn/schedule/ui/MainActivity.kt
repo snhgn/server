@@ -18,6 +18,7 @@ import android.widget.Button
 import android.widget.ProgressBar
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -72,6 +73,14 @@ class MainActivity : AppCompatActivity() {
         controller.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         controller.isAppearanceLightStatusBars = false
+
+        val rootView = findViewById<View>(R.id.root_layout)
+        ViewCompat.setOnApplyWindowInsetsListener(rootView) { view, insets ->
+            val statusBars = insets.getInsets(WindowInsetsCompat.Type.statusBars())
+            val navBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+            view.setPadding(0, statusBars.top, 0, navBars.bottom)
+            insets
+        }
     }
 
     private fun initViews() {
@@ -79,6 +88,10 @@ class MainActivity : AppCompatActivity() {
         progressBar = findViewById(R.id.progress_bar)
         layoutError = findViewById(R.id.layout_error)
         btnRetry = findViewById(R.id.btn_retry)
+
+        findViewById<View>(R.id.btn_open_settings).setOnClickListener {
+            startActivity(Intent(this, PermissionGuideActivity::class.java))
+        }
 
         btnRetry.setOnClickListener {
             layoutError.visibility = View.GONE
@@ -104,11 +117,14 @@ class MainActivity : AppCompatActivity() {
     private fun setupWebView() {
         val wv = webView ?: return
         val settings = wv.settings
+        wv.clearCache(true)
+        WebView.setWebContentsDebuggingEnabled(true)
+
         settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true    // 支持 LocalStorage
             databaseEnabled = true      // 支持 Web SQL / IndexDB
-            cacheMode = WebSettings.LOAD_DEFAULT // 不强制清除 Cache，维持网站正常速度与缓存
+            cacheMode = WebSettings.LOAD_NO_CACHE // 始终拉取最新版本，防止 ServiceWorker/DiskCache 锁死旧代码
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             useWideViewPort = true
             loadWithOverviewMode = true
@@ -123,6 +139,13 @@ class MainActivity : AppCompatActivity() {
         cookieManager.setAcceptCookie(true)
         cookieManager.setAcceptThirdPartyCookies(wv, true)
 
+        wv.addJavascriptInterface(object {
+            @android.webkit.JavascriptInterface
+            fun openSettings() {
+                startActivity(Intent(this@MainActivity, PermissionGuideActivity::class.java))
+            }
+        }, "AndroidBridge")
+
         wv.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
@@ -132,8 +155,18 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 progressBar.visibility = View.GONE
-                // 页面加载完成后持久化刷入 Cookie，防止闪退或划掉时丢失登录 Session
                 CookieManager.getInstance().flush()
+
+                // 清理旧缓存并更新 ServiceWorker
+                view?.evaluateJavascript("""
+                    (function() {
+                        if ('serviceWorker' in navigator) {
+                            navigator.serviceWorker.getRegistrations().then(function(regs) {
+                                for (let reg of regs) { reg.update(); }
+                            });
+                        }
+                    })();
+                """.trimIndent(), null)
             }
 
             override fun onReceivedError(
