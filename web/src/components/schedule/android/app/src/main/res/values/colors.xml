@@ -1,15 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- snhgn 设计系统配色 (深邃极简、单色自洽) -->
-    <color name="bg_root">#0E1012</color>
-    <color name="bg_surface">#18181B</color>
-    <color name="bg_surface_elevated">#27272A</color>
-    <color name="border_subtle">#333F3F46</color>
-    <color name="text_primary">#FAFAFA</color>
-    <color name="text_secondary">#A1A1AA</color>
-    <color name="text_muted">#71717A</color>
+    <color name="bg_root">#0A0B0D</color>
+    <color name="bg_surface">#131418</color>
+    <color name="bg_surface_pressed">#1C1E24</color>
+    <color name="border_subtle">#1F2128</color>
+    <color name="border_highlight">#2D313B</color>
+
+    <color name="text_primary">#F4F4F6</color>
+    <color name="text_secondary">#9CA3AF</color>
+    <color name="text_muted">#6B7280</color>
+
+    <!-- 功能强调色 -->
     <color name="accent_green">#4ADE80</color>
+    <color name="accent_green_bg">#184ADE80</color>
     <color name="accent_amber">#FBBF24</color>
+    <color name="accent_amber_bg">#18FBBF24</color>
     <color name="accent_red">#F87171</color>
-    <color name="capsule_bg">#E618181B</color>
+    <color name="accent_red_bg">#18F87171</color>
+    <color name="accent_blue">#38BDF8</color>
+    <color name="accent_blue_bg">#1838BDF8</color>
+
+    <!-- 控件与胶囊背景 -->
+    <color name="capsule_bg">#EB111215</color>
+    <color name="icon_container_bg">#1A1C22</color>
+    <color name="badge_neutral_bg">#181B22</color>
 </resources>
