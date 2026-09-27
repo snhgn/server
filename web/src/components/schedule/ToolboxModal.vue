@@ -81,6 +81,16 @@ type ActiveTool =
 
 const activeTool = ref<ActiveTool>('none')
 
+const hasAndroidBridge = computed(() => {
+  return typeof window !== 'undefined' && typeof (window as any).AndroidBridge?.openSettings === 'function'
+})
+
+function openAndroidSettings() {
+  if (typeof window !== 'undefined' && (window as any).AndroidBridge?.openSettings) {
+    (window as any).AndroidBridge.openSettings()
+  }
+}
+
 // ================= 凭据解析与弹窗内即时输入支持 =================
 const inputPassword = ref('')
 const tempPasswordInput = ref('')
@@ -1437,6 +1447,20 @@ async function saveMonitor() {
               </svg>
               <span class="font-medium text-neutral-800">出分监控</span>
               <span class="text-[10px] text-neutral-400 mt-0.5">新成绩提醒</span>
+            </button>
+
+            <!-- 系统权限与流体云 (App 专属) -->
+            <button
+              v-if="hasAndroidBridge"
+              class="flex flex-col items-center justify-center p-3 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-emerald-50/60 dark:bg-emerald-950/30 hover:bg-emerald-100 hover:border-emerald-500 transition-all text-center cursor-pointer group"
+              @click="openAndroidSettings"
+            >
+              <svg class="w-5 h-5 text-emerald-600 dark:text-emerald-400 mb-1.5 group-hover:scale-105 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              <span class="font-medium text-emerald-800 dark:text-emerald-300">流体云/权限</span>
+              <span class="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 mt-0.5">灵动胶囊与后台</span>
             </button>
           </div>
         </div>
