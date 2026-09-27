@@ -34,7 +34,7 @@ import me.snhgn.schedule.reminder.ScheduleSyncManager
  */
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var webView: WebView
+    private var webView: WebView? = null
     private lateinit var progressBar: ProgressBar
     private lateinit var layoutError: View
     private lateinit var btnRetry: Button
@@ -63,7 +63,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // 加载课程网站
-        webView.loadUrl(AppConfig.WEBVIEW_URL)
+        webView?.loadUrl(AppConfig.WEBVIEW_URL)
     }
 
     private fun setupImmersiveWindow() {
@@ -82,15 +82,16 @@ class MainActivity : AppCompatActivity() {
 
         btnRetry.setOnClickListener {
             layoutError.visibility = View.GONE
-            webView.visibility = View.VISIBLE
-            webView.reload()
+            webView?.visibility = View.VISIBLE
+            webView?.reload()
         }
 
         // 适配 Android 13+ 返回键逻辑：网页内部跳转支持返回上一页
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (webView.canGoBack()) {
-                    webView.goBack()
+                val wv = webView
+                if (wv != null && wv.canGoBack()) {
+                    wv.goBack()
                 } else {
                     isEnabled = false
                     onBackPressedDispatcher.onBackPressed()
@@ -101,7 +102,8 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
-        val settings = webView.settings
+        val wv = webView ?: return
+        val settings = wv.settings
         settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true    // 支持 LocalStorage
@@ -119,9 +121,9 @@ class MainActivity : AppCompatActivity() {
         // 维持 Cookie 与登录状态
         val cookieManager = CookieManager.getInstance()
         cookieManager.setAcceptCookie(true)
-        cookieManager.setAcceptThirdPartyCookies(webView, true)
+        cookieManager.setAcceptThirdPartyCookies(wv, true)
 
-        webView.webViewClient = object : WebViewClient() {
+        wv.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
                 progressBar.visibility = View.VISIBLE
@@ -143,7 +145,7 @@ class MainActivity : AppCompatActivity() {
                 // 仅针对主页面加载失败显示错误提示
                 if (request?.isForMainFrame == true) {
                     progressBar.visibility = View.GONE
-                    webView.visibility = View.GONE
+                    webView?.visibility = View.GONE
                     layoutError.visibility = View.VISIBLE
                 }
             }
@@ -159,7 +161,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        webView.webChromeClient = object : WebChromeClient() {
+        wv.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                 if (newProgress in 1..99) {
                     progressBar.visibility = View.VISIBLE
@@ -173,17 +175,18 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        webView.onResume()
+        webView?.onResume()
     }
 
     override fun onPause() {
         super.onPause()
-        webView.onPause()
+        webView?.onPause()
         CookieManager.getInstance().flush()
     }
 
     override fun onDestroy() {
-        webView.destroy()
+        webView?.destroy()
+        webView = null
         super.onDestroy()
     }
 }
