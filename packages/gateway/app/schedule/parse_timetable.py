@@ -26,7 +26,11 @@ def strip_tags(s):
 PERIOD_SEQ = ["第1-2节", "第3-4节", "第5节", "第6-7节",
               "第8-9节", "第10-11节", "第12节"]
 PERIOD_RANK = {v: i for i, v in enumerate(PERIOD_SEQ)}
-PERIOD_RANK["第10-12节"] = PERIOD_RANK["第10-11节"]
+PERIOD_RANK["第1-4节"] = 0
+PERIOD_RANK["第1-5节"] = 0
+PERIOD_RANK["第3-5节"] = 1
+PERIOD_RANK["第6-9节"] = 3
+PERIOD_RANK["第10-12节"] = 5
 
 
 def extract_selects(html):
@@ -128,37 +132,118 @@ def parse_grid(html):
     return course_rows
 
 
-def merge_adjacent(course_rows):
-    """合并 "第10-11节" 与 "第12节" 完全相同的课程（同一门课 10-12 节连排）。
+def _same_course(c1, c2):
+    if c1.get("name", "").strip() != c2.get("name", "").strip():
+        return False
+    t1 = c1.get("teacher", "").strip()
+    t2 = c2.get("teacher", "").strip()
+    if t1 and t2 and t1 != t2:
+        return False
+    w1 = c1.get("weeks", "").strip()
+    w2 = c2.get("weeks", "").strip()
+    if w1 != w2:
+        return False
+    r1 = c1.get("room", "").strip()
+    r2 = c2.get("room", "").strip()
+    if r1 and r2 and r1 != r2:
+        return False
+    return True
 
-    强智把 10-12 节拆成 "1011节" 与 "12节" 两行渲染，两行内容相同，
-    合并后显示为 "第10-12节"，避免重复。按天配对，兼容每格多门课。
+
+def merge_adjacent(course_rows):
+    """合并连续节次的相同课程：
+    - 晚间 10-11节 + 12节 -> 第10-12节 (3节连排)
+    - 下午 6-7节 + 8-9节 -> 第6-9节 (4节大课/实验)
+    - 上午 1-2节 + 3-4节 -> 第1-4节 (4节大课/实验)
+    - 上午 1-4节 + 5节 -> 第1-5节 (5节大课)
+    - 上午 3-4节 + 5节 -> 第3-5节 (3节连排高数/思政/英语/大物)
     """
     by_day = {}
     for c in course_rows:
-        by_day.setdefault(c["day"], []).append(c)
+        by_day.setdefault(c["day"], []).append(dict(c))
     merged = []
     for day in sorted(by_day):
         rows = sorted(by_day[day],
                       key=lambda c: PERIOD_RANK.get(c["period"], 99))
-        tail = [c for c in rows if c["period"] == "第12节"]
-        taken = [False] * len(tail)
+
+        # 1. 晚间合并: 10-11节 + 12节 -> 10-12节
+        tail12 = [c for c in rows if c.get("period") == "第12节"]
+        taken12 = [False] * len(tail12)
         for c in rows:
-            if c["period"] != "第10-11节":
-                continue
-            key = (c["name"], c["teacher"], c["weeks"], c["room"])
-            for i, t in enumerate(tail):
-                if (not taken[i]
-                        and (t["name"], t["teacher"], t["weeks"], t["room"]) == key):
-                    c["period"] = "第10-12节"
-                    taken[i] = True
-                    break
+            if c.get("period") == "第10-11节":
+                for i, t in enumerate(tail12):
+                    if not taken12[i] and _same_course(c, t):
+                        c["period"] = "第10-12节"
+                        c["room"] = c.get("room") or t.get("room") or ""
+                        c["teacher"] = c.get("teacher") or t.get("teacher") or ""
+                        taken12[i] = True
+                        break
+        rows = [c for c in rows if c.get("period") != "第12节"]
+        for i, t in enumerate(tail12):
+            if not taken12[i]:
+                rows.append(t)
+
+        # 2. 下午合并: 6-7节 + 8-9节 -> 6-9节 (4节连排大课)
+        tail89 = [c for c in rows if c.get("period") == "第8-9节"]
+        taken89 = [False] * len(tail89)
         for c in rows:
-            if c["period"] != "第12节":
-                merged.append(c)
-        for i, t in enumerate(tail):
-            if not taken[i]:
-                merged.append(t)
+            if c.get("period") == "第6-7节":
+                for i, t in enumerate(tail89):
+                    if not taken89[i] and _same_course(c, t):
+                        c["period"] = "第6-9节"
+                        c["room"] = c.get("room") or t.get("room") or ""
+                        c["teacher"] = c.get("teacher") or t.get("teacher") or ""
+                        taken89[i] = True
+                        break
+        rows = [c for c in rows if c.get("period") != "第8-9节"]
+        for i, t in enumerate(tail89):
+            if not taken89[i]:
+                rows.append(t)
+
+        # 3. 上午合并: 1-2节 + 3-4节 -> 1-4节
+        tail34 = [c for c in rows if c.get("period") == "第3-4节"]
+        taken34 = [False] * len(tail34)
+        for c in rows:
+            if c.get("period") == "第1-2节":
+                for i, t in enumerate(tail34):
+                    if not taken34[i] and _same_course(c, t):
+                        c["period"] = "第1-4节"
+                        c["room"] = c.get("room") or t.get("room") or ""
+                        c["teacher"] = c.get("teacher") or t.get("teacher") or ""
+                        taken34[i] = True
+                        break
+        rows = [c for c in rows if c.get("period") != "第3-4节"]
+        for i, t in enumerate(tail34):
+            if not taken34[i]:
+                rows.append(t)
+
+        # 4. 上午第5节合并: 1-4 + 5 -> 1-5; 3-4 + 5 -> 3-5
+        tail5 = [c for c in rows if c.get("period") == "第5节"]
+        taken5 = [False] * len(tail5)
+        for c in rows:
+            if c.get("period") == "第1-4节":
+                for i, t in enumerate(tail5):
+                    if not taken5[i] and _same_course(c, t):
+                        c["period"] = "第1-5节"
+                        c["room"] = c.get("room") or t.get("room") or ""
+                        c["teacher"] = c.get("teacher") or t.get("teacher") or ""
+                        taken5[i] = True
+                        break
+        for c in rows:
+            if c.get("period") == "第3-4节":
+                for i, t in enumerate(tail5):
+                    if not taken5[i] and _same_course(c, t):
+                        c["period"] = "第3-5节"
+                        c["room"] = c.get("room") or t.get("room") or ""
+                        c["teacher"] = c.get("teacher") or t.get("teacher") or ""
+                        taken5[i] = True
+                        break
+        rows = [c for c in rows if c.get("period") != "第5节"]
+        for i, t in enumerate(tail5):
+            if not taken5[i]:
+                rows.append(t)
+
+        merged.extend(rows)
     return merged
 
 
