@@ -32,3 +32,6 @@ dist-ssr
 **/build/
 *.apk
 *.aab
+local.properties
+**/.cxx/
+**/.idea/
