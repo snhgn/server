@@ -1,24 +1,27 @@
-# snhgn· server
+# snhgn · server (Full-stack Monorepo)
 
-snhgn.me 的后端服务与部署仓库（gateway / ai-service / scheduler / Caddy / cloudflared）。
+snhgn.me 全栈项目仓库（前端 Vue 3 SPA + 后端服务 gateway / ai-service / scheduler + Caddy 部署）。
 
-## 仓库定位
+## 仓库结构
 
-本仓库包含：
-
+- `web/`：**网站前端工程源码**（Vue 3 + Vite + TypeScript + Tailwind CSS，含课表系统、AI助手、后台控制台等）
 - `packages/`：核心后端服务（ai-service、gateway、scheduler、schedule-pipeline、ai-notice-monitor 等）
 - `deploy/`：Caddy、Cloudflare Tunnel 等部署编排
-- `index.html`：**个人首页落地页设计稿（静态单文件）**，当前线上前端实际部署的是 Vue3 SPA
-- `server-info.md`：服务器信息、部署流程与开发记录（含登录凭据，勿公开）
-- `robots.txt` / `sitemap.xml`：SEO 文件
+- `packages/website-deploy/`：生产环境部署脚本（`deploy-website.ps1`）与静态分发产物
+- `server-info.md`：服务器信息、部署流程与开发记录（含运维凭据，勿公开）
+- `robots.txt` / `sitemap.xml`：SEO 规范文件
 
-## 与前端仓库的关系
+## 快速开发与部署
 
-| 仓库 | 说明 |
-|------|------|
-| 本仓库（d:\project\server） | 后端服务源码 + 部署配置；`index.html` + `styles.css` 为线上**落地页**（部署为服务器上的 `landing.html`） |
-| d:\project\snhgn.me | Vue3 + Vite + TS + Tailwind 前端，2026-08-25 已部署至 `/opt/website/web/` |
+1. **前端构建**：
+   ```bash
+   cd web
+   npm run build
+   ```
+2. **生产部署**：
+   ```powershell
+   # 将 web/dist 静态资源同步至生产服务器并重载 Caddy
+   powershell -File packages/website-deploy/deploy-website.ps1
+   ```
 
-路由分配：`/` 返回静态落地页，其余路径（/login /ai /schedule 等）由 Vue SPA 承接，详见 `server-info.md` 第十五节。
-
-详细部署流程见 `server-info.md` 第八节。
+详细系统架构与路由分配见 `server-info.md`。
