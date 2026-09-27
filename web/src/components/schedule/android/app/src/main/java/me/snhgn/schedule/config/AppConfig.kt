@@ -5,16 +5,27 @@ package me.snhgn.schedule.config
  */
 object AppConfig {
     /**
-     * 前台 WebView 打开的课程表网址
-     * 支持全屏独立浏览、Cookie 与 LocalStorage 登录持久化
+     * 前台 WebView 打开的课程表网址与候选故障转移端点
+     * 1. 优先尝试校园网直连 (lan.snhgn.me)，内网极速，即使首次未完成校园网外网认证也可直接访问
+     * 2. 兜底回退公网 Cloudflare 隧道 (snhgn.me)
      */
-    const val WEBVIEW_URL = "https://snhgn.me/schedule?app=1"
+    val CANDIDATE_URLS = listOf(
+        "https://lan.snhgn.me/schedule?app=1",
+        "https://snhgn.me/schedule?app=1"
+    )
+
+    const val WEBVIEW_URL = "https://lan.snhgn.me/schedule?app=1"
 
     /**
-     * 后端课程同步 API 地址 (GET)
+     * 后端课程同步 API 地址 (GET) 候选列表
      * 返回标准 JSON 数组: [{"id": 1, "courseName": "高等数学", "classRoom": "教2-301", "startTime": "...", "endTime": "..."}]
      */
-    const val COURSE_API_URL = "https://snhgn.me/api/course/list"
+    val API_CANDIDATE_URLS = listOf(
+        "https://lan.snhgn.me/api/course/list",
+        "https://snhgn.me/api/course/list"
+    )
+
+    const val COURSE_API_URL = "https://lan.snhgn.me/api/course/list"
 
     /**
      * 课前提醒提前量 (分钟)

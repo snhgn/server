@@ -1,1 +1,33 @@
-if(!self.define){let s,e={};const i=(i,l)=>(i=new URL(i+".js",l).href,e[i]||new Promise(e=>{if("document"in self){const s=document.createElement("script");s.src=i,s.onload=e,document.head.appendChild(s)}else s=i,importScripts(i),e()}).then(()=>{let s=e[i];if(!s)throw new Error(`Module ${i} didn’t register its module`);return s}));self.define=(l,r)=>{const n=s||("document"in self?document.currentScript.src:"")||location.href;if(e[n])return;let u={};const o=s=>i(s,n),a={module:{uri:n},exports:u,require:o};e[n]=Promise.all(l.map(s=>a[s]||o(s))).then(s=>(r(...s),u))}}define(["./workbox-8b395e9b"],function(s){"use strict";s.setCacheNameDetails({prefix:"snhgn-v1-4-2"}),self.skipWaiting(),s.clientsClaim(),s.precacheAndRoute([{url:"landing.html",revision:"8dc962f96c7b5f2b4fadd43ccd950e33"},{url:"index.html",revision:"c51ea484ee841fb63f215e8a11175732"},{url:"favicon.svg",revision:"e589be562429799866be6ceb10d4418e"},{url:"assets/workbox-window.prod.es5-Bd17z0YL.js",revision:null},{url:"assets/SettingsView-0kvhYoUy.js",revision:null},{url:"assets/ServerView-BnxroE8f.js",revision:null},{url:"assets/ScriptsView-Bw3QGOEb.js",revision:null},{url:"assets/ScriptStatus-CnBbDfHN.js",revision:null},{url:"assets/ScheduleView-Cqk647C8.js",revision:null},{url:"assets/runtime-core.esm-bundler-Bm-FRE6_.js",revision:null},{url:"assets/ProjectsView-ouLE1Gfk.js",revision:null},{url:"assets/projects-XbvwBbam.js",revision:null},{url:"assets/LoginView-ComXGDrC.js",revision:null},{url:"assets/KnowledgeView-BRtWUkxT.js",revision:null},{url:"assets/KaTeX_Typewriter-Regular-CO6r4hn1.woff2",revision:null},{url:"assets/KaTeX_Size4-Regular-Dl5lxZxV.woff2",revision:null},{url:"assets/KaTeX_Size2-Regular-Dy4dx90m.woff2",revision:null},{url:"assets/KaTeX_Size1-Regular-mCD8mA8B.woff2",revision:null},{url:"assets/KaTeX_Script-Regular-D3wIWfF6.woff2",revision:null},{url:"assets/KaTeX_SansSerif-Regular-DDBCnlJ7.woff2",revision:null},{url:"assets/KaTeX_SansSerif-Italic-C3H0VqGB.woff2",revision:null},{url:"assets/KaTeX_SansSerif-Bold-D1sUS0GD.woff2",revision:null},{url:"assets/KaTeX_Math-Italic-t53AETM-.woff2",revision:null},{url:"assets/KaTeX_Math-BoldItalic-CZnvNsCZ.woff2",revision:null},{url:"assets/KaTeX_Main-Regular-B22Nviop.woff2",revision:null},{url:"assets/KaTeX_Main-Italic-NWA7e6Wa.woff2",revision:null},{url:"assets/KaTeX_Main-BoldItalic-DxDJ3AOS.woff2",revision:null},{url:"assets/KaTeX_Main-Bold-Cx986IdX.woff2",revision:null},{url:"assets/KaTeX_Fraktur-Regular-CTYiF6lA.woff2",revision:null},{url:"assets/KaTeX_Fraktur-Bold-CL6g_b3V.woff2",revision:null},{url:"assets/KaTeX_Caligraphic-Regular-Di6jR-x-.woff2",revision:null},{url:"assets/KaTeX_Caligraphic-Bold-Dq_IR9rO.woff2",revision:null},{url:"assets/KaTeX_AMS-Regular-BQhdFMY1.woff2",revision:null},{url:"assets/index-SCW0thyn.css",revision:null},{url:"assets/index-mj3T-OwZ.js",revision:null},{url:"assets/HomeView-D2lYhjiy.js",revision:null},{url:"assets/DashboardView-C2RtnFA2.js",revision:null},{url:"assets/api-CchpZki0.js",revision:null},{url:"assets/AiView-OnnywmZw.css",revision:null},{url:"assets/AiView-DFoo3daE.js",revision:null},{url:"assets/AdminScriptsView-DEFdnX73.js",revision:null},{url:"assets/AboutView-DGrYdqyB.js",revision:null},{url:"favicon.svg",revision:"e589be562429799866be6ceb10d4418e"},{url:"manifest.webmanifest",revision:"8e6e201b67eb40533b90042c5e1e5221"}],{}),s.cleanupOutdatedCaches(),s.registerRoute(new s.NavigationRoute(s.createHandlerBoundToURL("index.html"))),s.registerRoute(({request:s})=>"style"===s.destination||"script"===s.destination||"worker"===s.destination||"image"===s.destination,new s.StaleWhileRevalidate({cacheName:"static-assets-cache",plugins:[new s.ExpirationPlugin({maxEntries:100,maxAgeSeconds:2592e3})]}),"GET")});
+// Self-destructing Service Worker to eliminate old PWA caches and unregister
+self.addEventListener('install', (event) => {
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    (async () => {
+      // 1. Unregister this service worker
+      try {
+        await self.registration.unregister();
+      } catch (e) {}
+
+      // 2. Clear all cache storages
+      if (typeof caches !== 'undefined') {
+        try {
+          const keys = await caches.keys();
+          await Promise.all(keys.map((k) => caches.delete(k)));
+        } catch (e) {}
+      }
+
+      // 3. Force reload all active window clients so they fetch fresh files
+      try {
+        const clients = await self.clients.matchAll({ type: 'window' });
+        for (const client of clients) {
+          if (client.url && 'navigate' in client) {
+            client.navigate(client.url);
+          }
+        }
+      } catch (e) {}
+    })()
+  );
+});

@@ -20,53 +20,41 @@ object ApiClient {
     private const val READ_TIMEOUT_MS = 6000
 
     /**
-     * 异步拉取后端最新课程列表
+     * 异步拉取后端最新课程列表（自动按优先级在候选端点间故障转移）
      */
-    suspend fun fetchCourses(apiUrl: String = AppConfig.COURSE_API_URL): Result<List<Course>> =
+    suspend fun fetchCourses(apiUrls: List<String> = AppConfig.API_CANDIDATE_URLS): Result<List<Course>> =
         withContext(Dispatchers.IO) {
-            var connection: HttpURLConnection? = null
-            try {
-                val url = URL(apiUrl)
-                connection = (url.openConnection() as HttpURLConnection).apply {
-                    requestMethod = "GET"
-                    connectTimeout = CONNECT_TIMEOUT_MS
-                    readTimeout = READ_TIMEOUT_MS
-                    setRequestProperty("Accept", "application/json")
-                    setRequestProperty("User-Agent", "SnhgnScheduleAndroid/1.0")
-                    doInput = true
-                }
-
-                val responseCode = connection.responseCode
-                if (responseCode in 200..299) {
-                    val reader = BufferedReader(InputStreamReader(connection.inputStream, "UTF-8"))
-                    val sb = StringBuilder()
-                    var line: String?
-                    while (reader.readLine().also { line = it } != null) {
-                        sb.append(line)
+            var lastError: Exception? = null
+            for (apiUrl in apiUrls) {
+                var connection: HttpURLConnection? = null
+                try {
+                    val url = URL(apiUrl)
+                    connection = (url.openConnection() as HttpURLConnection).apply {
+                        requestMethod = "GET"
+                        connectTimeout = CONNECT_TIMEOUT_MS
+                        readTimeout = READ_TIMEOUT_MS
+                        setRequestProperty("Accept", "application/json")
+                        setRequestProperty("User-Agent", "SnhgnScheduleAndroid/1.0")
+                        doInput = true
                     }
-                    reader.close()
 
-                    val rawJson = sb.toString().trim()
-                    val courseList = mutableListOf<Course>()
-
-                    if (rawJson.startsWith("[")) {
-                        val jsonArray = JSONArray(rawJson)
-                        for (i in 0 until jsonArray.length()) {
-                            val obj = jsonArray.optJSONObject(i)
-                            if (obj != null) {
-                                val course = Course.fromJson(obj)
-                                if (course.id > 0 && course.startTime.isNotEmpty()) {
-                                    courseList.add(course)
-                                }
-                            }
+                    val responseCode = connection.responseCode
+                    if (responseCode in 200..299) {
+                        val reader = BufferedReader(InputStreamReader(connection.inputStream, "UTF-8"))
+                        val sb = StringBuilder()
+                        var line: String?
+                        while (reader.readLine().also { line = it } != null) {
+                            sb.append(line)
                         }
-                    } else if (rawJson.startsWith("{")) {
-                        // 兼容包装格式 {"code": 200, "data": [...]}
-                        val rootObj = org.json.JSONObject(rawJson)
-                        val dataArray = rootObj.optJSONArray("data") ?: rootObj.optJSONArray("courses")
-                        if (dataArray != null) {
-                            for (i in 0 until dataArray.length()) {
-                                val obj = dataArray.optJSONObject(i)
+                        reader.close()
+
+                        val rawJson = sb.toString().trim()
+                        val courseList = mutableListOf<Course>()
+
+                        if (rawJson.startsWith("[")) {
+                            val jsonArray = JSONArray(rawJson)
+                            for (i in 0 until jsonArray.length()) {
+                                val obj = jsonArray.optJSONObject(i)
                                 if (obj != null) {
                                     val course = Course.fromJson(obj)
                                     if (course.id > 0 && course.startTime.isNotEmpty()) {
@@ -74,21 +62,37 @@ object ApiClient {
                                     }
                                 }
                             }
+                        } else if (rawJson.startsWith("{")) {
+                            // 兼容包装格式 {"code": 200, "data": [...]}
+                            val rootObj = org.json.JSONObject(rawJson)
+                            val dataArray = rootObj.optJSONArray("data") ?: rootObj.optJSONArray("courses")
+                            if (dataArray != null) {
+                                for (i in 0 until dataArray.length()) {
+                                    val obj = dataArray.optJSONObject(i)
+                                    if (obj != null) {
+                                        val course = Course.fromJson(obj)
+                                        if (course.id > 0 && course.startTime.isNotEmpty()) {
+                                            courseList.add(course)
+                                        }
+                                    }
+                                }
+                            }
                         }
-                    }
 
-                    Log.d(TAG, "成功拉取到 ${courseList.size} 门课程")
-                    Result.success(courseList)
-                } else {
-                    val errorMsg = "HTTP 请求失败，状态码: $responseCode"
-                    Log.w(TAG, errorMsg)
-                    Result.failure(Exception(errorMsg))
+                        Log.d(TAG, "从 $apiUrl 成功拉取到 ${courseList.size} 门课程")
+                        return@withContext Result.success(courseList)
+                    } else {
+                        val errorMsg = "HTTP 请求失败 ($apiUrl)，状态码: $responseCode"
+                        Log.w(TAG, errorMsg)
+                        lastError = Exception(errorMsg)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "从 $apiUrl 拉取课程异常: ${e.message}")
+                    lastError = e
+                } finally {
+                    connection?.disconnect()
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "拉取课程异常: ${e.message}", e)
-                Result.failure(e)
-            } finally {
-                connection?.disconnect()
             }
+            Result.failure(lastError ?: Exception("所有候选 API 端点均不可用"))
         }
 }

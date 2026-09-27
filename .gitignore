@@ -83,6 +83,7 @@ Thumbs.db
 desktop.ini
 
 # ===== 构建产物 =====
+*.apk
 *.pyc
 *.pyo
 .pytest_cache/
