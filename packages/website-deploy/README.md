@@ -21,18 +21,18 @@ website-deploy/
 前置：已安装 npm、PuTTY（含 pscp/plink）。
 
 ```powershell
-# 默认使用 d:\project\snhgn.me 作为前端源码，192.168.50.2 服务器
+# 部署当前项目 web/dist 静态资源至 192.168.50.2 服务器
 powershell -ExecutionPolicy Bypass -File deploy-website.ps1
 
 # 自定义参数
-powershell -File deploy-website.ps1 -Server 192.168.50.2 -ProjectDir d:\project\snhgn.me
+powershell -File deploy-website.ps1 -Server 192.168.50.2
 ```
 
 脚本流程：
-1. `npm run build` 构建前端
-2. pscp 上传 `dist/` 到服务器 `/tmp/web/`
-3. 服务器替换 `/opt/website/web/*`
-4. curl 验证 `https://snhgn.me` 与子路由
+1. 检查准备 `deploy/web/` 静态资源
+2. pscp 上传静态资产到服务器 `/tmp/web/`
+3. 服务器替换 `/opt/website/web/*` 并热重载 Caddy
+4. curl 验证服务状态（HTTP 200）
 
 > 提示：脚本含服务器登录凭据默认值，仅限个人本机使用。若服务器密码已修改，
 > 请用 `-Password` 参数传入或在脚本顶部修改。
@@ -41,10 +41,10 @@ powershell -File deploy-website.ps1 -Server 192.168.50.2 -ProjectDir d:\project\
 
 ```bash
 # 本地构建
-cd d:\project\snhgn.me && npm run build
+cd web && npm run build
 
 # 上传
-pscp -r dist\* snhgn@192.168.50.2:/tmp/web/
+pscp -r web\dist\* snhgn@192.168.50.2:/tmp/web/
 
 # 服务器替换（静态文件上传即生效，无需重启 Caddy）
 ssh snhgn@192.168.50.2 "sudo rm -rf /opt/website/web/* && sudo cp -r /tmp/web/* /opt/website/web/"
