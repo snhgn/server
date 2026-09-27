@@ -22,14 +22,31 @@ logger = logging.getLogger("gateway.schedule")
 # 节次字符串 → (开始节, 结束节)，由解析代码归一化后的节次名映射
 PERIOD_RANGE = {
     "第1-2节": (1, 2),
+    "第1-4节": (1, 4),
+    "第1-5节": (1, 5),
     "第3-4节": (3, 4),
+    "第3-5节": (3, 5),
     "第5节": (5, 5),
     "第6-7节": (6, 7),
+    "第6-9节": (6, 9),
     "第8-9节": (8, 9),
     "第10-11节": (10, 11),
     "第10-12节": (10, 12),
     "第12节": (12, 12),
 }
+
+
+def parse_period_range(period_str: str) -> tuple[int, int]:
+    """根据节次字符串安全解析 (start, end)。"""
+    if period_str in PERIOD_RANGE:
+        return PERIOD_RANGE[period_str]
+    m = re.search(r"第?(\d+)-(\d+)节?", period_str)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    m = re.search(r"第?(\d+)节?", period_str)
+    if m:
+        return int(m.group(1)), int(m.group(1))
+    return (0, 0)
 
 # per-user 并发锁 + 冷却时间戳（仅进程内，重启即失效，可接受）
 _locks: dict[int, asyncio.Lock] = {}
@@ -137,7 +154,7 @@ def _crawl_sync(student_id: str, password: str) -> tuple[str, list[dict]]:
 
         out = []
         for c in courses:
-            start, end = PERIOD_RANGE.get(c.get("period", ""), (0, 0))
+            start, end = parse_period_range(c.get("period", ""))
             out.append({
                 "name": c.get("name", ""),
                 "teacher": c.get("teacher", ""),

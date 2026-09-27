@@ -97,6 +97,89 @@ function parseWeeks(weeks: string): number[] | null {
   return [...new Set(list)].sort((a, b) => a - b)
 }
 
+function isSameCourse(a: Course, b: Course): boolean {
+  if (a.day !== b.day) return false
+  if (a.name.trim() !== b.name.trim()) return false
+  if ((a.teacher || '').trim() !== (b.teacher || '').trim()) return false
+  if ((a.room || '').trim() !== (b.room || '').trim()) return false
+  if (!!a.isCustom !== !!b.isCustom) return false
+
+  const wA = (a.weeks || '').trim()
+  const wB = (b.weeks || '').trim()
+  if (wA !== wB) {
+    const listA = parseWeeks(wA)
+    const listB = parseWeeks(wB)
+    if (!listA || !listB || listA.join(',') !== listB.join(',')) return false
+  }
+  return true
+}
+
+function mergeAdjacentCourses(courses: Course[]): Course[] {
+  if (!courses || courses.length <= 1) return courses ? [...courses] : []
+
+  // 按星期分组
+  const byDay: Record<number, Course[]> = {}
+  for (const c of courses) {
+    if (!byDay[c.day]) byDay[c.day] = []
+    byDay[c.day].push({ ...c })
+  }
+
+  const result: Course[] = []
+  for (const dayStr of Object.keys(byDay)) {
+    const dayList = byDay[Number(dayStr)]
+    dayList.sort((a, b) => a.start - b.start)
+
+    let merged = true
+    while (merged) {
+      merged = false
+      for (let i = 0; i < dayList.length - 1; i++) {
+        const cur = dayList[i]
+        const nxt = dayList[i + 1]
+
+        // 连续节次且非跨大休息段（上午5节与下午6节之间午休，下午9节与晚间10节之间晚饭休）
+        const canMerge =
+          isSameCourse(cur, nxt) &&
+          cur.end + 1 === nxt.start &&
+          cur.end !== 5 &&
+          cur.end !== 9
+
+        if (canMerge) {
+          cur.end = nxt.end
+          cur.period = cur.start === cur.end ? `第${cur.start}节` : `第${cur.start}-${cur.end}节`
+          dayList.splice(i + 1, 1)
+          merged = true
+          break
+        }
+      }
+    }
+    result.push(...dayList)
+  }
+
+  return result
+}
+
+function courseCoversSlot(c: Course, slotBlock: number): boolean {
+  const startB = blockOf(c.start)
+  const endB = blockOf(c.end)
+  return slotBlock >= startB && slotBlock <= endB
+}
+
+function coursePeriodLabel(c: Course): string {
+  if (c.period) return c.period.replace(/^第/, '').replace(/节$/, '') + '节'
+  return c.start === c.end ? `${c.start}节` : `${c.start}-${c.end}节`
+}
+
+function courseTimeRange(c: Course): string {
+  const startB = periodSlots[blockOf(c.start) - 1]
+  const endB = periodSlots[blockOf(c.end) - 1]
+  if (!startB || !endB) return ''
+  const startH = String(Math.floor(startB.from / 60)).padStart(2, '0')
+  const startM = String(startB.from % 60).padStart(2, '0')
+  const endH = String(Math.floor(endB.to / 60)).padStart(2, '0')
+  const endM = String(endB.to % 60).padStart(2, '0')
+  return `${startH}:${startM}-${endH}:${endM}`
+}
+
 function weekCount(weeks: string): string {
   if (!weeks) return ''
   const m = weeks.match(/(\d+)-(\d+)/)
@@ -156,7 +239,10 @@ function loadCachedSchedule(): ScheduleData | null {
     const raw = localStorage.getItem(`bjfu-schedule-cache-${savedSid.trim()}`) || localStorage.getItem('bjfu-schedule-cache')
     if (raw) {
       const parsed = JSON.parse(raw)
-      if (parsed && Array.isArray(parsed.courses)) return parsed
+      if (parsed && Array.isArray(parsed.courses)) {
+        parsed.courses = mergeAdjacentCourses(parsed.courses)
+        return parsed
+      }
     }
   } catch {}
   return null
@@ -789,7 +875,7 @@ watch(studentId, () => {
 
 const combinedCourses = computed<Course[]>(() => {
   const official = schedule.value?.courses ?? []
-  return [...official, ...customEvents.value]
+  return mergeAdjacentCourses([...official, ...customEvents.value])
 })
 
 const combinedSchedule = computed<ScheduleData | null>(() => {
@@ -856,22 +942,25 @@ const todayState = computed<TodayState>(() => {
       const matchesWeek = list === null || list.includes(realWeek)
       return matchesWeek && c.day === today
     })
-    .sort((a, b) => blockOf(a.start) - blockOf(b.start))
+    .sort((a, b) => a.start - b.start)
 
   const ongoing = todayCourses.find((c) => {
-    const b = periodSlots[blockOf(c.start) - 1]
-    return mins >= b.from && mins < b.to
+    const startB = periodSlots[blockOf(c.start) - 1]
+    const endB = periodSlots[blockOf(c.end) - 1]
+    if (!startB || !endB) return false
+    return mins >= startB.from && mins < endB.to
   })
   if (ongoing) return { type: 'ongoing', course: ongoing, label: ongoing.isCustom ? '日程进行中' : '正在进行' }
 
   const next = todayCourses.find((c) => {
-    const b = periodSlots[blockOf(c.start) - 1]
-    return mins < b.from
+    const startB = periodSlots[blockOf(c.start) - 1]
+    if (!startB) return false
+    return mins < startB.from
   })
   if (next) {
-    const b = periodSlots[blockOf(next.start) - 1]
-    const h = Math.floor(b.from / 60)
-    const mm = b.from % 60
+    const startB = periodSlots[blockOf(next.start) - 1]
+    const h = Math.floor(startB.from / 60)
+    const mm = startB.from % 60
     return {
       type: 'next',
       course: next,
@@ -922,13 +1011,14 @@ function getCourseLiveState(c: Course): { isLive: boolean; label: string } {
   }
   const now = new Date()
   const mins = now.getHours() * 60 + now.getMinutes()
-  const b = periodSlots[blockOf(c.start) - 1]
-  if (!b) return { isLive: false, label: '' }
-  if (mins >= b.from && mins < b.to) {
+  const startB = periodSlots[blockOf(c.start) - 1]
+  const endB = periodSlots[blockOf(c.end) - 1]
+  if (!startB || !endB) return { isLive: false, label: '' }
+  if (mins >= startB.from && mins < endB.to) {
     return { isLive: true, label: '正在上课' }
   }
-  if (mins < b.from && b.from - mins <= 35) {
-    return { isLive: false, label: `${b.from - mins}分钟后开始` }
+  if (mins < startB.from && startB.from - mins <= 35) {
+    return { isLive: false, label: `${startB.from - mins}分钟后开始` }
   }
   return { isLive: false, label: '' }
 }
@@ -969,23 +1059,32 @@ function onAgendaTouchEnd(e: TouchEvent) {
 interface PlacedCourse extends Course {
   key: string
   stackIndex: number
+  startBlock: number
+  endBlock: number
+  rowSpan: number
 }
 const placedCourses = computed<PlacedCourse[]>(() => {
   const groups = new Map<string, number>()
   return weekCourses.value.map((c, i) => {
-    const key = `${c.day}-${blockOf(c.start)}`
+    const sB = blockOf(c.start)
+    const eB = blockOf(c.end)
+    const span = Math.max(1, eB - sB + 1)
+    const key = `${c.day}-${sB}`
     const idx = groups.get(key) ?? 0
     groups.set(key, idx + 1)
     return {
       ...c,
-      key: c.id ? `custom-${c.id}` : `${c.day}-${c.start}-${c.name}-${i}`,
+      startBlock: sB,
+      endBlock: eB,
+      rowSpan: span,
+      key: c.id ? `custom-${c.id}` : `${c.day}-${c.start}-${c.end}-${c.name}-${i}`,
       stackIndex: idx,
     }
   })
 })
 
 function isCellFree(day: number, slotBlock: number): boolean {
-  return !weekCourses.value.some((c) => c.day === day && blockOf(c.start) === slotBlock)
+  return !weekCourses.value.some((c) => c.day === day && courseCoversSlot(c, slotBlock))
 }
 
 const COLOR_PALETTES = [
@@ -1352,51 +1451,65 @@ function deleteCustomEvent(id: string) {
           </div>
         </div>
 
-        <!-- 7 Period Rows (each takes 1fr of remaining screen height) -->
-        <div class="flex-1 min-h-0 grid grid-rows-7 gap-0.5 p-0.5">
+        <!-- 7 Period Rows (Single flat CSS grid so courses span rows seamlessly without scrolling) -->
+        <div
+          class="flex-1 min-h-0 grid grid-rows-7 gap-0.5 p-0.5"
+          :class="showWeekend ? 'grid-cols-[24px_repeat(7,1fr)]' : 'grid-cols-[28px_repeat(5,1fr)]'"
+        >
+          <!-- Period Slot Labels (Col 1, Rows 1..7) -->
           <div
             v-for="(slot, sIdx) in periodSlots"
-            :key="slot.label"
-            class="grid gap-0.5 min-h-0"
-            :class="showWeekend ? 'grid-cols-[24px_repeat(7,1fr)]' : 'grid-cols-[28px_repeat(5,1fr)]'"
+            :key="`app-label-${slot.label}`"
+            class="flex flex-col items-center justify-center rounded-sm bg-[#FAFAFA] dark:bg-neutral-900/60 font-mono text-neutral-400 border border-neutral-100 dark:border-neutral-800/50 leading-tight select-none"
+            :style="{ gridColumn: 1, gridRow: sIdx + 1 }"
           >
-            <!-- Period Slot Label Cell -->
-            <div class="flex flex-col items-center justify-center rounded-sm bg-[#FAFAFA] dark:bg-neutral-900/60 font-mono text-neutral-400 border border-neutral-100 dark:border-neutral-800/50 leading-tight select-none">
-              <span class="text-[8.5px] font-bold text-neutral-700 dark:text-neutral-300">{{ slot.label }}</span>
-              <span class="text-[7px] text-neutral-400 scale-90">{{ formatSlotMinute(slot.from) }}</span>
-            </div>
+            <span class="text-[8.5px] font-bold text-neutral-700 dark:text-neutral-300">{{ slot.label }}</span>
+            <span class="text-[7px] text-neutral-400 scale-90">{{ formatSlotMinute(slot.from) }}</span>
+          </div>
 
-            <!-- Day Cells for this Period Slot -->
-            <div
-              v-for="d in daysCount"
-              :key="`${sIdx}-${d}`"
-              class="relative rounded border border-neutral-100 dark:border-neutral-800/40 bg-white dark:bg-[#131418] p-0.5 overflow-hidden transition-colors"
-              :class="{ 'hover:bg-neutral-50 dark:hover:bg-neutral-800/30 cursor-pointer': isCellFree(d, sIdx + 1) }"
-              @click="isCellFree(d, sIdx + 1) && openAddCustomEventModal(d, sIdx + 1)"
-            >
-              <!-- Course in this cell -->
-              <template v-for="c in placedCourses" :key="c.key">
-                <div
-                  v-if="c.day === d && blockOf(c.start) === sIdx + 1"
-                  class="w-full h-full rounded p-1 flex flex-col justify-between overflow-hidden relative cursor-pointer active:scale-[0.98] transition-transform select-none"
-                  :class="[
-                    c.isCustom ? 'border border-emerald-300 dark:border-emerald-700 shadow-xs' : 'border border-black/5 dark:border-white/5',
-                    colorfulCards || c.isCustom ? 'course-card-colorful' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white'
-                  ]"
-                  :style="getCourseCardStyle(c)"
-                  @click.stop="detail = c"
-                >
-                  <div class="min-w-0">
-                    <div class="font-medium text-[9.5px] leading-tight line-clamp-3 font-sans break-all">
-                      {{ c.name }}
-                    </div>
-                  </div>
-                  <div class="flex items-center justify-between text-[7.5px] font-mono opacity-80 mt-auto pt-0.5 truncate">
-                    <span class="truncate">{{ c.room || (c.isCustom ? '自建' : '') }}</span>
-                    <span v-if="getCourseLiveState(c).isLive" class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping shrink-0" />
-                  </div>
-                </div>
-              </template>
+          <!-- Free Day Cells (only rendered when slot is free) -->
+          <template v-for="d in daysCount" :key="`app-day-${d}`">
+            <template v-for="(_, sIdx) in periodSlots" :key="`app-free-${d}-${sIdx}`">
+              <div
+                v-if="isCellFree(d, sIdx + 1)"
+                class="rounded border border-neutral-100 dark:border-neutral-800/40 bg-white dark:bg-[#131418] p-0.5 overflow-hidden transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/30 cursor-pointer"
+                :style="{ gridColumn: d + 1, gridRow: sIdx + 1 }"
+                @click="openAddCustomEventModal(d, sIdx + 1)"
+              />
+            </template>
+          </template>
+
+          <!-- Placed Course Cards (spans rows: startBlock / span rowSpan) -->
+          <div
+            v-for="c in placedCourses"
+            :key="c.key"
+            v-show="!(!showWeekend && c.day > 5)"
+            class="rounded p-1 flex flex-col justify-between overflow-hidden relative cursor-pointer active:scale-[0.98] transition-transform select-none z-10"
+            :class="[
+              c.isCustom ? 'border border-emerald-300 dark:border-emerald-700 shadow-xs' : 'border border-black/5 dark:border-white/5',
+              colorfulCards || c.isCustom ? 'course-card-colorful' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white'
+            ]"
+            :style="{
+              ...getCourseCardStyle(c),
+              gridColumn: c.day + 1,
+              gridRow: `${c.startBlock} / span ${c.rowSpan}`,
+            }"
+            @click.stop="detail = c"
+          >
+            <div class="min-w-0">
+              <div
+                class="font-medium leading-tight font-sans break-all"
+                :class="c.rowSpan > 1 ? 'text-[10px] line-clamp-4' : 'text-[9px] line-clamp-2'"
+              >
+                {{ c.name }}
+              </div>
+              <div v-if="c.rowSpan > 1 && showCourseTime" class="text-[7px] opacity-75 font-mono mt-0.5 leading-none">
+                {{ courseTimeRange(c) }}
+              </div>
+            </div>
+            <div class="flex items-center justify-between text-[7.5px] font-mono opacity-80 mt-auto pt-0.5 truncate">
+              <span class="truncate">{{ c.room || (c.isCustom ? '自建' : '') }}</span>
+              <span v-if="getCourseLiveState(c).isLive" class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping shrink-0" />
             </div>
           </div>
         </div>
@@ -1769,10 +1882,10 @@ function deleteCustomEvent(id: string) {
             <div class="flex items-center justify-between mb-2">
               <div class="flex items-center gap-1.5 font-mono text-xs text-neutral-500 dark:text-neutral-400">
                 <span class="font-semibold text-neutral-800 dark:text-neutral-200">
-                  {{ slotTimeOf(c.start) }}
+                  {{ courseTimeRange(c) }}
                 </span>
                 <span class="text-[10px] px-1.5 py-0.2 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300">
-                  {{ periodSlots[blockOf(c.start) - 1]?.label }} 节
+                  {{ coursePeriodLabel(c) }}
                 </span>
               </div>
 
@@ -1888,113 +2001,125 @@ function deleteCustomEvent(id: string) {
                 ? (showWeekend ? 'grid-cols-[46px_repeat(7,1fr)] sm:grid-cols-[70px_repeat(7,1fr)] min-w-[600px] sm:min-w-[820px]' : 'grid-cols-[46px_repeat(5,1fr)] sm:grid-cols-[70px_repeat(5,1fr)] min-w-[480px] sm:min-w-[670px]')
                 : (showWeekend ? 'grid-cols-[40px_repeat(7,1fr)] sm:grid-cols-[56px_repeat(7,1fr)] min-w-[580px] sm:min-w-[800px]' : 'grid-cols-[40px_repeat(5,1fr)] sm:grid-cols-[56px_repeat(5,1fr)] min-w-[460px] sm:min-w-[650px]')
             ]"
+            :style="{ gridTemplateRows: 'auto repeat(7, minmax(50px, 1fr))' }"
           >
             
             <!-- Column Headers: Weekdays & Dates -->
-            <div class="sticky left-0 z-20 bg-white p-1 sm:p-2 flex flex-col items-center justify-center font-mono text-[9px] sm:text-[11px] text-neutral-400 border-r border-[#E5E5E5]/50">
+            <div
+              class="sticky left-0 z-20 bg-white dark:bg-[#131418] p-1 sm:p-2 flex flex-col items-center justify-center font-mono text-[9px] sm:text-[11px] text-neutral-400 border-r border-[#E5E5E5]/50 dark:border-neutral-800"
+              :style="{ gridColumn: 1, gridRow: 1 }"
+            >
               <span class="leading-tight">节次</span>
             </div>
             <div
               v-for="(day, idx) in displayedWeekdays"
               :key="day"
               class="flex flex-col items-center justify-center p-1 sm:p-2 text-center font-mono rounded transition-colors"
-              :class="isToday(idx) ? 'today-col-header bg-neutral-900 text-white shadow-sm' : 'text-neutral-700 bg-[#FAFAFA]'"
+              :class="isToday(idx) ? 'today-col-header bg-neutral-900 text-white shadow-sm dark:bg-emerald-400 dark:text-neutral-950 font-bold' : 'text-neutral-700 dark:text-neutral-300 bg-[#FAFAFA] dark:bg-neutral-800/60'"
+              :style="{ gridColumn: idx + 2, gridRow: 1 }"
             >
               <span class="text-[10px] sm:text-xs font-medium leading-tight">{{ day }}</span>
               <span
                 class="text-[8px] sm:text-[10px] mt-0.5 font-normal leading-tight tracking-tight scale-90 sm:scale-100 origin-center"
-                :class="isToday(idx) ? 'text-neutral-300' : 'text-neutral-400'"
+                :class="isToday(idx) ? 'text-neutral-300 dark:text-neutral-900' : 'text-neutral-400 dark:text-neutral-500'"
               >
                 {{ getDateLabel(currentWeek, idx) }}
               </span>
             </div>
 
-            <!-- Period Rows -->
-            <template v-for="(slot, sIdx) in periodSlots" :key="slot.label">
-              <!-- Period Label Column -->
-              <div class="sticky left-0 z-10 flex flex-col items-center justify-center p-0.5 sm:p-2 rounded-l bg-[#FAFAFA] font-mono text-[9px] sm:text-[11px] text-neutral-500 border border-neutral-100 border-r-[#E5E5E5]/50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.03)]">
-                <span class="font-semibold text-neutral-700 text-[9px] sm:text-[11px]">{{ slot.label }}</span>
-                <template v-if="slotTimeFormat === 'range'">
-                  <!-- Mobile compact stacked time -->
-                  <div class="sm:hidden flex flex-col items-center text-[7px] text-neutral-400 mt-0.5 leading-tight tracking-tight">
-                    <span>{{ formatSlotMinute(slot.from) }}</span>
-                    <span class="text-[6px] text-neutral-300 leading-none my-[0.5px]">-</span>
-                    <span>{{ formatSlotMinute(slot.to) }}</span>
-                  </div>
-                  <!-- Desktop inline time -->
-                  <span class="hidden sm:inline text-[9px] text-neutral-400 mt-0.5 whitespace-nowrap tracking-tighter scale-95 origin-center">
-                    {{ formatSlotMinute(slot.from) }} - {{ formatSlotMinute(slot.to) }}
-                  </span>
-                </template>
-                <template v-else>
-                  <span class="text-[7.5px] sm:text-[9px] text-neutral-400 mt-0.5 whitespace-nowrap scale-90 sm:scale-100 origin-center">
-                    {{ formatSlotMinute(slot.from) }}
-                  </span>
-                </template>
-              </div>
+            <!-- Period Labels (Col 1, Rows 2..8) -->
+            <div
+              v-for="(slot, sIdx) in periodSlots"
+              :key="`dt-label-${slot.label}`"
+              class="sticky left-0 z-10 flex flex-col items-center justify-center p-0.5 sm:p-2 rounded-l bg-[#FAFAFA] dark:bg-neutral-900/60 font-mono text-neutral-500 dark:text-neutral-400 border border-neutral-100 dark:border-neutral-800 border-r-[#E5E5E5]/50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.03)]"
+              :style="{ gridColumn: 1, gridRow: sIdx + 2 }"
+            >
+              <span class="font-semibold text-neutral-700 dark:text-neutral-300 text-[9px] sm:text-[11px]">{{ slot.label }}</span>
+              <template v-if="slotTimeFormat === 'range'">
+                <!-- Mobile compact stacked time -->
+                <div class="sm:hidden flex flex-col items-center text-[7px] text-neutral-400 mt-0.5 leading-tight tracking-tight">
+                  <span>{{ formatSlotMinute(slot.from) }}</span>
+                  <span class="text-[6px] text-neutral-300 leading-none my-[0.5px]">-</span>
+                  <span>{{ formatSlotMinute(slot.to) }}</span>
+                </div>
+                <!-- Desktop inline time -->
+                <span class="hidden sm:inline text-[9px] text-neutral-400 mt-0.5 whitespace-nowrap tracking-tighter scale-95 origin-center">
+                  {{ formatSlotMinute(slot.from) }} - {{ formatSlotMinute(slot.to) }}
+                </span>
+              </template>
+              <template v-else>
+                <span class="text-[7.5px] sm:text-[9px] text-neutral-400 mt-0.5 whitespace-nowrap scale-90 sm:scale-100 origin-center">
+                  {{ formatSlotMinute(slot.from) }}
+                </span>
+              </template>
+            </div>
 
-              <!-- Days Grid Cells for this Period Slot -->
-              <div
-                v-for="d in daysCount"
-                :key="`${sIdx}-${d}`"
-                class="relative rounded border border-neutral-100 min-h-[50px] sm:min-h-[72px] bg-white p-0.5 sm:p-1 group transition-colors"
-                :class="{
-                  'hover:border-dashed hover:border-emerald-400/80 hover:bg-emerald-50/20 dark:hover:bg-emerald-950/10 cursor-pointer': isCellFree(d, sIdx + 1),
-                }"
-                @click="isCellFree(d, sIdx + 1) && openAddCustomEventModal(d, sIdx + 1)"
-              >
-                <!-- Placed course in this cell -->
-                <template v-for="c in placedCourses" :key="c.key">
-                  <div
-                    v-if="c.day === d && blockOf(c.start) === sIdx + 1"
-                    class="rounded border p-1 sm:p-1.5 transition-all cursor-pointer h-full flex flex-col justify-between overflow-hidden relative select-none"
-                    :class="[
-                      c.isCustom
-                        ? 'border-emerald-300/80 dark:border-emerald-700/60 shadow-xs'
-                        : '',
-                      colorfulCards || c.isCustom
-                        ? 'course-card-colorful'
-                        : 'course-card-default border-[#E5E5E5] bg-[#FAFAFA] hover:bg-neutral-100 hover:border-neutral-400',
-                    ]"
-                    :style="getCourseCardStyle(c)"
-                    @click.stop="detail = c"
-                  >
-                    <div>
-                      <div class="flex items-start justify-between gap-0.5">
-                        <div class="font-medium text-neutral-900 font-sans line-clamp-2 leading-tight sm:leading-snug text-[9.5px] sm:text-xs">
-                          {{ c.name }}
-                        </div>
-                        <span
-                          v-if="c.isCustom"
-                          class="px-1 py-0.2 rounded text-[7.5px] sm:text-[8px] bg-emerald-600/10 text-emerald-700 dark:bg-emerald-400/20 dark:text-emerald-300 font-sans font-medium shrink-0 leading-tight"
-                          title="自定义时间安排"
-                        >
-                          日程
-                        </span>
-                      </div>
-                      <div v-if="showCourseTime" class="text-[7.5px] sm:text-[9px] opacity-75 font-mono mt-0.5">
-                        {{ slotTimeOf(c.start) }}
-                      </div>
-                    </div>
-                    <div class="font-mono text-[8px] sm:text-[10px] text-neutral-500 mt-0.5 sm:mt-1 flex items-center justify-between gap-0.5">
-                      <span class="truncate">{{ c.room || (c.isCustom ? '无地点' : '待定') }}</span>
-                      <span class="text-neutral-400 shrink-0 hidden sm:inline">{{ weekCount(c.weeks) }}</span>
-                    </div>
-                  </div>
-                </template>
-
-                <!-- Free cell hover prompt: + 安排 -->
+            <!-- Free Day Cells in Desktop Mode -->
+            <template v-for="d in daysCount" :key="`dt-day-${d}`">
+              <template v-for="(_, sIdx) in periodSlots" :key="`dt-free-${d}-${sIdx}`">
                 <div
                   v-if="isCellFree(d, sIdx + 1)"
-                  class="w-full h-full min-h-[46px] sm:min-h-[66px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none select-none"
+                  class="relative rounded border border-neutral-100 dark:border-neutral-800 min-h-[50px] sm:min-h-[72px] bg-white dark:bg-[#131418] p-0.5 sm:p-1 group transition-colors hover:border-dashed hover:border-emerald-400/80 hover:bg-emerald-50/20 dark:hover:bg-emerald-950/10 cursor-pointer"
+                  :style="{ gridColumn: d + 1, gridRow: sIdx + 2 }"
+                  @click="openAddCustomEventModal(d, sIdx + 1)"
                 >
-                  <span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-50/90 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[10px] sm:text-xs font-sans shadow-xs scale-90 sm:scale-95">
-                    <span class="font-bold text-xs leading-none">+</span>
-                    <span>安排</span>
+                  <!-- Free cell hover prompt: + 安排 -->
+                  <div class="w-full h-full min-h-[46px] sm:min-h-[66px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none select-none">
+                    <span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-50/90 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[10px] sm:text-xs font-sans shadow-xs scale-90 sm:scale-95">
+                      <span class="font-bold text-xs leading-none">+</span>
+                      <span>安排</span>
+                    </span>
+                  </div>
+                </div>
+              </template>
+            </template>
+
+            <!-- Placed Course Cards in Desktop Mode -->
+            <div
+              v-for="c in placedCourses"
+              :key="`dt-course-${c.key}`"
+              v-show="!(!showWeekend && c.day > 5)"
+              class="rounded border p-1 sm:p-1.5 transition-all cursor-pointer flex flex-col justify-between overflow-hidden relative select-none z-10"
+              :class="[
+                c.isCustom
+                  ? 'border-emerald-300/80 dark:border-emerald-700/60 shadow-xs'
+                  : '',
+                colorfulCards || c.isCustom
+                  ? 'course-card-colorful'
+                  : 'course-card-default border-[#E5E5E5] bg-[#FAFAFA] dark:bg-neutral-800 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-700 hover:border-neutral-400',
+              ]"
+              :style="{
+                ...getCourseCardStyle(c),
+                gridColumn: c.day + 1,
+                gridRow: `${c.startBlock + 1} / span ${c.rowSpan}`,
+              }"
+              @click.stop="detail = c"
+            >
+              <div>
+                <div class="flex items-start justify-between gap-0.5">
+                  <div
+                    class="font-medium text-neutral-900 dark:text-neutral-100 font-sans leading-tight sm:leading-snug text-[9.5px] sm:text-xs"
+                    :class="c.rowSpan > 1 ? 'line-clamp-4' : 'line-clamp-2'"
+                  >
+                    {{ c.name }}
+                  </div>
+                  <span
+                    v-if="c.isCustom"
+                    class="px-1 py-0.2 rounded text-[7.5px] sm:text-[8px] bg-emerald-600/10 text-emerald-700 dark:bg-emerald-400/20 dark:text-emerald-300 font-sans font-medium shrink-0 leading-tight"
+                    title="自定义时间安排"
+                  >
+                    日程
                   </span>
                 </div>
+                <div v-if="showCourseTime" class="text-[7.5px] sm:text-[9px] opacity-75 font-mono mt-0.5">
+                  {{ courseTimeRange(c) }}
+                </div>
               </div>
-            </template>
+              <div class="font-mono text-[8px] sm:text-[10px] text-neutral-500 dark:text-neutral-400 mt-0.5 sm:mt-1 flex items-center justify-between gap-0.5">
+                <span class="truncate">{{ c.room || (c.isCustom ? '无地点' : '待定') }}</span>
+                <span class="text-neutral-400 dark:text-neutral-500 shrink-0 hidden sm:inline">{{ weekCount(c.weeks) }}</span>
+              </div>
+            </div>
 
           </div>
         </div>
@@ -2038,7 +2163,7 @@ function deleteCustomEvent(id: string) {
           </div>
           <div>
             <span class="text-neutral-400 block text-[10px] uppercase">时间节次</span>
-            <span class="text-neutral-700 dark:text-neutral-300">{{ weekdayName(detail.day) }} · {{ detail.period }}</span>
+            <span class="text-neutral-700 dark:text-neutral-300">{{ weekdayName(detail.day) }} · {{ coursePeriodLabel(detail) }} ({{ courseTimeRange(detail) }})</span>
           </div>
           <div>
             <span class="text-neutral-400 block text-[10px] uppercase">适用周次</span>
