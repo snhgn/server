@@ -3,55 +3,25 @@ import App from './App.vue'
 import router from './router'
 import { useAuth } from './stores/auth'
 import './style.css'
-import { registerSW } from 'virtual:pwa-register'
 import { initTheme } from './utils/theme'
 
 initTheme()
 
-// 发布版本标识（老设备检测到新版本时主动清空旧 CacheStorage、注销旧 SW 并重载以拉取最新界面）
-export const APP_VERSION = 'v1.4.2'
-const storedVersion = localStorage.getItem('app_version')
-
-const isOldInstallation =
-  storedVersion !== APP_VERSION && (!!storedVersion || !!navigator.serviceWorker?.controller)
-
-if (isOldInstallation) {
-  localStorage.setItem('app_version', APP_VERSION)
-  const cleanAndReload = async () => {
-    if (typeof caches !== 'undefined') {
-      try {
-        const names = await caches.keys()
-        await Promise.all(names.map((name) => caches.delete(name)))
-      } catch {}
+// 彻底清除并注销所有历史 Service Worker 与 CacheStorage 缓存，彻底告别 PWA 缓存延迟
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then((registrations) => {
+    for (const registration of registrations) {
+      registration.unregister()
     }
-    if ('serviceWorker' in navigator) {
-      try {
-        const registrations = await navigator.serviceWorker.getRegistrations()
-        await Promise.all(registrations.map((r) => r.unregister()))
-      } catch {}
-    }
-    window.location.reload()
-  }
-  cleanAndReload()
-} else {
-  localStorage.setItem('app_version', APP_VERSION)
+  })
 }
-
-// 注册 PWA Service Worker 并开启即时接管与刷新
-const updateSW = registerSW({
-  immediate: true,
-  onNeedRefresh() {
-    updateSW(true)
-  },
-  onRegisteredSW(_swScriptUrl, registration) {
-    if (registration) {
-      registration.update()
-      setInterval(() => {
-        registration.update()
-      }, 30 * 1000)
+if (typeof caches !== 'undefined') {
+  caches.keys().then((names) => {
+    for (const name of names) {
+      caches.delete(name)
     }
-  },
-})
+  })
+}
 
 // 启动即恢复登录状态（HttpOnly Cookie → GET /api/auth/me）；不阻塞渲染，
 // 受保护路由由守卫 await init() 等待结果后再放行

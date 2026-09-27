@@ -39,6 +39,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var progressBar: ProgressBar
     private lateinit var layoutError: View
     private lateinit var btnRetry: Button
+    private var currentUrlIndex = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -63,8 +64,9 @@ class MainActivity : AppCompatActivity() {
             ScheduleSyncManager.syncSchedule(applicationContext)
         }
 
-        // 加载课程网站
-        webView?.loadUrl(AppConfig.WEBVIEW_URL)
+        // 加载课程网站（优先校园网直连，失败自动切公网兜底）
+        currentUrlIndex = 0
+        webView?.loadUrl(AppConfig.CANDIDATE_URLS[0])
     }
 
     private fun setupImmersiveWindow() {
@@ -96,7 +98,8 @@ class MainActivity : AppCompatActivity() {
         btnRetry.setOnClickListener {
             layoutError.visibility = View.GONE
             webView?.visibility = View.VISIBLE
-            webView?.reload()
+            currentUrlIndex = 0
+            webView?.loadUrl(AppConfig.CANDIDATE_URLS[0])
         }
 
         // 适配 Android 13+ 返回键逻辑：网页内部跳转支持返回上一页
@@ -157,12 +160,17 @@ class MainActivity : AppCompatActivity() {
                 progressBar.visibility = View.GONE
                 CookieManager.getInstance().flush()
 
-                // 清理旧缓存并更新 ServiceWorker
+                // 彻底注销旧 ServiceWorker 并清理 CacheStorage，确保页面直接拉取最新代码
                 view?.evaluateJavascript("""
                     (function() {
                         if ('serviceWorker' in navigator) {
                             navigator.serviceWorker.getRegistrations().then(function(regs) {
-                                for (let reg of regs) { reg.update(); }
+                                for (let reg of regs) { reg.unregister(); }
+                            });
+                        }
+                        if (window.caches) {
+                            caches.keys().then(function(keys) {
+                                for (let k of keys) { caches.delete(k); }
                             });
                         }
                     })();
@@ -175,11 +183,18 @@ class MainActivity : AppCompatActivity() {
                 error: WebResourceError?
             ) {
                 super.onReceivedError(view, request, error)
-                // 仅针对主页面加载失败显示错误提示
+                // 仅针对主页面加载失败时尝试候选故障转移线路，若所有线路均失败再显示错误重试界面
                 if (request?.isForMainFrame == true) {
-                    progressBar.visibility = View.GONE
-                    webView?.visibility = View.GONE
-                    layoutError.visibility = View.VISIBLE
+                    if (currentUrlIndex + 1 < AppConfig.CANDIDATE_URLS.size) {
+                        currentUrlIndex++
+                        val fallbackUrl = AppConfig.CANDIDATE_URLS[currentUrlIndex]
+                        android.util.Log.w("MainActivity", "主线路加载失败，自动切换至候选线路: $fallbackUrl")
+                        view?.loadUrl(fallbackUrl)
+                    } else {
+                        progressBar.visibility = View.GONE
+                        webView?.visibility = View.GONE
+                        layoutError.visibility = View.VISIBLE
+                    }
                 }
             }
 

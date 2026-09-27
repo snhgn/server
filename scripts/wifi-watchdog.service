@@ -1,0 +1,12 @@
+[Unit]
+Description=Wi-Fi Keepalive Watchdog
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/bin/bash -c "while true; do /opt/snhgn/scripts/wifi-watchdog.sh; sleep 15; done"
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
