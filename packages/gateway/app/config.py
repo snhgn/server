@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     SCHEDULE_COOLDOWN_SECONDS: int = 30        # 同一用户两次爬取的最小间隔
     SCHEDULE_CRAWL_TIMEOUT: int = 75           # 单次爬取总超时（秒）
     SCHEDULE_CAPTCHA_MAX_RETRY: int = 5        # 验证码识别最大重试次数
+    BJFU_USERNAME: str = "260101208"           # 默认教务服务账号（用于查空闲教室等无需个人隐私的公用接口）
+    BJFU_PASSWORD: str = "Qq513512686@"        # 默认教务服务密码
 
     # ---- 课程数据同步 / AI 数据目录 ----
     COURSE_DATA_DIR: str = "/data/course-data" # 用户专属 AI 数据目录（与 ai-service 共享）

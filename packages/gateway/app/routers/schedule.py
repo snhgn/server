@@ -49,7 +49,9 @@ class ExamsQueryRequest(ToolboxAuthRequest):
     category: str = ""
 
 
-class ClassroomQueryRequest(ToolboxAuthRequest):
+class ClassroomQueryRequest(BaseModel):
+    student_id: str = ""
+    password: str = ""
     semester: str = "2026-2027-1"
     building: str = ""
     week: int = 1
@@ -247,17 +249,21 @@ async def get_exams(req: ExamsQueryRequest, response: Response) -> list:
 
 @router.post("/classrooms")
 async def get_free_classrooms(req: ClassroomQueryRequest, response: Response) -> list:
-    """查询指定时段空闲自习教室。"""
+    """查询指定时段空闲自习教室。支持个人凭据或服务器公共账号兜底。"""
     _set_no_cache(response)
-    sid = req.student_id.strip()
-    if not sid or not req.password:
-        raise HTTPException(400, "请输入学号和密码")
+    sid = req.student_id.strip() if req.student_id else ""
+    pwd = req.password if req.password else ""
+    # 若用户未提供个人教务密码，直接使用内置公共账号（空教室为全校公开信息）
+    if not sid or not pwd:
+        sid = settings.BJFU_USERNAME
+        pwd = settings.BJFU_PASSWORD
+    if not sid or not pwd:
+        raise HTTPException(400, "空教室查询需要教务系统凭据，请提供或联系管理员配置公共凭据")
     try:
         data = await asyncio.to_thread(
-            toolbox.execute_with_login,
+            toolbox.get_free_classrooms_cached,
             sid,
-            req.password,
-            toolbox.get_free_classrooms,
+            pwd,
             req.semester,
             req.building,
             req.week,
