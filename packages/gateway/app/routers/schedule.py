@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from .. import sessions
 from ..auth import invalidate_session_cache, optional_user, require_admin, require_user
 from ..config import settings
-from ..schedule import db as schedule_db, notifier, service, toolbox
+from ..schedule import db as schedule_db, notifier, service, session_pool, toolbox
 
 logger = logging.getLogger("gateway.schedule")
 router = APIRouter(prefix="/api/schedule", tags=["schedule"])
@@ -190,10 +190,14 @@ def query_by_student(response: Response,
 
 @router.get("/status")
 def status(response: Response, _: dict = Depends(require_admin)) -> dict:
-    """管理端：课表缓存统计。"""
+    """管理端：课表缓存统计 + 教务会话池状态（不含任何凭据或会话内容）。"""
     _set_no_cache(response)
     caches = service.list_cache_stats()
-    return {"total": len(caches), "caches": caches}
+    return {
+        "total": len(caches),
+        "caches": caches,
+        "jwxt_session_pool": session_pool.stats(),
+    }
 
 
 # ===================== 教务工具箱 API 路由 =====================

@@ -76,7 +76,12 @@ def _login(username: str = USERNAME, password: str = PASSWORD, cookie: str | Non
 class AuthSessionTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        conn = sqlite3.connect(os.environ["SQLITE_DB_PATH"])
+        # 必须用 settings.SQLITE_DB_PATH 而不是 os.environ[...]：app/config.py 的
+        # settings 只在首次 import 时读一次环境变量，之后 os.environ 改了也不生效。
+        # 同一批跑时若别的测试模块先 import 了 app.config，两者就会指向不同文件，
+        # 于是建表建在 A、查询查 B，报 "no such table: users"。
+        from app.config import settings
+        conn = sqlite3.connect(settings.SQLITE_DB_PATH)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -162,8 +167,9 @@ class AuthSessionTest(unittest.TestCase):
 
     # ---- 7. 过期 Session 被拒绝 ----
     def test_expired_session_rejected(self):
+        from app.config import settings
         _, sid = _login()
-        conn = sqlite3.connect(os.environ["SQLITE_DB_PATH"])
+        conn = sqlite3.connect(settings.SQLITE_DB_PATH)
         conn.execute("UPDATE sessions SET expires_at='2000-01-01 00:00:00' WHERE sid=?", (sid,))
         conn.commit()
         conn.close()
