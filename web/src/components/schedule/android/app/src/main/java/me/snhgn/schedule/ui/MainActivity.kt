@@ -120,14 +120,13 @@ class MainActivity : AppCompatActivity() {
     private fun setupWebView() {
         val wv = webView ?: return
         val settings = wv.settings
-        wv.clearCache(true)
-        WebView.setWebContentsDebuggingEnabled(true)
-
         settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true    // 支持 LocalStorage
             databaseEnabled = true      // 支持 Web SQL / IndexDB
-            cacheMode = WebSettings.LOAD_NO_CACHE // 始终拉取最新版本，防止 ServiceWorker/DiskCache 锁死旧代码
+            // Caddy 服务器对 index.html 标头设为 no-cache，每次打开必然请求最新 HTML；
+            // 对带 hash 的静态脚本/样式使用正常缓存 (LOAD_DEFAULT)，实现毫秒级秒开，免每次重新下载全站代码
+            cacheMode = WebSettings.LOAD_DEFAULT
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             useWideViewPort = true
             loadWithOverviewMode = true
