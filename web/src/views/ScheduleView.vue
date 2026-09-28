@@ -772,13 +772,13 @@ onMounted(async () => {
       syncUrlWithUser(savedSid.trim())
     }
 
-    // 后台静默拉取最新课表覆盖本地
-    syncingLatest.value = true
+    // 后台静默校验与更新课表（优先使用服务端新鲜缓存，绝不每次打开都重爬教务）
+    syncingLatest.value = !schedule.value
     try {
       const fresh = await api.post<ScheduleData>('/api/schedule/get', {
         student_id: savedSid.trim(),
         password: savedPwd,
-        force: true,
+        force: false,
       })
       if (fresh && fresh.courses) {
         schedule.value = fresh

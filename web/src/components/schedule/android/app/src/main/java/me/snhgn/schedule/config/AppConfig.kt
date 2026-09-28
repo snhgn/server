@@ -11,6 +11,7 @@ object AppConfig {
      */
     val CANDIDATE_URLS = listOf(
         "https://lan.snhgn.me/schedule?app=1",
+        "https://cn.snhgn.me/schedule?app=1",
         "https://snhgn.me/schedule?app=1"
     )
 
@@ -22,6 +23,7 @@ object AppConfig {
      */
     val API_CANDIDATE_URLS = listOf(
         "https://lan.snhgn.me/api/course/list",
+        "https://cn.snhgn.me/api/course/list",
         "https://snhgn.me/api/course/list"
     )
 

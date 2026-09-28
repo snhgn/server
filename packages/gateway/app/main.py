@@ -43,12 +43,24 @@ for uv_name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
         uv_logger.addHandler(h)
 
 
+def _warmup_ocr():
+    try:
+        from .schedule.recognize import _get_ddddocr, _get_matcher
+        _get_matcher()
+        _get_ddddocr()
+        logger.info("Captcha OCR engine pre-warmed successfully")
+    except Exception as e:
+        logger.warning("Captcha OCR pre-warm skipped or failed: %s", e)
+
+
 @contextlib.asynccontextmanager
 async def lifespan(_: FastAPI):
     # 登录 Session 表（幂等，CREATE IF NOT EXISTS）+ 课表缓存表 + 课程表 + 同步状态表
     sessions.init()
     schedule_db.init_db()
     course_db.init_db()
+    # 异步预热验证码 OCR 模块（消除用户首次登录/拉取的 1.5s 冷启动延迟）
+    asyncio.create_task(asyncio.to_thread(_warmup_ocr))
     # 每日定时同步：启动后延迟到 COURSE_SYNC_HOUR 时刻执行
     task = course_scheduler.start()
     try:

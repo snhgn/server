@@ -31,7 +31,7 @@ router = APIRouter(prefix="/api/schedule", tags=["schedule"])
 class GetScheduleRequest(BaseModel):
     student_id: str
     password: str
-    force: bool = True  # 同步请求默认执行真实教务拉取，避免用户提交凭据后仍读旧缓存
+    force: bool = False  # 默认使用新鲜缓存；用户主动点击刷新时传 True 强制重新爬取教务
 
 
 class ToolboxAuthRequest(BaseModel):
