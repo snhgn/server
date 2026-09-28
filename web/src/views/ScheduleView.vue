@@ -944,6 +944,100 @@ const combinedSchedule = computed<ScheduleData | null>(() => {
   }
 })
 
+function exportConcreteCoursesForAndroid(courses: Course[]): Array<{
+  id: number
+  courseName: string
+  classRoom: string
+  startTime: string
+  endTime: string
+}> {
+  if (!courses || courses.length === 0) return []
+
+  const merged = mergeAdjacentCourses(courses)
+  const result: Array<{
+    id: number
+    courseName: string
+    classRoom: string
+    startTime: string
+    endTime: string
+  }> = []
+
+  const termStartDate = new Date(`${TERM_START}T00:00:00`)
+
+  for (const c of merged) {
+    if (!c.name || !c.day || !c.start || !c.end) continue
+
+    const weekList = parseWeeks(c.weeks)
+    if (!weekList || weekList.length === 0) continue
+
+    const isSingleWeek = c.weeks?.includes('(单)') || c.weeks?.includes('(单周)')
+    const isDoubleWeek = c.weeks?.includes('(双)') || c.weeks?.includes('(双周)')
+
+    const startB = periodSlots[blockOf(c.start) - 1]
+    const endB = periodSlots[blockOf(c.end) - 1]
+    if (!startB || !endB) continue
+
+    for (const w of weekList) {
+      if (isSingleWeek && w % 2 === 0) continue
+      if (isDoubleWeek && w % 2 === 1) continue
+
+      // 计算具体日期: termStartDate + (w - 1) * 7天 + (day - 1)天
+      const courseDate = new Date(termStartDate.getTime() + ((w - 1) * 7 + (c.day - 1)) * 86400000)
+      const year = courseDate.getFullYear()
+      const month = String(courseDate.getMonth() + 1).padStart(2, '0')
+      const day = String(courseDate.getDate()).padStart(2, '0')
+      const datePrefix = `${year}-${month}-${day}`
+
+      const startH = String(Math.floor(startB.from / 60)).padStart(2, '0')
+      const startM = String(startB.from % 60).padStart(2, '0')
+      const endH = String(Math.floor(endB.to / 60)).padStart(2, '0')
+      const endM = String(endB.to % 60).padStart(2, '0')
+
+      const startTimeStr = `${datePrefix} ${startH}:${startM}`
+      const endTimeStr = `${datePrefix} ${endH}:${endM}`
+
+      // 生成稳定的数字 ID
+      const strToHash = `${c.name}_${c.room || ''}_${startTimeStr}`
+      let hash = 0
+      for (let i = 0; i < strToHash.length; i++) {
+        hash = (hash * 31 + strToHash.charCodeAt(i)) & 0x7fffffff
+      }
+
+      result.push({
+        id: hash || (result.length + 1),
+        courseName: c.name,
+        classRoom: c.room || '待定教室',
+        startTime: startTimeStr,
+        endTime: endTimeStr,
+      })
+    }
+  }
+
+  return result
+}
+
+function syncToAndroidBridge(sched: ScheduleData | null) {
+  if (typeof window === 'undefined' || !(window as any).AndroidBridge?.syncCourses) return
+  if (!sched || !sched.courses || sched.courses.length === 0) return
+
+  try {
+    const concreteList = exportConcreteCoursesForAndroid(sched.courses)
+    ;(window as any).AndroidBridge.syncCourses(JSON.stringify(concreteList))
+  } catch (err) {
+    console.error('[ScheduleView] 推送课程至 AndroidBridge 异常:', err)
+  }
+}
+
+watch(
+  () => combinedSchedule.value,
+  (newSched) => {
+    if (newSched?.courses?.length) {
+      syncToAndroidBridge(newSched)
+    }
+  },
+  { immediate: true, deep: true }
+)
+
 const weekCourses = computed<Course[]>(() => {
   const week = currentWeek.value
   return combinedCourses.value.filter((c) => {

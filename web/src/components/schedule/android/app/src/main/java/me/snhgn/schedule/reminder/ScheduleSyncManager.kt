@@ -18,64 +18,105 @@ object ScheduleSyncManager {
     private const val TAG = "ScheduleSyncManager"
 
     /**
-     * 统一入口：全量同步课表并更新系统闹钟
+     * 来自 WebView 前端 JS 桥梁的直接推送：全量更新具体课程并注册系统闹钟
+     */
+    suspend fun updateFromWebJson(context: Context, jsonStr: String): Int = withContext(Dispatchers.IO) {
+        val courseList = mutableListOf<Course>()
+        try {
+            val jsonArray = JSONArray(jsonStr)
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.optJSONObject(i)
+                if (obj != null) {
+                    val course = Course.fromJson(obj)
+                    if (course.id > 0 && course.startTime.isNotEmpty()) {
+                        courseList.add(course)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "解析前端课程 JSON 异常: ${e.message}", e)
+            return@withContext 0
+        }
+
+        if (courseList.isEmpty()) {
+            Log.w(TAG, "从前端解析得到的课程列表为空")
+            return@withContext 0
+        }
+
+        saveCoursesToCache(context, courseList)
+        val registeredCount = scheduleFutureCourses(context, courseList)
+        Log.i(TAG, "前端推送课表同步完成！解析得到 ${courseList.size} 门具体课程，已注册未来 7 天内 ${registeredCount} 个闹钟")
+        registeredCount
+    }
+
+    /**
+     * 统一入口：全量同步课表并更新系统闹钟 (本地缓存优先，手机开机/每日定时调用)
      */
     suspend fun syncSchedule(context: Context): Result<Int> = withContext(Dispatchers.IO) {
         Log.d(TAG, "开始执行课表同步...")
 
-        // 1. 尝试从服务端拉取最新课表
-        val fetchResult = ApiClient.fetchCourses()
-        val latestCourses: List<Course> = if (fetchResult.isSuccess) {
-            val list = fetchResult.getOrDefault(emptyList())
-            saveCoursesToCache(context, list)
-            list
-        } else {
-            Log.w(TAG, "服务端请求失败，回退读取本地持久化课表缓存")
-            getCachedCourses(context)
+        // 1. 本地可靠缓存优先
+        var courses = getCachedCourses(context)
+
+        // 2. 若本地暂无缓存，尝试通过候选 API 端点拉取兜底
+        if (courses.isEmpty()) {
+            val fetchResult = ApiClient.fetchCourses()
+            if (fetchResult.isSuccess) {
+                courses = fetchResult.getOrDefault(emptyList())
+                if (courses.isNotEmpty()) {
+                    saveCoursesToCache(context, courses)
+                }
+            }
         }
 
-        if (latestCourses.isEmpty()) {
+        if (courses.isEmpty()) {
             Log.w(TAG, "未获取到任何有效课程数据，结束同步")
             return@withContext Result.success(0)
         }
 
-        // 2. 筛选当前时间之后、且在未来 7 天以内的课程
+        val registeredCount = scheduleFutureCourses(context, courses)
+        Log.i(TAG, "课表同步调度完成！成功注册闹钟数: $registeredCount")
+        Result.success(registeredCount)
+    }
+
+    /**
+     * 针对给定的课程列表，筛选未来 7 天待上课程并注册成对闹钟
+     */
+    private fun scheduleFutureCourses(context: Context, allCourses: List<Course>): Int {
         val now = System.currentTimeMillis()
         val sevenDaysLater = now + (AppConfig.SYNC_FUTURE_DAYS * 24 * 60 * 60 * 1000L)
 
-        val validFutureCourses = latestCourses.filter { course ->
-            val end = course.endMillis
-            val start = course.startMillis
-            // 只要课程还没结束，并且在未来 7 天内
-            end > now && start <= sevenDaysLater
+        // 筛选尚未结束且在未来 7 天内的课程
+        val validFutureCourses = allCourses.filter { course ->
+            course.endMillis > now && course.startMillis <= sevenDaysLater
         }
 
-        // 3. 与本地已注册闹钟集合进行比对
         val sp = getPrefs(context)
         val oldRegisteredKeys = sp.getStringSet(AppConfig.KEY_REGISTERED_KEYS, emptySet())?.toMutableSet()
             ?: mutableSetOf()
 
-        // 收集新课表需要生效的全部 Alarm Key
-        val targetStartKeys = mutableSetOf<String>()
-        val targetEndKeys = mutableSetOf<String>()
         val currentActiveAlarmKeys = mutableSetOf<String>()
-
         var registeredCount = 0
+
         for (course in validFutureCourses) {
             val (startOk, endOk) = AlarmManagerHelper.registerCourseAlarms(context, course)
             if (startOk) {
-                targetStartKeys.add(course.startKey)
                 currentActiveAlarmKeys.add(course.startKey)
                 registeredCount++
             }
             if (endOk) {
-                targetEndKeys.add(course.endKey)
                 currentActiveAlarmKeys.add(course.endKey)
                 registeredCount++
             }
+
+            // 特殊场景：若当前正好处于课前 5 分钟内或正在上课中，立即唤起流体云悬浮胶囊
+            if (course.reminderMillis <= now && now < course.endMillis) {
+                Log.i(TAG, "当前正处于即将上课或上课中，立即拉起流体云胶囊: ${course.courseName}")
+                FloatingWindowService.startService(context, course)
+            }
         }
 
-        // 计算需要取消的旧闹钟：已注册但不再存在于新课表中的闹钟
+        // 清理已不再生效的旧闹钟
         val keysToCancel = oldRegisteredKeys - currentActiveAlarmKeys
         for (key in keysToCancel) {
             when {
@@ -86,21 +127,15 @@ object ScheduleSyncManager {
                     AlarmManagerHelper.cancelAlarmByKey(context, AlarmManagerHelper.ACTION_COURSE_END, key)
                 }
                 else -> {
-                    // 兼容旧格式 Key
                     AlarmManagerHelper.cancelCourseAlarm(context, key)
                 }
             }
-            Log.d(TAG, "取消已失效或已修改的闹钟: $key")
+            Log.d(TAG, "取消已失效闹钟: $key")
         }
 
-        // 4. 更新本地已注册的 Key 列表
         sp.edit().putStringSet(AppConfig.KEY_REGISTERED_KEYS, currentActiveAlarmKeys).apply()
-
-        // 5. 安排下一次每日凌晨自动同步任务
         AlarmManagerHelper.scheduleDailySync(context)
-
-        Log.d(TAG, "课表同步完成！未来有效课程数: ${validFutureCourses.size}, 成功注册闹钟数: $registeredCount")
-        Result.success(registeredCount)
+        return registeredCount
     }
 
     /**
