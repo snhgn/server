@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 from bs4 import BeautifulSoup
 import requests
 
-from . import captcha
+from . import captcha, session_pool
 
 BASE_URL = "http://newjwxt.bjfu.edu.cn"
 
@@ -334,12 +334,51 @@ def get_level_exams(session: requests.Session) -> List[Dict[str, str]]:
     return results
 
 
-def execute_with_login(account: str, password: str, task_fn, *args, **kwargs):
-    """自动完成登录并调用目标抓取函数，确保 Session 生命周期安全关闭。"""
-    success, sess, reason = captcha.login(account.strip(), password, max_retry=5)
-    if not success:
-        raise ValueError(reason or "账号或密码错误或验证码识别失败")
+class _SessionStale(Exception):
+    """池中会话被服务端作废，需要重新登录。"""
+
+
+def _looks_logged_out(sess) -> bool:
+    """复用会话前先确认它还有效。
+
+    强智会话失效时会直接返回登录页，各抓取函数解析后会得到「空结果」而
+    不是异常，所以只能靠一次轻量内容探测判断。这里用课表页做探针：已登录
+    才会拿到非登录页。探测本身出错时按「未失效」处理——此时重新登录同样
+    会失败，盲目丢弃健康会话只会白白多花一次验证码。
+    """
     try:
-        return task_fn(sess, *args, **kwargs)
-    finally:
-        sess.close()
+        return captcha.is_login_page(captcha.get_timetable(sess))
+    except Exception:
+        return False
+
+
+def execute_with_login(account: str, password: str, task_fn, *args, **kwargs):
+    """借出已登录会话并调用目标抓取函数。
+
+    会话来自进程内会话池，同一学生连续查询成绩/考试/培养方案/等级考试时
+    只在第一次走验证码登录；池中会话被服务端作废时自动重新登录一次。
+    抓取函数自身抛异常即视为会话不可信，会话被丢弃后重试一次。
+    """
+    sid = account.strip()
+    for attempt in (1, 2):
+        try:
+            with session_pool.session_for(sid, password, max_retry=5) as (sess, reused):
+                if reused and _looks_logged_out(sess):
+                    # 池中会话其实已失效：作废它，让本轮重新登录后再试
+                    raise _SessionStale()
+                return task_fn(sess, *args, **kwargs)
+        except _SessionStale:
+            session_pool.invalidate(sid)
+            if attempt == 2:
+                raise ValueError("教务系统会话已失效，请稍后重试")
+            continue
+        except session_pool.LoginFailed:
+            # 账号密码/验证码问题：重试无意义，直接上抛（路由转 400）
+            raise
+        except Exception:
+            # 抓取途中出错：会话大概率已不可信，丢弃后最后再试一次
+            session_pool.invalidate(sid)
+            if attempt == 2:
+                raise
+    raise ValueError("教务系统会话已失效，请稍后重试")
+

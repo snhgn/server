@@ -15,7 +15,7 @@ import time
 from datetime import datetime, timezone
 
 from ..config import settings
-from . import captcha, course_context, db, parse_timetable
+from . import captcha, course_context, db, parse_timetable, session_pool
 
 logger = logging.getLogger("gateway.schedule")
 
@@ -123,61 +123,82 @@ def _current_semester(html: str) -> str:
 def _crawl_sync(student_id: str, password: str) -> tuple[str, list[dict]]:
     """同步登录教务系统并抓取课表（运行于线程池，避免阻塞事件循环）。
 
-    返回 (semester, courses)。失败抛 ScheduleError；会话在 finally 中销毁。
+    会话来自进程内会话池：同一学生刚查过成绩/考试再刷新课表时可直接复用，
+    省掉一整轮验证码握手。池中会话被服务端作废时自动重新登录重试一次。
+    返回 (semester, courses)。失败抛 ScheduleError。
     """
-    session = None
-    try:
-        ok, session, reason = captcha.login(
-            student_id, password,
-            max_retry=settings.SCHEDULE_CAPTCHA_MAX_RETRY, verbose=False,
-        )
-        if not ok:
-            raise ScheduleError(*_login_error(reason))
-
-        html0 = captcha.get_timetable(session)
-        courses = parse_timetable.merge_adjacent(parse_timetable.parse_grid(html0))
-        semester = _current_semester(html0)
-        if not courses:
-            # 默认学期无课表：按学期下拉依次轮询，取第一个有课表的学期
-            sems = parse_timetable.extract_selects(html0).get("xnxq01id", [])
-            for value, text in sems:
-                if not value:
-                    continue
-                html = parse_timetable.fetch_semester(session, value)
-                rows = parse_timetable.merge_adjacent(parse_timetable.parse_grid(html))
-                if rows:
-                    courses = rows
-                    semester = text
+    for attempt in (1, 2):
+        try:
+            with session_pool.session_for(
+                student_id, password,
+                max_retry=settings.SCHEDULE_CAPTCHA_MAX_RETRY, verbose=False,
+            ) as (session, _reused):
+                semester, courses = _crawl_with_session(session)
+                if courses:
+                    return semester, [_normalize_course(c) for c in courses]
+                if attempt == 2:
                     break
-            else:
-                raise ScheduleError(400, "当前学期暂无课表数据")
+                # 空课表可能是会话被作废后拿到的登录页：作废会话重登一次
+                if not _session_is_stale(session):
+                    break
+        except session_pool.LoginFailed as e:
+            # 账号密码/验证码问题：重试无意义，立即上抛
+            raise ScheduleError(*_login_error(str(e)))
+        except ScheduleError:
+            raise
+        except Exception as e:
+            # 只记错误类别，不记录任何学号/密码信息
+            logger.warning("schedule crawl error: %s", type(e).__name__)
+            raise ScheduleError(502, "教务系统暂时不可用，请稍后重试")
+    raise ScheduleError(400, "当前学期暂无课表数据")
 
-        out = []
-        for c in courses:
-            start, end = parse_period_range(c.get("period", ""))
-            out.append({
-                "name": c.get("name", ""),
-                "teacher": c.get("teacher", ""),
-                "room": c.get("room", ""),
-                "weeks": c.get("weeks", ""),
-                "day": c.get("day", 0),
-                "period": c.get("period", ""),
-                "start": start,
-                "end": end,
-            })
-        return semester, out
-    except ScheduleError:
-        raise
-    except Exception as e:
-        # 只记错误类别，不记录任何学号/密码信息
-        logger.warning("schedule crawl error: %s", type(e).__name__)
-        raise ScheduleError(502, "教务系统暂时不可用，请稍后重试")
-    finally:
-        if session is not None:
-            try:
-                session.close()
-            except Exception:
-                pass
+
+def _normalize_course(c: dict) -> dict:
+    """把解析出的课程行归一化为前端契约结构（含可比较的起止节次）。"""
+    start, end = parse_period_range(c.get("period", ""))
+    return {
+        "name": c.get("name", ""),
+        "teacher": c.get("teacher", ""),
+        "room": c.get("room", ""),
+        "weeks": c.get("weeks", ""),
+        "day": c.get("day", 0),
+        "period": c.get("period", ""),
+        "start": start,
+        "end": end,
+    }
+
+
+def _crawl_with_session(session) -> tuple[str, list[dict]]:
+    """用已登录会话抓取课表；返回 (semester, courses)，无课时 courses 为空。"""
+    html0 = captcha.get_timetable(session)
+    courses = parse_timetable.merge_adjacent(parse_timetable.parse_grid(html0))
+    semester = _current_semester(html0)
+    if courses:
+        return semester, courses
+
+    # 默认学期无课表：按学期下拉依次轮询，取第一个有课表的学期
+    sems = parse_timetable.extract_selects(html0).get("xnxq01id", [])
+    for value, text in sems:
+        if not value:
+            continue
+        html = parse_timetable.fetch_semester(session, value)
+        rows = parse_timetable.merge_adjacent(parse_timetable.parse_grid(html))
+        if rows:
+            return text, rows
+    return semester, []
+
+
+def _session_is_stale(session) -> bool:
+    """会话是否已被服务端作废（拿到的其实是登录页）。
+
+    强智会话失效时不返回 302 而是直接吐登录页，且各抓取函数解析后会得到
+    「空结果」而非异常，所以只能靠内容特征判断。探测本身出错时按「未失效」
+    处理：此时重新登录同样会失败。
+    """
+    try:
+        return captcha.is_login_page(captcha.get_timetable(session))
+    except Exception:
+        return False
 
 
 async def fetch_schedule(user_id: int, student_id: str, password: str,

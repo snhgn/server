@@ -17,6 +17,7 @@
 （迁移自 schedule-pipeline/captcha_solver/captcha.py，仅调整相对导入）
 """
 import random
+import time
 
 import requests
 
@@ -29,6 +30,11 @@ HEADERS = {
                   "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
     "Referer": BASE_URL + "/",
 }
+
+# 验证码重试退避区间（秒）。首轮失败后随机等待，避免背靠背连续提交
+# 被教务系统判定为暴力破解而限流；随机化也避免多用户同相位重试。
+RETRY_BACKOFF_MIN = 0.4
+RETRY_BACKOFF_MAX = 1.2
 
 
 def get_session():
@@ -100,20 +106,42 @@ def _is_account_error(text):
     )
 
 
+def is_login_page(text):
+    """响应是否为未登录/被踢回登录页（会话已失效）。
+
+    强智在会话失效时不返回 302，而是直接吐登录页 HTML，只能靠内容特征判断：
+    登录页必然同时包含登录提交地址与随机码输入框。
+    """
+    if not text:
+        return True
+    return ("RANDOMCODE" in text and "Logon.do" in text) or "verifycode.servlet" in text
+
+
 def login(account, password, session=None, max_retry=10, verbose=False):
     """自动登录：获取验证码 -> 识别 -> 提交，验证码识别错自动换新码重试。
 
     单张识别准确率约 90% 时，10 次重试几乎必然成功。
+    识别不出可信的 4 位验证码时直接换码，不再浪费 2 次提交往返；
+    每次重试前随机退避，降低被教务系统限流的概率。
     返回 (是否成功, session, 失败原因)；成功时原因为空串。
     """
     session = session or get_session()
     reason = ""
     unknown_streak = 0
     for attempt in range(1, max_retry + 1):
+        if attempt > 1:
+            time.sleep(random.uniform(RETRY_BACKOFF_MIN, RETRY_BACKOFF_MAX))
+
         captcha = get_captcha(session)
         code = recognize(captcha)
         if verbose:
             print(f"[尝试 {attempt}/{max_retry}] 验证码识别结果: {code}")
+        if not code:
+            # 识别结果不可信（位数不对/含非法字符），提交必失败，直接换新码
+            reason = "验证码无法识别，自动重试"
+            if verbose:
+                print(f"[尝试 {attempt}] {reason}")
+            continue
 
         # 1) 取加密因子 scode#sxh
         resp = session.post(

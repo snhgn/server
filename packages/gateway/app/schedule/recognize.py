@@ -1,98 +1,116 @@
 # -*- coding: utf-8 -*-
-"""字符识别模块，三级识别链（按优先级）：
+"""验证码识别模块。
 
-1. CNN       models/cnn.pth（真实样本训练，准确率最高，首选）
-2. 模板匹配  models/templates/<字符标签>/*.png（字符为白、黑底二值图）
-3. OCR       优先 ddddocr，其次 pytesseract（单字符 psm=10）
+生产路径只有一条：整图 ddddocr（Dr.COM 4 位字母数字验证码实测整图识别
+准确率最高）。整体流程：
 
-切割结果数量异常时，降级为整图 OCR。
-（迁移自 schedule-pipeline/captcha_solver/recognize.py，仅调整相对导入）
+1. 整图 ddddocr + 逐字符置信度，位数/字符集合法即采信；
+2. 整图结果非法（位数不对、含非 ASCII 字母数字）时降级到切分 + 逐字符 ddddocr；
+3. 切分链也给不出合法结果时用整图结果抢救；仍失败返回空串，由调用方换码。
+
+关于历史上被移除的两条分支（保留此说明以免再被"复活"）：
+- **CNN**（models/cnn.pth）：训练脚本 train.py 已随旧目录一并删除，
+  `from train import CharCNN` 必然 ImportError，且是绝对导入（包内应为
+  .train），torch 也不在 requirements.txt —— 恒为死代码。该权重还是用
+  PIL 随机字体合成数据训的，从未见过真实验证码。
+- **模板匹配**（models/templates/）：字符集只有 "123bcmnvxz" 10 个符号，
+  真实验证码含其他字符时必然误判。
+
+这两条即使修好导入也只会更差：它们把整图问题拆成单字符问题，而逐字符
+识别本就劣于整图。真正该做的是训一个整图 CRNN + CTC（见 docs）并配上
+标注样本集做评测，而不是修补这两条兜底。
 """
-import json
-import os
+import threading
 
 import cv2
 import numpy as np
 
 from .preprocess import preprocess
-from .segment import segment_chars, normalize_char, EXPECTED_CHARS, CHAR_SIZE
+from .segment import segment_chars, EXPECTED_CHARS
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-TEMPLATE_DIR = os.path.join(BASE_DIR, "models", "templates")
-CNN_MODEL = os.path.join(BASE_DIR, "models", "cnn.pth")
-META_FILE = os.path.join(BASE_DIR, "models", "meta.json")
-
-TEMPLATE_THRESHOLD = 0.55  # 模板匹配置信度阈值(IoU)，低于此值走 OCR/CNN
-
-_matcher = None
-_cnn = None  # (model, charset, device) 懒加载缓存
 _ddddocr = None  # ddddocr 实例懒加载缓存（单次初始化 ~1s+，必须复用）
+
+# 只保护「一次性把字符集索引钉成只读」这个动作，热路径不加锁：
+# 钉完之后 ddddocr 实例在 classification() 期间不再有任何共享可变状态
+# （见 _pin_charset_index 的论证），onnxruntime 的 session.run() 本身线程安全。
+_pin_lock = threading.Lock()
+_pinned = False  # 字符集索引是否已钉住（False 表示退回原实现）
+
+# 识别质量观测计数（进程内，仅统计量）
+_stats_lock = threading.Lock()
+_stats = {
+    "samples": 0,
+    "no_confidence": 0,
+    "alignment_mismatch": 0,
+    "last_mean": None,
+    "last_weakest": None,
+    "last_len": 0,
+    "pin_applied": False,
+}
+
+
+def _pin_charset_index(ocr) -> bool:
+    """把 ddddocr 每次识别都会重跑的字符集索引，预计算成只读常量。
+
+    ddddocr 的 predict() 在 charset_range=None 时会调用
+    CharsetManager._update_valid_indices()，其实现是 clear() + 遍历 8208 项的
+    charset_range、每项再做一次 charset.index() —— O(n^2) ≈ 6700 万次字符串
+    比较。实测**单次约 336ms**，比 ONNX 推理本身贵一个数量级，而且它串行发生
+    在旧的全局锁内，直接把验证码识别的进程吞吐压到约 3 次/秒；切分兜底链每个
+    验证码要跑 4 次逐字符 OCR，单张就 1.3s。
+
+    我们从不传 charset_range、也不换自定义模型（import_onnx_path /
+    load_custom_charset 都没用），所以 charset 与 charset_range 在 init 之后
+    恒定不变 —— 每次重算得到的必然是同一个列表，属于纯浪费。
+
+    这里在实例上把该方法替换成「校验 + 必要时原样写回」，让热路径额外开销
+    降到一次列表比较。写回用切片赋值（CPython 在 GIL 内一次完成，不存在
+    中间态），因此并发 classification 依然安全 —— 这也是可以去掉全局锁的依据。
+
+    任何一步对不上（ddddocr 内部结构变化、范围不是全量等）就返回 False，
+    静默退回原实现，只损失性能不影响功能。
+    """
+    cm = getattr(ocr, "charset_manager", None)
+    rebuild = getattr(cm, "_update_valid_indices", None)
+    if not callable(rebuild):
+        return False
+    try:
+        rebuild()
+        snapshot = list(getattr(cm, "valid_charset_range_index", None) or [])
+        charset = list(getattr(cm, "charset", None) or [])
+    except Exception:
+        return False
+    # 只在全量范围下钉：范围受限时索引会随 charset_range 变化，快照会过期
+    if not snapshot or len(snapshot) != len(charset):
+        return False
+
+    def _pinned_rebuild():
+        # 正常路径只有一次 O(n) 列表比较（~30µs）；万一被别处清空就原样写回
+        if cm.valid_charset_range_index != snapshot:
+            cm.valid_charset_range_index[:] = snapshot
+        return None
+
+    try:
+        cm._update_valid_indices = _pinned_rebuild
+    except Exception:
+        return False
+    return cm.valid_charset_range_index == snapshot
 
 
 def _get_ddddocr():
     """获取 ddddocr 单例：模型加载仅一次，避免每次识别重建实例"""
-    global _ddddocr
+    global _ddddocr, _pinned
     if _ddddocr is None:
         import ddddocr
 
         _ddddocr = ddddocr.DdddOcr(show_ad=False)
+    if not _pinned:
+        with _pin_lock:
+            if not _pinned:
+                _pinned = _pin_charset_index(_ddddocr)
+                with _stats_lock:
+                    _stats["pin_applied"] = _pinned
     return _ddddocr
-
-
-class TemplateMatcher:
-    """基于 XOR 距离的二值模板匹配。"""
-
-    def __init__(self, template_dir=TEMPLATE_DIR, size=CHAR_SIZE):
-        self.size = size
-        self.templates = {}  # {label: [0/1 ndarray, ...]}
-        if not os.path.isdir(template_dir):
-            return
-        for label in sorted(os.listdir(template_dir)):
-            d = os.path.join(template_dir, label)
-            if not os.path.isdir(d):
-                continue
-            mats = []
-            for f in os.listdir(d):
-                if not f.lower().endswith((".png", ".bmp", ".jpg")):
-                    continue
-                img = cv2.imread(os.path.join(d, f), cv2.IMREAD_GRAYSCALE)
-                if img is None:
-                    continue
-                _, img = cv2.threshold(img, 127, 255, cv2.THRESH_BINARY)
-                if np.count_nonzero(img) > img.size * 0.5:  # 保证字符为白
-                    img = cv2.bitwise_not(img)
-                mats.append((normalize_char(img, size) > 0).astype(np.uint8))
-            if mats:
-                self.templates[label] = mats
-
-    def match(self, char_img, max_shift=2):
-        """返回 (最优标签, 相似度得分)。得分 = 前景 IoU（允许 ±max_shift 平移对齐，
-        容忍切割边界 1~2px 偏差）。"""
-        if not self.templates:
-            return None, 0.0
-        c = char_img > 0
-        c_sum = c.sum()
-        best_label, best_score = None, 0.0
-        for label, mats in self.templates.items():
-            for m in mats:
-                t = m > 0
-                t_sum = t.sum()
-                for dy in range(-max_shift, max_shift + 1):
-                    for dx in range(-max_shift, max_shift + 1):
-                        tm = np.roll(t, (dy, dx), axis=(0, 1))
-                        inter = np.count_nonzero(c & tm)
-                        union = c_sum + t_sum - inter
-                        score = inter / union if union else 0.0
-                        if score > best_score:
-                            best_label, best_score = label, score
-        return best_label, best_score
-
-
-def _get_matcher():
-    global _matcher
-    if _matcher is None:
-        _matcher = TemplateMatcher()
-    return _matcher if _matcher.templates else None
 
 
 def _ocr_char(char_img):
@@ -122,63 +140,142 @@ def _ocr_char(char_img):
 
 
 def _full_image_ocr(image):
-    """切割失败时的整图 OCR 降级。"""
+    """整图 OCR。返回 (文本, 逐字符置信度列表)；无置信度时后置为 None。"""
     if isinstance(image, (bytes, bytearray)):
         data = bytes(image)
     else:
         ok, png = cv2.imencode(".png", image)
         data = png.tobytes() if ok else None
     if data is None:
-        return ""
+        return "", None
     try:
-        return _get_ddddocr().classification(data)
+        ocr = _get_ddddocr()
+        try:
+            res = ocr.classification(data, probability=True)
+        except TypeError:  # 旧版 ddddocr 无 probability 参数
+            return ocr.classification(data), None
+        return _decode_ocr_result(res)
     except ImportError:
-        return ""
+        return "", None
     except Exception:
+        return "", None
+
+
+def _decode_ocr_result(res):
+    """把 ddddocr probability=True 的返回拆成 (文本, 逐字符置信度)。
+
+    ddddocr 自带的 confidence 字段是「所有时间步（含 CTC blank）argmax 的
+    均值」，被 blank 稀释、且无法定位到底哪一位不可靠，所以这里自己按 CTC
+    规则取「非 blank 时间步」上的最大概率作为每个字符的置信度。
+
+    任何一步失败都退化为 (文本, None)，让调用方沿用长度/字符集门控，
+    不因为拿不到置信度就拒绝一个本来正确的识别结果。
+    """
+    if isinstance(res, str):
+        return res, None
+    if not isinstance(res, dict):
+        return "", None
+    text = res.get("text") or ""
+    probs = res.get("probabilities")
+    charset = res.get("charset")
+    try:
+        # probabilities 形状为 [1, T, C]（部分版本为 [T, C]）
+        arr = probs[0] if len(probs) and len(probs[0]) else probs
+        conf = _ctc_confidences(arr, charset)
+    except Exception:
+        conf = None
+    return text, conf
+
+
+def _ctc_confidences(arr, charset):
+    """按 CTC 规则输出与 text 逐位对齐的置信度。
+
+    blank 固定是字符集的第 0 项——ddddocr 自己的 _ctc_decode_indices 就是
+    按「idx != 0 即为有效字符」解的码，这里必须与它保持一致，否则取到的
+    概率和它解出的 text 会对不上位。
+
+    另外跳过最大概率近于 0 的时间步：这种步不含信息量（异常/未归一化的
+    输出），按 argmax 硬取会把噪声当成一个低置信度字符塞进结果。
+    """
+    if arr is None or not charset:
+        return None
+    blank_idx = 0
+    confs = []
+    prev = -1
+    for step in arr:
+        idx = int(np.argmax(step))
+        peak = float(step[idx])
+        if peak < 1e-6:  # 无信息量的时间步，既不当字符也不更新 prev
+            continue
+        if idx != prev and idx != blank_idx:
+            confs.append(peak)
+        prev = idx
+    return confs or None
+
+
+def _is_plausible_code(code, expected=EXPECTED_CHARS):
+    """OCR 输出是否可直接采信作为教务系统验证码。
+
+    必须恰好 expected 位：多出来的位通常是幻觉字符（静默截断会把
+    「前 4 位正确 + 末尾多一个错字符」误判为整体正确），少位则是漏识别。
+    字符限定 ASCII 字母数字：str.isalnum() 对 CJK 也返回 True，
+    会让「一1b2」这类垃圾输出直接通过。
+    """
+    if not code or len(code) != expected:
+        return False
+    return all(c.isascii() and c.isalnum() for c in code)
+
+
+def _salvage_code(code, expected=EXPECTED_CHARS):
+    """从不可信的整图输出里抢救出恰好 expected 位字母数字，全失败返回空串。
+
+    仅移除噪声字符、不做截断：长度不足或超长都说明漏识别/幻觉，此时提交
+    登录必定失败，直接返回空串让调用方立刻换码，省下 2 次无谓往返。
+    """
+    if not code:
         return ""
+    kept = [c for c in code if c.isascii() and c.isalnum()]
+    return "".join(kept) if len(kept) == expected else ""
 
 
-def _load_cnn():
-    """懒加载 CNN 模型，未安装 torch 或模型不存在时返回 None。"""
-    global _cnn
-    if _cnn is not None:
-        return _cnn
-    if not os.path.isfile(CNN_MODEL) or not os.path.isfile(META_FILE):
+def _mean_confidence(confs):
+    """逐字符置信度的平均值；无置信度时返回 None。"""
+    if not confs:
         return None
-    try:
-        import torch
-        from train import CharCNN
-    except ImportError:
-        return None
-    with open(META_FILE, "r", encoding="utf-8") as f:
-        meta = json.load(f)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = CharCNN(num_classes=len(meta["charset"])).to(device)
-    try:
-        # weights_only=True 禁止反序列化任意 Python 对象，防止恶意模型文件
-        state = torch.load(CNN_MODEL, map_location=device, weights_only=True)
-    except TypeError:  # 旧版 torch 不支持 weights_only 参数
-        state = torch.load(CNN_MODEL, map_location=device)
-    model.load_state_dict(state)
-    model.eval()
-    _cnn = (model, meta["charset"], device)
-    return _cnn
+    return sum(confs) / len(confs)
 
 
-def _cnn_char(char_img):
-    """CNN 单字符预测，返回 (标签, 概率)。"""
-    ctx = _load_cnn()
-    if ctx is None:
-        return None, 0.0
-    import torch
-    model, charset, device = ctx
-    # 与训练一致：0/1 二值浮点（训练时 canvas/255 后为 0 或 1）
-    x = torch.from_numpy((char_img > 0).astype(np.float32))
-    x = x.view(1, 1, *char_img.shape).to(device)
-    with torch.no_grad():
-        prob = torch.softmax(model(x), dim=1)[0]
-    idx = int(prob.argmax())
-    return charset[idx], float(prob[idx])
+def _weakest_confidence(confs):
+    """最不可靠那一位的置信度；无置信度时返回 None。"""
+    return min(confs) if confs else None
+
+
+def _observe_confidence(code, confs):
+    """记录一次整图识别的置信度，供标定阈值与排查识别质量。
+
+    只记统计量，绝不记验证码原文（它与学号密码同属一次性凭据）。
+    """
+    if confs is None:
+        with _stats_lock:
+            _stats["no_confidence"] += 1
+        return
+    with _stats_lock:
+        _stats["samples"] += 1
+        _stats["last_mean"] = round(_mean_confidence(confs), 4)
+        _stats["last_weakest"] = round(_weakest_confidence(confs), 4)
+        _stats["last_len"] = len(code or "")
+        if len(confs) != len(code or ""):
+            _stats["alignment_mismatch"] += 1
+
+
+def ocr_stats():
+    """识别质量观测数据（不含验证码内容）。
+
+    有了标注样本集后，用 last_mean / last_weakest 的分布就能反推一个
+    「低于此值则弃用整图结果」的阈值，而不必靠猜。
+    """
+    with _stats_lock:
+        return dict(_stats)
 
 
 def recognize(image, return_detail=False):
@@ -186,46 +283,42 @@ def recognize(image, return_detail=False):
 
     image: bytes / 文件路径 / ndarray
     return_detail=True 时额外返回每个字符的 (识别结果, 来源, 置信度)。
-    """
-    # 首选整图 ddddocr：Dr.COM 4 位字母数字验证码实测整图识别准确率远高于
-    # 切分+模板匹配（模板库仅含 1,2,3,b,c,m,n,v,x,z，对含其他字符的验证码必错）
-    code = _full_image_ocr(image)
-    if code and len(code) >= 4 and all(c.isalnum() for c in code[:4]):
-        code = code[:4]
-        return (code, [(c, "full_ocr", 0.0) for c in code]) if return_detail else code
 
-    # 回退：切割 + 单字符识别链（CNN → 模板 → OCR）
+    注意：这里刻意**不**用置信度做拒绝门控。切分兜底链只剩逐字符 ddddocr，
+    而逐字符识别本就劣于整图 —— 一旦因低置信度否掉整图结果，后面并没有更
+    好的候选可用，只会让服务端多驳回一次、白白多花一次验证码。因此置信度
+    只做采集与上报，等有了标注样本集把阈值标定之后再决定是否启用门控。
+    """
+    # 首选整图 ddddocr：Dr.COM 4 位字母数字验证码实测整图识别准确率最高
+    raw, confs = _full_image_ocr(image)
+    _observe_confidence(raw, confs)
+    if _is_plausible_code(raw):
+        detail = [(c, "full_ocr",
+                   round(confs[i], 3) if confs and i < len(confs) else 0.0)
+                  for i, c in enumerate(raw)]
+        return (raw, detail) if return_detail else raw
+
+    # 整图结果不可信（位数不对 / 含非 ASCII 字母数字），降级到切分 + 逐字符 OCR
     binary = preprocess(image)
     chars, _ = segment_chars(binary)
 
-    code_chars, details = [], []
     if len(chars) == EXPECTED_CHARS:
-        matcher = _get_matcher()
+        code_chars, details = [], []
         for ch_img in chars:
-            # 1) CNN 首选（真实样本训练，实测准确率远高于模板匹配）
-            cnn_label, prob = _cnn_char(ch_img)
-            if cnn_label:
-                code_chars.append(cnn_label)
-                details.append((cnn_label, "cnn", round(prob, 3)))
-                continue
-            # 2) 模板匹配兑底
-            label, score = matcher.match(ch_img) if matcher else (None, 0.0)
-            if score >= TEMPLATE_THRESHOLD:
-                code_chars.append(label)
-                details.append((label, "template", round(score, 3)))
-                continue
-            # 3) OCR 兑底
-            ocr_label = _ocr_char(ch_img)
-            if ocr_label:
-                code_chars.append(ocr_label[0])
-                details.append((ocr_label[0], "ocr", round(score, 3)))
+            label = _ocr_char(ch_img)
+            if label:
+                code_chars.append(label[0])
+                details.append((label[0], "ocr", 0.0))
             else:
-                code_chars.append(label or "?")
-                details.append((label or "?", "guess", round(score, 3)))
+                code_chars.append("?")
+                details.append(("?", "unresolved", 0.0))
         code = "".join(code_chars)
-    else:
-        # 切割异常：整图 OCR 降级
-        code = _full_image_ocr(image)
-        details.append((code, "full_ocr", 0.0))
+        if _is_plausible_code(code):
+            return (code, details) if return_detail else code
+        details = []
 
+    # 切分链也给不出合法结果：用整图输出抢救（整图已推理过，不重复跑）
+    code = _salvage_code(raw)
+    details = [(code, "salvaged", 0.0)] if code else []
     return (code, details) if return_detail else code
+

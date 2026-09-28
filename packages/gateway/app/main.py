@@ -45,8 +45,7 @@ for uv_name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
 
 def _warmup_ocr():
     try:
-        from .schedule.recognize import _get_ddddocr, _get_matcher
-        _get_matcher()
+        from .schedule.recognize import _get_ddddocr
         _get_ddddocr()
         logger.info("Captcha OCR engine pre-warmed successfully")
     except Exception as e:
