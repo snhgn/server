@@ -7,6 +7,7 @@
 - 等级考试查询 (get_level_exams)
 """
 import re
+import time
 from typing import Any, Dict, List, Optional
 from bs4 import BeautifulSoup
 import requests
@@ -14,6 +15,21 @@ import requests
 from . import captcha
 
 BASE_URL = "http://newjwxt.bjfu.edu.cn"
+
+_classroom_cache: Dict[tuple, tuple[float, List[Dict[str, str]]]] = {}
+CLASSROOM_CACHE_TTL = 300  # 5分钟缓存
+
+
+def normalize_semester(semester: str) -> str:
+    """标准化强智教务学期代码为 YYYY-YYYY-N 格式，如 '2026-2027-1'。"""
+    if not semester or not semester.strip():
+        return ""
+    sem = semester.strip()
+    m = re.search(r"(\d{4})[-~_](\d{4})[^\d]*([123一二三])", sem)
+    if m:
+        term_map = {"1": "1", "2": "2", "3": "3", "一": "1", "二": "2", "三": "3"}
+        return f"{m.group(1)}-{m.group(2)}-{term_map.get(m.group(3), '1')}"
+    return sem
 
 
 def get_grades(session: requests.Session, semester: str = "", display_mode: str = "all") -> Dict[str, Any]:
@@ -24,9 +40,10 @@ def get_grades(session: requests.Session, semester: str = "", display_mode: str 
         semester: 学期代码，如 '2025-2026-2'，空字符串表示全部学期
         display_mode: 'all' 全部成绩，'max' 最高成绩
     """
+    norm_sem = normalize_semester(semester)
     url = f"{BASE_URL}/jsxsd/kscj/cjcx_list"
     data = {
-        "kksj": semester,
+        "kksj": norm_sem,
         "kcxz": "",
         "kcmc": "",
         "xsfs": display_mode,
@@ -100,14 +117,16 @@ def get_grades(session: requests.Session, semester: str = "", display_mode: str 
         "total_credits": round(total_credits, 1),
         "avg_gpa": avg_gpa,
         "avg_score": avg_score,
+        "query_semester": norm_sem,
     }
 
 
 def get_exams(session: requests.Session, semester: str = "", category: str = "") -> List[Dict[str, str]]:
     """查询学生考试日程与安排。"""
+    norm_sem = normalize_semester(semester)
     url = f"{BASE_URL}/jsxsd/xsks/xsksap_list"
     data = {
-        "xnxqid": semester,
+        "xnxqid": norm_sem,
         "xqlb": category,
     }
     headers = {"Referer": f"{BASE_URL}/jsxsd/xsks/xsksap_query?Ves632DSdyV=NEW_XSD_KSBM"}
@@ -158,6 +177,13 @@ def get_training_plan(session: requests.Session) -> List[Dict[str, Any]]:
     return plan
 
 
+EXCLUDE_ROOM_KEYWORDS = [
+    "体育场", "操场", "校园", "羽毛球", "网球", "篮球", "乒乓", "排球", "游泳",
+    "湿地", "艺实验", "油泥", "模型", "心理", "同传", "实习", "机房",
+    "形体", "舞蹈", "琴房", "排演", "音乐", "画室", "陶艺", "木工", "演播"
+]
+
+
 def get_free_classrooms(
     session: requests.Session,
     semester: str = "2026-2027-1",
@@ -176,10 +202,11 @@ def get_free_classrooms(
         start_period: 开始节次 (1-12)
         end_period: 结束节次 (1-12)
     """
+    norm_sem = normalize_semester(semester) or "2026-2027-1"
     url = f"{BASE_URL}/jsxsd/kbxx/jsjy_query2"
     data = {
         "typewhere": "jszq",
-        "xnxqh": semester or "2026-2027-1",
+        "xnxqh": norm_sem,
         "jxlbh": building or "",
         "jsbh": "",
         "bjfh": "=",
@@ -220,7 +247,11 @@ def get_free_classrooms(
                     name = room_info
                     cap = ""
                 
-                # 智能识别教学楼归属（北林教务实际仅有一教、二教、学研中心排课）
+                # 若未指定特定教学楼，过滤非自习室设施（操场、专业工作室、湿地实验室等）
+                if not building and any(k in name or k in room_info for k in EXCLUDE_ROOM_KEYWORDS):
+                    continue
+
+                # 智能识别教学楼归属（北林教务实际核心为一教、二教、学研中心排课）
                 if "一教" in name or building == "001":
                     b_name = "第一教学楼 (一教)"
                     short_b = "一教"
@@ -245,6 +276,40 @@ def get_free_classrooms(
                     "short_building": short_b,
                 })
     return free_rooms
+
+
+def get_free_classrooms_cached(
+    account: str,
+    password: str,
+    semester: str = "2026-2027-1",
+    building: str = "",
+    week: int = 1,
+    day: int = 1,
+    start_period: int = 1,
+    end_period: int = 2,
+) -> List[Dict[str, str]]:
+    """带缓存的空闲教室查询，全校自习教室为公共数据，5分钟内无需反复登录打码。"""
+    norm_sem = normalize_semester(semester) or "2026-2027-1"
+    cache_key = (norm_sem, building or "", int(week), int(day), int(start_period), int(end_period))
+    now = time.time()
+    if cache_key in _classroom_cache:
+        cached_time, cached_data = _classroom_cache[cache_key]
+        if now - cached_time < CLASSROOM_CACHE_TTL:
+            return cached_data
+
+    data = execute_with_login(
+        account,
+        password,
+        get_free_classrooms,
+        norm_sem,
+        building,
+        week,
+        day,
+        start_period,
+        end_period,
+    )
+    _classroom_cache[cache_key] = (now, data)
+    return data
 
 
 def get_level_exams(session: requests.Session) -> List[Dict[str, str]]:

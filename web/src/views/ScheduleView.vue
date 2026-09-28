@@ -229,7 +229,9 @@ function getDateLabel(week: number, dayIdx: number): string {
 
 const savedSid = localStorage.getItem('bjfu-student-id') || ''
 const savedPwd = localStorage.getItem('bjfu-student-pwd') || ''
-const remember = localStorage.getItem('bjfu-remember-credentials') === 'true'
+const storedRemember = localStorage.getItem('bjfu-remember-credentials')
+// 默认记住凭据（除非用户明确取消），确保 App 移动端免重复输入
+const remember = storedRemember !== null ? storedRemember === 'true' : true
 const hasSavedCredentials = remember && !!savedSid.trim() && !!savedPwd
 
 // 尝试从本地持久化缓存立即读取已有课表（实现 0ms 秒开呈现）
@@ -1571,6 +1573,10 @@ function deleteCustomEvent(id: string) {
         <form class="space-y-3 font-mono text-xs" @submit.prevent="fetchSchedule(true)">
           <input v-model="studentId" type="text" placeholder="教务学号" class="w-full rounded border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-neutral-900 dark:text-white" />
           <input v-model="password" type="password" placeholder="教务密码" class="w-full rounded border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-neutral-900 dark:text-white" />
+          <label class="flex items-center gap-2 cursor-pointer select-none text-neutral-600 dark:text-neutral-400 py-0.5">
+            <input v-model="rememberCredentials" type="checkbox" class="rounded border-neutral-300 dark:border-neutral-700 text-neutral-900 focus:ring-0" />
+            <span>记住账号与密码 (免重复输入)</span>
+          </label>
           <p v-if="error" class="text-red-500 text-xs">{{ error }}</p>
           <button type="submit" :disabled="loading" class="w-full rounded bg-neutral-900 dark:bg-white text-white dark:text-neutral-950 py-2.5 font-bold cursor-pointer">
             {{ loading ? '正在同步...' : '立即同步课表' }}

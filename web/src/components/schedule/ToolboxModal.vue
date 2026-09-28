@@ -109,8 +109,10 @@ function submitTempPassword() {
     return
   }
   inputPassword.value = tempPasswordInput.value.trim()
-  if (localStorage.getItem('bjfu-remember-credentials') === 'true') {
-    localStorage.setItem('bjfu-student-pwd', inputPassword.value)
+  localStorage.setItem('bjfu-student-pwd', inputPassword.value)
+  localStorage.setItem('bjfu-remember-credentials', 'true')
+  if (props.studentId) {
+    localStorage.setItem('bjfu-student-id', props.studentId.trim())
   }
   // 重新触发对应工具查询
   if (activeTool.value === 'grades') fetchGrades(true)
@@ -179,10 +181,11 @@ async function fetchGrades(_force = false) {
   gradesLoading.value = true
   gradesError.value = ''
   try {
+    const semParam = gradesSemester.value !== 'all' ? gradesSemester.value : ''
     const res = await api.post<GradesData>('/api/schedule/grades', {
       student_id: props.studentId,
       password: effectivePassword.value,
-      semester: '',
+      semester: semParam,
       display_mode: 'all',
     })
     gradesData.value = res
@@ -211,15 +214,24 @@ async function fetchLevelExams() {
 }
 
 const availableGradeSemesters = computed(() => {
-  if (!gradesData.value?.courses) return []
-  const terms = [...new Set(gradesData.value.courses.map((c) => c.term).filter(Boolean))]
-  return terms.sort().reverse()
+  const set = new Set<string>()
+  const defaultTerms = ['2026-2027-1', '2025-2026-2', '2025-2026-1', '2024-2025-2', '2024-2025-1']
+  defaultTerms.forEach((t) => set.add(t))
+  if (gradesData.value?.courses) {
+    gradesData.value.courses.forEach((c) => {
+      if (c.term) set.add(c.term)
+    })
+  }
+  return [...set].sort().reverse()
 })
 
 const displayedCourses = computed(() => {
   if (!gradesData.value?.courses) return []
   if (gradesSemester.value === 'all') return gradesData.value.courses
-  return gradesData.value.courses.filter((c) => c.term === gradesSemester.value)
+  return gradesData.value.courses.filter((c) => {
+    const termNorm = (c.term || '').trim()
+    return termNorm === gradesSemester.value || termNorm.startsWith(gradesSemester.value)
+  })
 })
 
 // ================= 2. 考试安排与自定义考试 =================
@@ -645,22 +657,14 @@ const classroomsError = ref('')
 const classroomsSearched = ref(false)
 
 async function queryClassrooms() {
-  if (!props.studentId) {
-    classroomsError.value = '未找到有效学号'
-    return
-  }
-  if (!effectivePassword.value) {
-    classroomsError.value = '请输入教务系统密码以查询空闲教室'
-    return
-  }
   const startP = classroomStartPeriod.value
   const endP = classroomEndPeriod.value
   classroomsLoading.value = true
   classroomsError.value = ''
   try {
     const res = await api.post<FreeRoom[]>('/api/schedule/classrooms', {
-      student_id: props.studentId,
-      password: effectivePassword.value,
+      student_id: props.studentId || '',
+      password: effectivePassword.value || '',
       semester: props.schedule?.semester || '2026-2027-1',
       building: classroomBuilding.value,
       week: Number(classroomWeek.value),
@@ -693,6 +697,10 @@ watch(activeTool, (tool) => {
     loadCachedPlan()
     if (!trainingPlan.value.length && effectivePassword.value) {
       fetchTrainingPlan()
+    }
+  } else if (tool === 'classroom') {
+    if (!classroomsSearched.value) {
+      queryClassrooms()
     }
   } else if (tool === 'share_friends') {
     fetchMyShareCode()
@@ -1538,15 +1546,14 @@ async function saveMonitor() {
 
           <div v-if="activeGradeTab === 'grades'" class="flex items-center gap-2">
             <select
-              v-if="availableGradeSemesters.length"
               v-model="gradesSemester"
-              class="border border-[#E5E5E5] rounded px-2 py-1 bg-white text-xs text-neutral-700"
+              class="border border-[#E5E5E5] dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 rounded px-2 py-1 bg-white text-xs text-neutral-700"
             >
               <option value="all">全部学期 ({{ gradesData?.courses.length || 0 }} 门)</option>
               <option v-for="t in availableGradeSemesters" :key="t" :value="t">{{ t }}</option>
             </select>
             <button
-              class="px-2.5 py-1 text-xs border border-[#E5E5E5] rounded hover:border-neutral-400 bg-white cursor-pointer flex items-center gap-1 disabled:opacity-50"
+              class="px-2.5 py-1 text-xs border border-[#E5E5E5] dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 rounded hover:border-neutral-400 bg-white cursor-pointer flex items-center gap-1 disabled:opacity-50"
               :disabled="gradesLoading"
               @click="fetchGrades(true)"
             >
@@ -1621,8 +1628,12 @@ async function saveMonitor() {
             </table>
           </div>
 
-          <div v-else-if="!gradesLoading" class="text-center py-10 text-xs text-neutral-400">
-            暂无成绩数据，请点击上方“刷新”拉取
+          <div v-else-if="!gradesLoading" class="text-center py-10 space-y-2">
+            <div class="text-2xl">📝</div>
+            <div class="text-xs font-medium text-neutral-800 dark:text-neutral-200">教务系统暂未录入该学期成绩</div>
+            <div class="text-[11px] text-neutral-400 max-w-xs mx-auto leading-relaxed">
+              当前学期课程考核成绩尚未公布（通常在结课考试后由任课教师陆续录入）。如需第一时间了解出分动态，可开启工具箱的「出分监控」。
+            </div>
           </div>
         </div>
 
@@ -1982,36 +1993,16 @@ async function saveMonitor() {
           <button class="text-neutral-400 hover:text-neutral-900 cursor-pointer" @click="activeTool = 'none'">✕</button>
         </div>
 
-        <!-- 密码未提供时的即时补全卡片 -->
-        <div v-if="!effectivePassword" class="rounded-lg bg-neutral-50 border border-neutral-200 p-4 text-center space-y-2.5">
-          <div class="text-xs text-neutral-600">当前未保存教务密码，请输入密码以检索实时空闲自习教室：</div>
-          <div class="flex gap-2 max-w-xs mx-auto">
-            <input
-              v-model="tempPasswordInput"
-              type="password"
-              placeholder="教务系统登录密码"
-              class="flex-1 px-3 py-1.5 border border-neutral-300 rounded text-xs bg-white focus:outline-none focus:border-neutral-900"
-              @keyup.enter="submitTempPassword"
-            />
-            <button
-              class="px-3.5 py-1.5 bg-neutral-900 text-white rounded text-xs hover:bg-neutral-800 cursor-pointer"
-              @click="submitTempPassword"
-            >
-              确定
-            </button>
-          </div>
-        </div>
-
         <!-- 筛选控件 -->
         <div class="space-y-3 shrink-0">
           <div class="grid grid-cols-3 gap-2">
             <div>
-              <label class="block text-neutral-500 mb-1 text-xs">教学楼</label>
-              <select v-model="classroomBuilding" class="w-full border border-[#E5E5E5] rounded-lg px-2 py-1.5 bg-white text-xs">
-                <option value="">全部教学楼</option>
+              <label class="block text-neutral-500 mb-1 text-xs">自习教学楼</label>
+              <select v-model="classroomBuilding" class="w-full border border-[#E5E5E5] dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 rounded-lg px-2 py-1.5 bg-white text-xs">
+                <option value="">全部自习楼 (一教/二教/学研)</option>
                 <option value="001">第一教学楼 (一教)</option>
                 <option value="003">第二教学楼 (二教)</option>
-                <option value="014">学研中心</option>
+                <option value="014">学研中心 (A/B/C座)</option>
               </select>
             </div>
             <div>
