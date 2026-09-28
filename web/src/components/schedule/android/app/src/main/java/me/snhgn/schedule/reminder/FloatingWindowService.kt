@@ -69,14 +69,11 @@ class FloatingWindowService : Service() {
         }
 
         fun stopService(context: Context) {
-            val intent = Intent(context, FloatingWindowService::class.java).apply {
-                action = ACTION_STOP_REMINDER
-            }
             try {
-                // 停止指令直接通过 startService 派发给运行中的 Service
-                context.startService(intent)
+                val intent = Intent(context, FloatingWindowService::class.java)
+                context.stopService(intent)
             } catch (e: Exception) {
-                Log.e(TAG, "发送停止 FloatingWindowService 指令异常: ${e.message}", e)
+                Log.e(TAG, "停止 FloatingWindowService 异常: ${e.message}", e)
             }
         }
     }
@@ -163,10 +160,12 @@ class FloatingWindowService : Service() {
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(courseName)
             .setContentText("教室: $classroom")
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_EVENT)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
 
         try {
@@ -214,6 +213,9 @@ class FloatingWindowService : Service() {
             stopSelf()
         }
 
+        val defaultStatusBarHeight = getStatusBarHeight()
+        val defaultExtra = (resources.displayMetrics.density * 8).toInt()
+
         val layoutParams = WindowManager.LayoutParams().apply {
             type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -229,7 +231,7 @@ class FloatingWindowService : Service() {
 
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             x = 0
-            y = 36 // 默认顶部预留微距
+            y = defaultStatusBarHeight + defaultExtra // 默认在状态栏/挖孔屏正下方预留间距
             width = WindowManager.LayoutParams.WRAP_CONTENT
             height = WindowManager.LayoutParams.WRAP_CONTENT
 
@@ -244,14 +246,16 @@ class FloatingWindowService : Service() {
         ViewCompat.setOnApplyWindowInsetsListener(view) { _, insets ->
             val statusBarHeight = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
             val cutoutHeight = insets.displayCutout?.safeInsetTop ?: 0
-            val topMargin = maxOf(statusBarHeight, cutoutHeight) + 12
-            layoutParams.y = topMargin
-            try {
-                if (capsuleView?.isAttachedToWindow == true) {
-                    windowManager?.updateViewLayout(capsuleView, layoutParams)
+            val topMargin = maxOf(defaultStatusBarHeight, maxOf(statusBarHeight, cutoutHeight)) + defaultExtra
+            if (layoutParams.y != topMargin) {
+                layoutParams.y = topMargin
+                try {
+                    if (capsuleView?.isAttachedToWindow == true) {
+                        windowManager?.updateViewLayout(capsuleView, layoutParams)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "更新窗口 Insets 坐标异常: ${e.message}")
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "更新窗口 Insets 坐标异常: ${e.message}")
             }
             insets
         }
@@ -265,6 +269,18 @@ class FloatingWindowService : Service() {
         }
     }
 
+    private fun getStatusBarHeight(): Int {
+        var result = 0
+        val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
+        if (resourceId > 0) {
+            result = resources.getDimensionPixelSize(resourceId)
+        }
+        if (result <= 0) {
+            result = (resources.displayMetrics.density * 36).toInt()
+        }
+        return result
+    }
+
     /**
      * 刷新流体云内容与倒计时状态
      */
@@ -274,18 +290,22 @@ class FloatingWindowService : Service() {
 
         val now = System.currentTimeMillis()
         val diffToStart = startMillis - now
+        val statusStr: String
 
         if (diffToStart > 0) {
             // 上课前：倒计时
             val totalSeconds = diffToStart / 1000
             val minutes = totalSeconds / 60
             val seconds = totalSeconds % 60
-            tvStatus?.text = String.format(Locale.getDefault(), "还有 %02d:%02d", minutes, seconds)
+            statusStr = String.format(Locale.getDefault(), "还有 %02d:%02d", minutes, seconds)
+            tvStatus?.text = statusStr
         } else if (now < endMillis) {
             // 正在上课中
-            tvStatus?.text = "正在上课"
+            statusStr = "正在上课"
+            tvStatus?.text = statusStr
         } else {
-            tvStatus?.text = "课程已结束"
+            statusStr = "课程已结束"
+            tvStatus?.text = statusStr
         }
     }
 
@@ -294,10 +314,10 @@ class FloatingWindowService : Service() {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "课程流体云提醒",
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = "在课程即将开始及上课期间展示轻量提醒"
-                setShowBadge(false)
+                setShowBadge(true)
                 enableVibration(false)
                 setSound(null, null)
             }

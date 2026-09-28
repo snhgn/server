@@ -91,6 +91,12 @@ function openAndroidSettings() {
   }
 }
 
+function testFluidCloud() {
+  if (typeof window !== 'undefined' && (window as any).AndroidBridge?.testFluidCloud) {
+    (window as any).AndroidBridge.testFluidCloud()
+  }
+}
+
 // ================= 凭据解析与弹窗内即时输入支持 =================
 const inputPassword = ref('')
 const tempPasswordInput = ref('')
@@ -1469,6 +1475,20 @@ async function saveMonitor() {
               </svg>
               <span class="font-medium text-emerald-800 dark:text-emerald-300">流体云/权限</span>
               <span class="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 mt-0.5">灵动胶囊与后台</span>
+            </button>
+
+            <!-- 立即测试流体云效果 (App 专属) -->
+            <button
+              v-if="hasAndroidBridge"
+              class="flex flex-col items-center justify-center p-3 rounded-lg border border-purple-300 dark:border-purple-700 bg-purple-50/60 dark:bg-purple-950/30 hover:bg-purple-100 hover:border-purple-500 transition-all text-center cursor-pointer group"
+              @click="testFluidCloud"
+            >
+              <svg class="w-5 h-5 text-purple-600 dark:text-purple-400 mb-1.5 group-hover:scale-105 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span class="font-medium text-purple-800 dark:text-purple-300">测试流体云</span>
+              <span class="text-[10px] text-purple-600/80 dark:text-purple-400/80 mt-0.5">即刻弹出胶囊</span>
             </button>
           </div>
         </div>

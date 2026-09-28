@@ -56,7 +56,7 @@ class AlarmBroadcastReceiver : BroadcastReceiver() {
     }
 
     /**
-     * 课前 5 分钟 (开始 Alarm)：二次校验并启动短生命周期流体云任务
+     * 课前 5 分钟 (开始 Alarm)：本地秒级校验并立即唤起流体云悬浮胶囊
      */
     private suspend fun handleCourseStart(context: Context, intent: Intent) {
         val courseId = intent.getLongExtra(AlarmManagerHelper.EXTRA_COURSE_ID, 0L)
@@ -66,47 +66,31 @@ class AlarmBroadcastReceiver : BroadcastReceiver() {
         val endTime = intent.getStringExtra(AlarmManagerHelper.EXTRA_END_TIME) ?: ""
         val uniqueKey = intent.getStringExtra(AlarmManagerHelper.EXTRA_UNIQUE_KEY) ?: ""
 
-        Log.d(TAG, "【开始 Alarm 触发】开始核验即将上课的课程: id=$courseId, name=$defaultName, startTime=$startTime")
+        Log.d(TAG, "【开始 Alarm 触发】即将上课: id=$courseId, name=$defaultName, startTime=$startTime, room=$defaultRoom")
 
-        // 1. 优先尝试从服务端获取实时最新课程列表
-        val fetchResult = ApiClient.fetchCourses()
+        // 1. 优先使用 Intent 自身携带的完整课程实体，杜绝后台阻塞网络请求导致广播超时强杀
         var validCourse: Course? = null
-
-        if (fetchResult.isSuccess) {
-            val latestList = fetchResult.getOrDefault(emptyList())
-            ScheduleSyncManager.saveCoursesToCache(context, latestList)
-            // 查找对应课程
-            validCourse = latestList.find { it.id == courseId && it.startTime == startTime }
-            if (validCourse == null) {
-                Log.w(TAG, "课程已在远端取消或时间已变更，取消提醒与对应结束闹钟: id=$courseId")
-                // 取消开始闹钟与对应的结束闹钟
-                val endKey = "${courseId}_end_$endTime"
-                AlarmManagerHelper.cancelCourseAlarms(context, uniqueKey, endKey)
-                ScheduleSyncManager.syncSchedule(context)
-                return
-            }
-        } else {
-            // 2. 网络不可用/超时策略：回退到本地可靠缓存
-            Log.w(TAG, "课前网络请求失败，使用本地课表缓存校验")
-            val cachedList = ScheduleSyncManager.getCachedCourses(context)
-            validCourse = cachedList.find { it.id == courseId && it.startTime == startTime }
-            if (validCourse == null && courseId > 0 && startTime.isNotEmpty()) {
-                // 如果缓存中也没有对应对象，但 Intent 携带了完整有效参数，予以信任并提醒
-                validCourse = Course(
-                    id = courseId,
-                    courseName = defaultName,
-                    classRoom = defaultRoom,
-                    startTime = startTime,
-                    endTime = endTime
-                )
-            }
+        if (courseId > 0 && startTime.isNotEmpty()) {
+            validCourse = Course(
+                id = courseId,
+                courseName = defaultName,
+                classRoom = defaultRoom,
+                startTime = startTime,
+                endTime = endTime
+            )
         }
 
-        // 3. 课程校验确认有效，启动短生命周期流体云/灵动岛悬浮胶囊前台服务
+        // 2. 若 Intent 数据不完整，回退读取本地可靠课表缓存
+        if (validCourse == null) {
+            val cachedList = ScheduleSyncManager.getCachedCourses(context)
+            validCourse = cachedList.find { it.id == courseId && it.startTime == startTime }
+        }
+
+        // 3. 校验确认有效且未过下课时间，立即唤起流体云/灵动岛悬浮胶囊前台服务
         if (validCourse != null) {
             val now = System.currentTimeMillis()
             if (validCourse.endMillis > now) {
-                Log.d(TAG, "课程有效，唤起短生命周期流体云悬浮胶囊: ${validCourse.courseName}")
+                Log.i(TAG, "课程有效，立即唤起短生命周期流体云悬浮胶囊: ${validCourse.courseName}")
                 FloatingWindowService.startService(context, validCourse)
             } else {
                 Log.d(TAG, "课程已经结束，跳过提醒: ${validCourse.courseName}")

@@ -146,6 +146,29 @@ class MainActivity : AppCompatActivity() {
             fun openSettings() {
                 startActivity(Intent(this@MainActivity, PermissionGuideActivity::class.java))
             }
+
+            @android.webkit.JavascriptInterface
+            fun syncCourses(jsonStr: String) {
+                android.util.Log.d("AndroidBridge", "收到前端推送的课程数据，长度: ${jsonStr.length}")
+                lifecycleScope.launch {
+                    ScheduleSyncManager.updateFromWebJson(applicationContext, jsonStr)
+                }
+            }
+
+            @android.webkit.JavascriptInterface
+            fun testFluidCloud() {
+                android.util.Log.d("AndroidBridge", "触发流体云悬浮胶囊即刻测试")
+                val now = System.currentTimeMillis()
+                val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+                val testCourse = me.snhgn.schedule.network.Course(
+                    id = 999999L,
+                    courseName = "高等数学 (测试提醒)",
+                    classRoom = "学研大厦 A0101",
+                    startTime = dateFormat.format(java.util.Date(now + 3 * 60 * 1000L)),
+                    endTime = dateFormat.format(java.util.Date(now + 45 * 60 * 1000L))
+                )
+                me.snhgn.schedule.reminder.FloatingWindowService.startService(this@MainActivity, testCourse)
+            }
         }, "AndroidBridge")
 
         wv.webViewClient = object : WebViewClient() {
