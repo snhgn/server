@@ -338,34 +338,22 @@ class _SessionStale(Exception):
     """池中会话被服务端作废，需要重新登录。"""
 
 
-def _looks_logged_out(sess) -> bool:
-    """复用会话前先确认它还有效。
-
-    强智会话失效时会直接返回登录页，各抓取函数解析后会得到「空结果」而
-    不是异常，所以只能靠一次轻量内容探测判断。这里用课表页做探针：已登录
-    才会拿到非登录页。探测本身出错时按「未失效」处理——此时重新登录同样
-    会失败，盲目丢弃健康会话只会白白多花一次验证码。
-    """
-    try:
-        return captcha.is_login_page(captcha.get_timetable(sess))
-    except Exception:
-        return False
-
-
 def execute_with_login(account: str, password: str, task_fn, *args, **kwargs):
     """借出已登录会话并调用目标抓取函数。
 
     会话来自进程内会话池，同一学生连续查询成绩/考试/培养方案/等级考试时
-    只在第一次走验证码登录；池中会话被服务端作废时自动重新登录一次。
+    只在第一次走验证码登录。是否需要「探一下有没有被踢下线」由会话池统一
+    决定（只对静置较久的会话探测，见 session_pool.PROBE_AFTER_IDLE），
+    这里不再额外发请求——探针要拉一次课表页，放在这层会白吃掉收益。
+
     抓取函数自身抛异常即视为会话不可信，会话被丢弃后重试一次。
     """
     sid = account.strip()
     for attempt in (1, 2):
         try:
-            with session_pool.session_for(sid, password, max_retry=5) as (sess, reused):
-                if reused and _looks_logged_out(sess):
-                    # 池中会话其实已失效：作废它，让本轮重新登录后再试
-                    raise _SessionStale()
+            with session_pool.session_for(
+                sid, password, max_retry=5, probe=session_pool.default_probe
+            ) as (sess, _reused):
                 return task_fn(sess, *args, **kwargs)
         except _SessionStale:
             session_pool.invalidate(sid)

@@ -20,6 +20,8 @@
 识别本就劣于整图。真正该做的是训一个整图 CRNN + CTC（见 docs）并配上
 标注样本集做评测，而不是修补这两条兜底。
 """
+import logging
+import os
 import threading
 
 import cv2
@@ -27,6 +29,8 @@ import numpy as np
 
 from .preprocess import preprocess
 from .segment import segment_chars, EXPECTED_CHARS
+
+logger = logging.getLogger("gateway.schedule.recognize")
 
 _ddddocr = None  # ddddocr 实例懒加载缓存（单次初始化 ~1s+，必须复用）
 
@@ -49,43 +53,69 @@ _stats = {
 }
 
 
+def _find_charset_manager(ocr):
+    """在 ddddocr 的各层封装里找到 CharsetManager 实例。
+
+    1.6.1 的 DdddOcr 是门面类，charset_manager 挂在 ocr_engine 上；早期版本
+    直接挂在 DdddOcr 上。这里逐个候选路径找，找不到就返回 None（放弃优化）。
+    """
+    for path in (("charset_manager",),
+                 ("ocr_engine", "charset_manager"),
+                 ("engine", "charset_manager"),
+                 ("_ocr_engine", "charset_manager")):
+        node = ocr
+        for attr in path:
+            node = getattr(node, attr, None)
+            if node is None:
+                break
+        else:
+            if callable(getattr(node, "_update_valid_indices", None)):
+                return node
+    return None
+
+
 def _pin_charset_index(ocr) -> bool:
     """把 ddddocr 每次识别都会重跑的字符集索引，预计算成只读常量。
 
-    ddddocr 的 predict() 在 charset_range=None 时会调用
-    CharsetManager._update_valid_indices()，其实现是 clear() + 遍历 8208 项的
-    charset_range、每项再做一次 charset.index() —— O(n^2) ≈ 6700 万次字符串
-    比较。实测**单次约 336ms**，比 ONNX 推理本身贵一个数量级，而且它串行发生
-    在旧的全局锁内，直接把验证码识别的进程吞吐压到约 3 次/秒；切分兜底链每个
-    验证码要跑 4 次逐字符 OCR，单张就 1.3s。
+    背景：predict() 在 charset_range 为空时每次都调用
+    CharsetManager._update_valid_indices()，而它的实现是 **先 clear() 掉共享的
+    valid_charset_range_index，再重新赋值**。clear() 与重新赋值之间存在窗口，
+    并发 classification 会在此刻 copy() 到空列表，解码出**位数不足的验证码**
+    —— 是个静默的错误识别（本地负向测试可复现）。
+
+    收益要说清楚：
+    - 正确性：消掉上面这个竞态（主要价值）；
+    - 性能：省下每次约 0.2ms 的重建（实测服务器 8210 字集，_update_valid_indices
+      净耗时约 200µs）。**远小于**一次整图 ONNX 推理的几十毫秒，所以别把它当
+      性能优化看，它是个正确性修复。
 
     我们从不传 charset_range、也不换自定义模型（import_onnx_path /
-    load_custom_charset 都没用），所以 charset 与 charset_range 在 init 之后
-    恒定不变 —— 每次重算得到的必然是同一个列表，属于纯浪费。
+    load_custom_charset 都没用），charset_range 恒为空、charset 恒定，因此
+    这个索引每次重算结果必然相同。这里在实例上把该方法替换成「校验 + 必要时
+    原样写回」，热路径额外开销降到一次列表比较；写回用切片赋值，在 CPython
+    的 GIL 内一次完成，不存在中间态。
 
-    这里在实例上把该方法替换成「校验 + 必要时原样写回」，让热路径额外开销
-    降到一次列表比较。写回用切片赋值（CPython 在 GIL 内一次完成，不存在
-    中间态），因此并发 classification 依然安全 —— 这也是可以去掉全局锁的依据。
-
-    任何一步对不上（ddddocr 内部结构变化、范围不是全量等）就返回 False，
-    静默退回原实现，只损失性能不影响功能。
+    任何一步对不上（内部结构变化、找不到 charset_manager 等）都返回 False，
+    静默退回原实现，只损失正确性保障不影响功能。
     """
-    cm = getattr(ocr, "charset_manager", None)
-    rebuild = getattr(cm, "_update_valid_indices", None)
-    if not callable(rebuild):
+    cm = _find_charset_manager(ocr)
+    if cm is None:
+        return False
+    # 只在 charset_range 为空（全量）时钉：此时索引恒为 range(len(charset))，
+    # 是真正不变的常量。范围受限时索引随 charset_range 变化，快照会过期。
+    if list(getattr(cm, "charset_range", None) or []):
         return False
     try:
-        rebuild()
+        cm._update_valid_indices()
         snapshot = list(getattr(cm, "valid_charset_range_index", None) or [])
         charset = list(getattr(cm, "charset", None) or [])
     except Exception:
         return False
-    # 只在全量范围下钉：范围受限时索引会随 charset_range 变化，快照会过期
-    if not snapshot or len(snapshot) != len(charset):
+    if not snapshot or snapshot != list(range(len(charset))):
         return False
 
     def _pinned_rebuild():
-        # 正常路径只有一次 O(n) 列表比较（~30µs）；万一被别处清空就原样写回
+        # 正常路径只有一次 O(n) 列表比较（几十微秒）；被别处清空就原样写回
         if cm.valid_charset_range_index != snapshot:
             cm.valid_charset_range_index[:] = snapshot
         return None
@@ -98,12 +128,27 @@ def _pin_charset_index(ocr) -> bool:
 
 
 def _get_ddddocr():
-    """获取 ddddocr 单例：模型加载仅一次，避免每次识别重建实例"""
+    """获取 ddddocr 单例：模型加载仅一次，避免每次识别重建实例。
+
+    模型选择由环境变量 CAPTCHA_OCR_MODEL 控制：
+      - ``old``/``default``（默认）-> common_old.onnx（13MB），
+        这是 DdddOcr(show_ad=False) 的隐式默认（load_ocr_model 的 else 分支）。
+      - ``beta`` -> common.onnx（52MB）+ beta 字符集，是 ddddocr 里更新的一版。
+    两者准确率孰高需要用采集到的评测集实测（见 scripts/collect_captcha_samples.py），
+    不要凭直觉切。
+    """
     global _ddddocr, _pinned
     if _ddddocr is None:
         import ddddocr
 
-        _ddddocr = ddddocr.DdddOcr(show_ad=False)
+        choice = os.environ.get("CAPTCHA_OCR_MODEL", "").strip().lower()
+        if choice == "beta":
+            _ddddocr = ddddocr.DdddOcr(show_ad=False, beta=True)
+        elif choice in ("old", "default", ""):
+            _ddddocr = ddddocr.DdddOcr(show_ad=False)
+        else:
+            _ddddocr = ddddocr.DdddOcr(show_ad=False)
+            logger.warning("未知的 CAPTCHA_OCR_MODEL=%r，回退到默认老版模型", choice)
     if not _pinned:
         with _pin_lock:
             if not _pinned:
@@ -161,6 +206,30 @@ def _full_image_ocr(image):
         return "", None
 
 
+def _as_prob_steps(probs, n_classes):
+    """把 ddddocr 的 probabilities 规整成按时间顺序的 [T][C] 列表。
+
+    实际返回的形状不固定，线上实测是 (T, 1, C) = [23][1][8210]（时间步在前、
+    batch 维在中间），而其他版本/模型可能是 (1, T, C)。按「哪一维长度等于
+    字符集大小」来定位 C 轴，其余轴按顺序展开，这样两种布局都能拿到正确的时间
+    步顺序 —— 之前假设固定的 [1][T][C] 会只取到 batch 维那一行，把 CTC blank
+    当成字符，导致置信度永远是 None。
+    """
+    steps = []
+
+    def walk(node):
+        if not isinstance(node, list) or not node:
+            return
+        if not isinstance(node[0], list) and len(node) == n_classes:
+            steps.append(node)          # 这就是一个时间步的 C 维概率
+            return
+        for child in node:
+            walk(child)
+
+    walk(probs)
+    return steps
+
+
 def _decode_ocr_result(res):
     """把 ddddocr probability=True 的返回拆成 (文本, 逐字符置信度)。
 
@@ -169,7 +238,7 @@ def _decode_ocr_result(res):
     规则取「非 blank 时间步」上的最大概率作为每个字符的置信度。
 
     任何一步失败都退化为 (文本, None)，让调用方沿用长度/字符集门控，
-    不因为拿不到置信度就拒绝一个本来正确的识别结果。
+    不因为拿不到置信度就丢弃一个本来正确的识别结果。
     """
     if isinstance(res, str):
         return res, None
@@ -179,15 +248,14 @@ def _decode_ocr_result(res):
     probs = res.get("probabilities")
     charset = res.get("charset")
     try:
-        # probabilities 形状为 [1, T, C]（部分版本为 [T, C]）
-        arr = probs[0] if len(probs) and len(probs[0]) else probs
-        conf = _ctc_confidences(arr, charset)
+        if not probs or not charset:
+            return text, None
+        return text, _ctc_confidences(_as_prob_steps(probs, len(charset)), charset)
     except Exception:
-        conf = None
-    return text, conf
+        return text, None
 
 
-def _ctc_confidences(arr, charset):
+def _ctc_confidences(steps, charset):
     """按 CTC 规则输出与 text 逐位对齐的置信度。
 
     blank 固定是字符集的第 0 项——ddddocr 自己的 _ctc_decode_indices 就是
@@ -197,12 +265,12 @@ def _ctc_confidences(arr, charset):
     另外跳过最大概率近于 0 的时间步：这种步不含信息量（异常/未归一化的
     输出），按 argmax 硬取会把噪声当成一个低置信度字符塞进结果。
     """
-    if arr is None or not charset:
+    if not steps or not charset:
         return None
     blank_idx = 0
     confs = []
     prev = -1
-    for step in arr:
+    for step in steps:
         idx = int(np.argmax(step))
         peak = float(step[idx])
         if peak < 1e-6:  # 无信息量的时间步，既不当字符也不更新 prev
@@ -266,6 +334,12 @@ def _observe_confidence(code, confs):
         _stats["last_len"] = len(code or "")
         if len(confs) != len(code or ""):
             _stats["alignment_mismatch"] += 1
+
+
+def ocr_model_name():
+    """当前生效的 OCR 模型名（old / beta），记录在样本里以便后续 A/B。"""
+    choice = os.environ.get("CAPTCHA_OCR_MODEL", "").strip().lower()
+    return "beta" if choice == "beta" else "old"
 
 
 def ocr_stats():

@@ -115,9 +115,50 @@ class TestSessionPool(unittest.TestCase):
     def test_stale_session_triggers_relogin(self):
         with session_pool.session_for("S", "pw") as (_, reused):
             self.assertFalse(reused)
+        # 静置超过阈值，探针才会执行
+        session_pool._SLOTS["S"].ts -= session_pool.PROBE_AFTER_IDLE + 1
         _fake.alive = False  # 服务端作废该会话
-        with session_pool.session_for("S", "pw", probe=session_pool.default_probe) as (_, reused):
+        with session_pool.session_for("S", "pw",
+                                      probe=session_pool.default_probe) as (_, reused):
             self.assertFalse(reused, "探测到失效后应重新登录")
+        self.assertEqual(_fake.logins, 2)
+
+    def test_probe_skipped_for_freshly_used_session(self):
+        """回归：探针要拉一次课表页（线上实测 ~186ms，占考试查询总耗时 86%）。
+        刚用过的会话不该再探，否则会话池的收益被探针吃掉。"""
+        probes = []
+
+        def counting_probe(sess):
+            probes.append(1)
+            return True
+
+        with session_pool.session_for("F", "pw", probe=counting_probe):
+            pass
+        with session_pool.session_for("F", "pw", probe=counting_probe) as (_, reused):
+            self.assertTrue(reused)
+        self.assertEqual(probes, [], "刚归还的会话应跳过探针")
+
+    def test_probe_runs_after_long_idle(self):
+        probes = []
+
+        def counting_probe(sess):
+            probes.append(1)
+            return True
+
+        with session_pool.session_for("I2", "pw", probe=counting_probe):
+            pass
+        slot = session_pool._SLOTS["I2"]
+        slot.ts -= session_pool.PROBE_AFTER_IDLE + 1  # 假装静置很久
+        with session_pool.session_for("I2", "pw", probe=counting_probe) as (_, reused):
+            self.assertTrue(reused, "静置久了仍应复用（探针说有效）")
+        self.assertEqual(len(probes), 1, "静置超阈值时必须探一次")
+
+    def test_probe_rejection_forces_relogin(self):
+        with session_pool.session_for("P", "pw") as (_, _):
+            pass
+        session_pool._SLOTS["P"].ts -= session_pool.PROBE_AFTER_IDLE + 1
+        with session_pool.session_for("P", "pw", probe=lambda s: False) as (_, reused):
+            self.assertFalse(reused, "探针判定失效应重登")
         self.assertEqual(_fake.logins, 2)
 
     def test_exception_inside_block_discards_session(self):

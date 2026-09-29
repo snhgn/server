@@ -865,3 +865,357 @@ cd /opt/snhgn/services/<svc> && docker compose up -d --build
 ### 结论与后续方案
 代码服务机制（自动重试与 fallback 降级）运行完美，成功拦截了此错误并保障了服务的可用性（智谱接管）。
 当前仅靠更换普通机场节点难以突破 Gemini 的严格风控。后续如需稳定使用 Gemini，需替换为专门声明支持“Gemini 解锁”的原生 IP 节点、原生家宽代理，或者更换为代理 API 转发服务。
+
+---
+
+## 九、课表/验证码链路优化（2026-09-28 部署）
+
+### 9.1 改了什么
+
+| 位置 | 改动 | 动机 |
+|------|------|------|
+| \pp/schedule/session_pool.py\ | **新增**：已登录会话池（进程内，TTL 15min，上限 64 槽，同学号互斥检出） | 原实现每次抓取都重走「取验证码→识别→提交」四跳握手；课表/成绩/考试/培养方案/四级各自为政 |
+| \pp/schedule/service.py\ | \_crawl_sync\ 改用会话池；空课表时靠 \is_login_page\ 判定失效并重登一次 | 保留原有「不落盘/不写日志」安全约束 |
+| \pp/schedule/toolbox.py\ | \execute_with_login\ 改用会话池 | 同上 |
+| \pp/schedule/recognize.py\ | ①接受门控：必须恰好 4 位 ASCII 字母数字（旧版会静默截断，且 \isalnum()\ 对 CJK 返回 True）②不可信时返回空串让调用方换码，省 2 次往返 ③删掉 CNN/模板死代码 ④接 \probability=True\ 采集逐字符置信度 ⑤钉住字符集索引 | 见 9.3 |
+| \pp/schedule/captcha.py\ | 重试加 0.4~1.2s 随机退避；识别不出可信验证码时直接换码 | 原版最多 5 次背靠背提交 |
+| \pp/schedule/models/\ | 已删除（cnn.pth 954KB + 129 个模板图） | CNN 的 \	rain.py\ 早已删除、\	orch\ 不在 requirements、且是合成字体数据训练的；模板字符集只有 10 个符号 |
+
+> 服务器上 \pp/schedule/models/\ **按约定保留未动**（root 所有运行资产），新代码已完全不引用它，可择机清理。
+
+### 9.2 实测收益（服务器真实数据）
+
+| 场景 | 改动前 | 改动后 |
+|------|--------|--------|
+| 课表抓取（冷，含登录+验证码） | ~700~1700ms | 同样量级（不可避免） |
+| 课表抓取（会话池命中） | — | **0ms**（省掉整轮握手） |
+| 工具箱连续点击（成绩/考试…） | 每次一次完整登录 | 第 2 次起复用 |
+| \/api/schedule/exams\ | 0.41s | **0.06s** |
+| \/api/schedule/grades\ 连续 4 次 | 1.85/1.98/1.07/0.69s | 1.05/0.45/0.51/0.57s |
+| 验证码识别 | 中位 ~22~28ms | 不变（瓶颈在 ONNX 推理，不在别处） |
+
+### 9.3 三个「看起来是优化、实际不是」的重要结论
+
+1. **字符集索引重建不是 336ms，是 0.2ms。**
+   最初测到「每次识别要付 336ms 的 O(n²) 索引重建」，看起来是大优化。**那个基准是我自己写错的**：
+   脚本里把 \charset_range\ 设成了非空，强制走进 \or item in charset_range: charset.index(item)\
+   的慢分支；真实默认配置 \charset_range\ 为空，走 \list(range(len(charset)))\ 快路径。
+   服务器实测 \_update_valid_indices\ 净耗时 **199.8 µs**。
+   → 结论：\_pin_charset_index\ 的价值是**正确性**（消除 \clear()\ 与重新赋值之间的并发
+   窗口，避免解出位数不足的验证码），**不是性能**。它只值 ~190µs，相对整图推理可忽略。
+
+2. **置信度门控暂时不能开。**
+   切分兜底链里 CNN 是死的、模板只剩 10 个字符，实际只剩**逐字符** ddddocr，而逐字符本就劣于整图。
+   低置信度时后面没有更好的候选，否掉整图结果 = 白白多花一次验证码。→ 只采集上报（\ocr_stats()\），
+   等有了标注样本集把阈值标定后再决定。
+
+3. **ddddocr 默认用的是老版模型。**
+   \DdddOcr(show_ad=False)\ 的默认参数落在 \load_ocr_model\ 的 \else\ 分支 → \common_old.onnx\（13MB）。
+   \eta=True\ 会换成 \common.onnx\（52MB）。值得做 A/B，但需要标注样本集才能判断好坏。
+
+### 9.4 线上验证发现并修掉的两个真 bug
+
+1. **置信度从来没被采集到。** ddddocr 实际返回 \probabilities\ 形状是 \(T, 1, C)\ = \[23][1][8210]\
+   （时间维在最前、batch 维在中间），而代码假设 \(1, T, C)\，于是只取到 batch 那一行、把 CTC blank
+   当成字符，\_ctc_confidences\ 恒返回 \None\。修复前 \
+o_confidence: 10\，修复后 \samples: 10, no_confidence: 0\。
+   → 已改为按「哪一维长度等于字符集大小」定位 C 轴（\_as_prob_steps\）。
+2. **pin 在服务器上是死代码。** 1.6.1 的 \DdddOcr\ 是门面类，\charset_manager\ 挂在 \ocr_engine\ 下面；
+   原实现按顶层找，\_pin_charset_index\ 恒返回 False。→ 新增 \_find_charset_manager\ 逐路径查找。
+
+### 9.5 部署方式变了：不能再用 \docker compose build\
+
+**根因（与本次改动无关，是既有问题）**：服务器出网不稳定，装依赖必失败。
+
+- 清华镜像返回的 numpy 索引 JSON **被截断**：\\JSONDecodeError: Unterminated string ... char 278255\\
+- 官方 PyPI 拉 wheel **超时**：\ReadTimeoutError: files.pythonhosted.org\
+- \--timeout 120\ 也救不回来（wheel 本身下不完）
+- \packages/gateway/wheels/\ 里只有旧的 fastapi 依赖（无 numpy/cv2/ddddocr），Dockerfile 也没用它
+
+**因此本次改用「热修叠加」部署**：本次改动**没有新增任何依赖**，直接基于当前完好镜像
+叠加新代码，完全绕开 pip。
+
+\\\ash
+# 一次性准备
+docker tag <当前镜像> gateway-hotfix-base:latest
+
+# 服务目录下 Dockerfile.hotfix
+FROM gateway-hotfix-base:latest
+WORKDIR /app
+COPY app ./app
+COPY scripts ./scripts
+EXPOSE 8001
+CMD ["uvicorn","app.main:app","--host","0.0.0.0","--port","8001","--limit-concurrency","128","--timeout-keep-alive","65"]
+
+# 打包 -> 上传 -> 解压 -> 合并覆盖 -> 构建 -> 改 compose 的 image tag -> up -d
+\\\
+
+**要点**：
+- 只做**合并覆盖**、不删除，\pp/schedule/models/\ 与 \.env\ 都不会被动
+- compose 必须**强制刷新** \image:\ tag，否则 \docker compose up -d\ 会认为配置没变而不重建容器
+  （踩过这个坑：改完代码但容器还在跑旧镜像）
+- 部署脚本放在 \/tmp/deploy2.sh\，含 payload 校验、md5 比对、语法自检、镜像切换确认
+
+**若将来要恢复全量构建**，需要先解决出网问题：离线 wheels（\/opt/snhgn/services/gateway/wheels/\
+本来就是为此准备的）或在能联网的机器上 \pip download\ 后上传。
+
+### 9.6 当前状态与回滚
+
+\\\
+运行镜像   gateway-hotfix:20260928-213254
+回滚镜像   gateway-rollback-pre20260928:latest  (改动前的原始镜像，依赖层未被改动)
+代码备份   /opt/snhgn/backups/gateway-20260928-204025/app
+compose    /opt/snhgn/services/gateway/docker-compose.ORIGINAL.yml
+\\\
+
+回滚：
+
+\\\ash
+cd /opt/snhgn/services/gateway
+cp -a docker-compose.ORIGINAL.yml docker-compose.yml
+cp -a /opt/snhgn/backups/gateway-20260928-204025/app/. app/
+sed -i 's#^    image: gateway-hotfix.*#    build: .#' docker-compose.yml
+docker compose build gateway && docker compose up -d gateway
+# 或直接换镜像（依赖层无需重装）：
+# sed -i 's#^    image: .*#    image: gateway-rollback-pre20260928:latest#' docker-compose.yml
+# docker compose up -d gateway
+\\\
+
+### 9.7 测试
+
+新增 3 个测试文件（本地 \.venv\ 缺 numpy/cv2/ddddocr，用桩模块注入 \sys.modules\）：
+
+\\\powershell
+cd D:\project\server
+.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"   # 92 passed
+\\\
+
+- \	ests/test_captcha_pipeline.py\（49）识别门控 / 置信度解码 / 索引钉住 / 并发
+- \	ests/test_session_pool.py\（14）池的复用/作废/互斥/有界/探针跳过
+- \	ests/test_crawl_retry.py\（13）失效重登、登录失败不被误报成抓取错误
+
+顺带修掉 \	ests/test_auth_session.py\ 的既有隐患：它用 \os.environ["SQLITE_DB_PATH"]\ 建表，
+而 app 读的是首次 import 冻结的 \settings.SQLITE_DB_PATH\，只要别的测试模块先 import
+\pp.config\ 就会 \
+o such table: users\。已改用 \settings.SQLITE_DB_PATH\，
+并新增 \	ests/__init__.py\ 兜底，整批测试与导入顺序无关。
+
+### 9.8 下一步建议
+
+1. **标注样本集 + 评测脚本**（最高优先）：现在无法回答「单张准确率多少」，而
+   \max_retry=5\ 隐含的「~90%」从未被测过。所有阈值决策都卡在这里。
+2. \eta=True\ 模型 A/B（依赖 1）。
+3. 后台保温：池目前是惰性过期，静置 15min 后首个请求仍付完整登录；改成到期前自动续期。
+4. 登录循环里 \lag=sess\ 每次重试都重新拉取（5 次重试 = 5 次多余往返），
+   可否提到循环外**需实测确认 scode 是否一次性**。
+5. 修出网问题以恢复全量构建能力（见 9.5）。
+# 验证码评测集采集（2026-09-28）
+
+## 一、关键实测结论（决定了整套方案）
+
+### 1. 强智验证码是**一次性**的
+
+探针实测（服务器 192.168.50.2，对 5 张图各做「错码→再提交原码」）：
+
+| 动作 | 服务端响应 |
+|------|-----------|
+| 提交正确码 | `退出`/`frameset` → **放行** |
+| 提交错误码 | 红字 `验证码错误!` |
+| 同一张图再提交原码 | 既非验证码错误、也非账号错误，只有 `请输入完整的登陆信息` |
+
+第三种状态说明验证码**已作废且无法复用**。
+
+> **因此「对同一张图做 top-k 候选搜索」这条提过的高产出率方案不可行。**
+> 标签产出率 == 当前 top-1 准确率。好消息是实测这个数很高（33/33）。
+
+### 2. 真实字符集是 `[0-9a-z]` 的子集
+
+60 张纯采样（只 GET 验证码，**不提交登录**，零风险）统计字符组成：
+
+```
+出现字符: 1 2 3 b c m n v x z  (228 个字符位)
+数字 3 个: 123
+小写 7~8 个: bcmnvxyz
+大写 0 个
+```
+
+另一次采样出现 1 个 `y`，但**专门抓 120 张复核时 0 张含 y** → 那个 `y` 是
+偶发误识（可能是 `v`/`x` 的边界情况），不是真实字符。
+
+**这直接支撑「训练 63 类专用模型」的判断**：真实验证码只用到极小的字符集，
+而 ddddocr 的输出层是 8210 类 Unicode。按隐层 256 估算，仅输出层就占
+`common_old.onnx`（13MB）中的约 **8.4MB**，15 个时间步的 MACs 里有
+**31.5M** 花在这个输出层，而 63 类时只要 0.24M —— **差 130 倍**。
+
+### 3. 现有 128 张切片**不能用于训练**
+
+按 ASCII 可视化检查：笔画被旧预处理（`MORPH_CLOSE(2×2)` + `MORPH_OPEN(2×2)`）
+撑粗成 3 像素宽，`x` 的斜笔中段糊成 11px 宽实心块；前景占比 29%（正常 `n` 约 20%）。
+**标签是对的，图像是坏的。** 且只覆盖 10 个类、原图未留存。
+
+→ 正确用法：作为回归对照，**不要**拿去训练。
+
+## 二、已交付的产物
+
+| 文件 | 作用 |
+|------|------|
+| `packages/gateway/scripts/collect_captcha_samples.py` | 采集器：用登录接口当标注器。限速、断点续采、网络退避、遇账号错误即停 |
+| `packages/gateway/scripts/eval_captcha.py` | 评测器：算准确率 / 逐位 / 逐字符 / 置信度分桶 / 错例导出 / 字符分布 |
+| `recognize.py` 的 `CAPTCHA_OCR_MODEL` | 模型选择钩子（`old` 默认 / `beta`），供 A/B |
+
+### 采集器的设计要点
+
+- 每样本 3 个请求：取图 → 取 scode → 提交；间隔 3s（约 18 张/分）
+- **提交绝不对同一张图重试**（验证码一次性，网络失败时服务端可能已处理）
+- 取图可以重试（重试只是换一张图）
+- 连续网络失败 12 次自停；出现 `account_error` 立即停（防风控）
+- 落盘 `samples.jsonl`（sha1/label/result/置信度/时间戳/模型）+ 原始 PNG 整图
+- 只读环境变量里的凭据，不打印、不落盘
+
+### 踩过的坑（已修）
+
+1. **一次部署只跑通了 20 张就停**：`--total 600` 未被识别，实际是 `--max` 默认 20。
+   已重新启动为 `--total 600`。
+2. **网络抖动会打崩采集器**：最初 `submit()` 的异常直接冒泡终止整个进程。
+   现已改为捕获 + 退避 + 计数。
+3. **重复提交同一张码**：修 bug 时一度留下第二个 `submit()` 调用点，
+   会重复消耗验证码。已用 AST 检查确保 `main()` 内 `submit()` 恰好 1 处。
+4. **输出目录未挂载进容器**：最初写到 `/opt/snhgn/data/captcha_eval`，
+   容器内 `/opt/snhgn/data/captcha_eval` 并未挂载（容器只挂了
+   `/opt/snhgn/data/gateway -> /data`），宿主机看不到产物。
+   已改用 `/opt/snhgn/data/gateway/captcha_eval`（容器内 `/data/captcha_eval`）。
+
+## 三、当前进度与准确率读数
+
+```
+样本 33   通过 33   识别错 0   no_code 0
+top-1 准确率 100.00%  (n=33)
+字符分布  1:16 2:17 3:14 b:12 c:14 m:11 n:16 v:12 x:13 z:7
+速率 3.0 张/分 -> 到 600 张约需 188 分钟
+```
+
+置信度与正确性的关系（33 样本上）：
+- 最低位置信度 ≥0.99 的 16 个：全对
+- 最低位置信度 0.66 / 0.76 的两个：**也全对**
+→ 置信度与正确性在这批数据上**没有负相关**；低置信度样本不是难例。
+（这解释了为什么「用置信度做门控」在当前水平下没有收益。）
+
+## 四、目标样本量的依据
+
+不是拍脑袋定的，用二项分布算过：
+
+| 目的 | 需要样本 |
+|------|---------|
+| 把准确率测到 ±5% | 139 |
+| 测到 ±3% | 385 |
+| 测到 ±2% | 865 |
+| **区分两模型差 1%** | 300 张时不一致期望约 6 个（可检出） |
+| **区分两模型差 0.5%** | 600 张时才勉强够 |
+
+因为当前 33/33 全对（95%CI 下界约 88%），**继续堆样本主要是收窄 CI 上界；
+真正有价值的是攒「不一致样本」来对比模型**。600 张是合理目标。
+
+## 五、下一步（等采集到位后）
+
+1. `python eval_captcha.py --data /data/captcha_eval --rerun --dump-fail 10`
+   得到带 95%CI 的准确率 + 错例
+2. `CAPTCHA_OCR_MODEL=beta` 重跑同一评测集 → 与老版做 McNemar 配对比较
+3. 只有当评测集显示准确率确实需要提升时，再训 63 类 Thin CRNN+CTC
+   （输入高 32、4×[Conv3×3+BN+ReLU+MaxPool2] 32→64→128→256、去掉 RNN、
+   单层 Linear(256→63)+CTC），目标 <3ms / ~1MB
+
+## 六、运维须知
+
+- 采集进程在**容器内后台**（`docker exec -d`），容器重启即停，需重新拉起
+- 数据在 `/opt/snhgn/data/gateway/captcha_eval/`（属主 root，清理用 `docker exec rm -rf`）
+- 采集会占用**公共教务账号**，已在空闲时段启动；`--gap 3.0` 刻意保守
+- 服务健康不受影响：采集是独立进程，gateway 全程 `Up`，`/health` 正常
+
+
+## 十、模型 A/B 结论（2026-09-29）：**不要切 beta**
+
+### 结论
+
+`packages/gateway/scripts/compare_captcha_models.py` 配对比较（McNemar 精确检验）：
+
+```
+                        beta 对   beta 错
+   old 对                   30        8
+   old 错                    0        0
+
+  old  39/39 = 100.00%   95%CI [91.03%, 100.00%]
+  beta 30/38 =  78.95%   95%CI [63.65%,  88.93%]
+
+  仅 old 对 b = 8    仅 beta 对 c = 0
+  精确双侧 p = 0.0078  → 显著，old 更好，净收益 21 个百分点
+```
+
+**方向与我上一轮的猜测相反**：我一直推测 `beta=True`（`common.onnx` 52MB）
+会更准。实测它**显著更差**。
+
+### beta 为什么差：失效模式很干净
+
+8 处错误里 6 处是纯大小写差异：
+
+```
+真值 1x3v   old 1x3v   beta 1X3v
+真值 xz3c   old xz3c   beta Xz3c
+真值 x21x   old x21x   beta X21x
+真值 x11v   old x11v   beta X11v
+真值 nc11   old nc11   beta nC11
+真值 mc12   old mc12   beta mC12
+```
+
+另 2 处是别的：`b->d`、以及一张全错 `mxbv -> 1itY`。
+
+beta 凭空产出的字符（真值集里从未出现）：
+
+```
+C: 2 次   X: 4 次   Y: 1 次   d: 1 次   i: 1 次   t: 1 次
+```
+
+**解释**：beta 的字符集是 8206 类通用 Unicode，模型在「大小写」和
+「形近拉丁字母」上有很强的通用先验。但本场景的真实字符集只有 10~11 个
+小写字母+数字（实测 228 个字符位，`大写 0 个`），这个先验**纯属负担**——
+它会把 x 拉向 X、c 拉向 C，而正确答案永远是那个孤立的小写形态。
+
+> 这恰好是「8210 类输出层是浪费」这个论断的**反面印证**：
+> 字符集越大、通用先验越强，在小字符集场景下越容易犯「合理但错误」的转换。
+> 专用 63 类模型不会有这个问题，因为它的输出空间里 X 和 x 本来就该被区分，
+> 而训练数据会告诉它本场景只出现小写。
+
+### 顺带确认：服务端**区分大小写**
+
+beta 的大写形式被服务端**拒绝**了（采集时 `result != ok`），而 old 的小写形式
+全部放行。若服务端不区分大小写，beta 的大写也该通过。配对表里
+「old 错 & beta 对」= 0，排除了「old 蒙对」的可能。
+
+→ 这也意味着**我们的接受门控必须保留 ASCII 判别，但大小写不能归一化**。
+
+### 采集侧的确认读数
+
+```
+样本 40   通过 39   识别错 1   no_code 0
+top-1 准确率 97.50%  (n=40)
+速率 3.5 张/分 -> 到 600 张约 159 分钟
+```
+
+**置信度与正确性仍无相关性**：最低位置信度 <0.80 的 4 张、0.80~0.95 的 1 张，
+准确率都是 100%。所以「低置信度就重试」这个门控策略在当前水平下**没有数据支撑**，
+不启用。
+
+### 对「训专用模型」这个决策的影响
+
+beta 更差**不构成**「必须训专用模型」的论据，反而说明：
+- 当前 ddddocr 老版在这个场景已经接近饱和（97.5%~100%）
+- 真正剩下的 1 张错误（`2.5%`）需要**先看是什么错**才谈得上优化
+- 专用模型的价值主要是**速度与体积**（13MB->1MB，~7ms->~2ms），
+  而**不是准确率**。是否值得做，取决于对 gateway 384MB 内存上限的紧张程度。
+
+### 下一步（按修订后的优先级）
+
+1. 攒到 600 张，确认 97.5% 这个数是否稳定（当前 n=40，CI 很宽）
+2. 导出那 1 张错例做像素级复盘 —— 看是真难还是偶发
+3. **若准确率已稳定在 97%+ 且无新失效模式，则不必训模型**；
+   转向用现有评测集验证「专用小模型」是否值得为速度/体积而做
+
