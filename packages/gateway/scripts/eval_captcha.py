@@ -78,6 +78,8 @@ def main():
                     help="重新跑当前模型（否则直接用采集时记录的标签算准确率）")
     ap.add_argument("--dump-fail", type=int, default=0,
                     help="导出 N 个错例图片到 <data>/fails/")
+    ap.add_argument("--no-fallback", action="store_true",
+                    help="跳过切分兜底链观测（该步骤较慢）")
     args = ap.parse_args()
 
     rows = load(args.data)
@@ -189,6 +191,20 @@ def main():
         print()
         print("  => 真实字符集是「小写字母 + 数字」的子集，不是 8210 类 Unicode。")
         print("     这就是「训练 63 类专用模型」的依据（见 analyze 结论）。")
+
+    # ---- 切分兜底链观测：判断它是有效保险还是死代码 ----
+    # 固化在这里而不是每次手动跑探针，是因为要盯的是**绝对计数随规模的变化**，
+    # 而不是某个小样本下的比例（n=1 时「救援率 100%」毫无意义）。
+    if verified and not args.no_fallback:
+        from captcha_fallback_report import fallback_report
+        truth = {r["sha1"]: r["label"] for r in verified}
+        print()
+        rep = fallback_report(args.data, truth)
+        out = os.path.join(args.data, "fallback_report.json")
+        with open(out, "w", encoding="utf-8") as f:
+            json.dump({k: v for k, v in rep.items() if k != "failed_examples"},
+                      f, ensure_ascii=False, indent=1)
+        print(f"  已写入 {out}")
 
 
 if __name__ == "__main__":

@@ -33,7 +33,18 @@ def _stub(name, **attrs):
 _stub("numpy", ndarray=object, uint8="uint8", float32="float32",
       argmax=lambda s: max(range(len(s)), key=lambda i: s[i]),
       mean=lambda a, axis=None: 0.0, median=lambda a: 0.0, asarray=lambda a: a)
-_stub("cv2", imdecode=lambda *a, **k: (True, None), imencode=lambda *a, **k: (True, b"P"))
+
+
+class _EncBuf:
+    """cv2.imencode 的返回值需要有 .tobytes()（本模块不调用，但其他测试模块
+    可能已经往 sys.modules 里放了 bytes 版本的 cv2 桩；这里给个兼容对象，
+    避免它们在混合运行时报 'bytes has no attribute tobytes'）。"""
+
+    def tobytes(self):
+        return b"P"
+
+
+_stub("cv2", imdecode=lambda *a, **k: (True, None), imencode=lambda *a, **k: (True, _EncBuf()))
 
 SPEC = importlib.util.spec_from_file_location(
     "compare_mod", ROOT / "packages" / "gateway" / "scripts" / "compare_captcha_models.py")
