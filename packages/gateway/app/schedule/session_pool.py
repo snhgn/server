@@ -27,6 +27,12 @@ from . import captcha
 # 一次典型的「打开课表页 → 依次点成绩/考试/教室」使用过程。
 SESSION_TTL = 900.0  # 15 分钟
 
+# 静置超过这个秒数才做「是否被踢下线」探针。探针本身要拉一次课表页（实测
+# ~186ms），而用户连续点几个工具箱按钮时每次都探针会把收益吃掉（实测探针占
+# 考试查询总耗时的 86%）。刚用过不到一分钟的会话几乎不可能刚好失效，跳过探针；
+# 静置较久的会话仍要探，避免拿到静默的空结果。
+PROBE_AFTER_IDLE = 60.0
+
 # 池容量上限。访客路径允许任意学号，必须有界，防止无界增长。
 MAX_SLOTS = 64
 
@@ -113,6 +119,9 @@ def session_for(student_id: str, password: str, max_retry: int = 5,
     产出 (session, reused)：reused=True 表示命中池中已有会话、跳过了登录。
     会话在整个 with 块内被该学号独占；块内抛异常则丢弃该会话（可能已被
     服务端作废），正常结束则归还池中等待复用。
+
+    probe 传入时**只在会话静置超过 PROBE_AFTER_IDLE 才真正执行** —— 探针要
+    拉一次课表页（约 186ms），连续操作时每次都探会抵消会话池的收益。
     """
     key = (student_id or "").strip()
     if not key:
@@ -122,8 +131,10 @@ def session_for(student_id: str, password: str, max_retry: int = 5,
     slot.lock.acquire()
     try:
         pooled = slot.session
-        if pooled is not None and time.monotonic() - slot.ts < SESSION_TTL \
-                and is_alive(pooled, probe):
+        idle = (time.monotonic() - slot.ts) if pooled is not None else None
+        need_probe = probe is not None and (idle is None or idle > PROBE_AFTER_IDLE)
+        if pooled is not None and idle is not None and idle < SESSION_TTL \
+                and is_alive(pooled, probe if need_probe else None):
             session, reused = pooled, True
         else:
             _discard_session(pooled)

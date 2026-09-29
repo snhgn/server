@@ -72,9 +72,11 @@ class _FakePool:
         self.scripts = []
         self.i = 0
         self.invalidated = []
+        self.probe_seen = []
 
     def session_for(self, sid, password, max_retry=5, verbose=False, probe=None):
         pool = self
+        self.probe_seen.append(probe)
 
         class _Ctx:
             def __enter__(self):
@@ -111,9 +113,10 @@ _fake_captcha_mod.login = _fake_captcha.login
 _fake_captcha_mod.get_timetable = _fake_captcha.get_timetable
 _fake_captcha_mod.is_login_page = _fake_captcha.is_login_page
 
-# 假的 session_pool 门面：只提供 service/toolbox 用到的两个名字
+# 假的 session_pool 门面：只提供 service/toolbox 用到的名字
 _fake_pool_mod = types.SimpleNamespace(
     LoginFailed=LoginFailed,
+    default_probe=lambda sess: True,
     session_for=None,   # 每个用例的 setUp 填
     invalidate=None,
 )
@@ -269,6 +272,15 @@ class TestExecuteWithLogin(unittest.TestCase):
         self.pool.scripts = [_FakeSession(GRID_HTML), _FakeSession(GRID_HTML)]
         self.assertEqual(toolbox.execute_with_login("260101208", "pw", flaky), "recovered")
         self.assertEqual(len(calls), 2)
+
+    def test_probing_is_delegated_to_the_pool(self):
+        """回归：探针要拉一次课表页（~186ms，占考试查询总耗时 86%）。
+        必须交给会话池按静置时长决定，工具箱这层不能自己再发请求。"""
+        self.pool.probe_seen.clear()
+        toolbox.execute_with_login("260101208", "pw", lambda s: "ok")
+        self.assertTrue(self.pool.probe_seen, "应把探针函数交给池")
+        self.assertIs(self.pool.probe_seen[-1], _fake_pool_mod.default_probe,
+                      "探针函数必须是池的 default_probe（由池决定何时真的探测）")
 
 
 if __name__ == "__main__":

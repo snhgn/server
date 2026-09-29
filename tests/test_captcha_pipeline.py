@@ -9,12 +9,13 @@
     .venv\\Scripts\\python.exe -m unittest tests.test_captcha_pipeline -v
 """
 import contextlib
+import os
 import sys
-import threading
 import threading
 import types
 import unittest
 from pathlib import Path
+
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "packages" / "gateway"))
@@ -152,11 +153,60 @@ class TestRecognizeRouting(unittest.TestCase):
         self.assertEqual(self.calls.count("full"), 1, "整图 OCR 只应跑一次")
 
 
-class TestCtcConfidences(unittest.TestCase):
-    """recognize._ctc_confidences —— 从 CTC 输出还原逐字符置信度。
+class TestAsProbSteps(unittest.TestCase):
+    """recognize._as_prob_steps —— 兼容 ddddocr 真实的 (T,1,C) 布局。
 
-    字符集布局与 ddddocr 一致：第 0 项是 blank，字符 c 位于 index(c)。
+    线上实测返回 [23][1][8210]（时间维在最前、batch 维在中间）。此前代码
+    假设固定的 [1][T][C]，只取到 batch 那一行、把 CTC blank 当字符，
+    导致置信度**永远**是 None —— 线上验证才发现。
     """
+
+    CHARSET = "_ab"  # 3 类
+
+    def _step(self, peak, idx):
+        row = [0.0, 0.0, 0.0]
+        row[idx] = peak
+        return row
+
+    def test_time_major_with_middle_batch_dim(self):
+        """线上真实形状 (T, 1, C)"""
+        steps = [[self._step(0.9, 1)], [self._step(0.8, 2)]]
+        got = R._as_prob_steps(steps, 3)
+        self.assertEqual(len(got), 2, "应还原出 2 个时间步")
+        self.assertAlmostEqual(max(got[0]), 0.9)
+        self.assertAlmostEqual(max(got[1]), 0.8)
+
+    def test_batch_major_layout(self):
+        """另一个版本/模型可能是 (1, T, C)"""
+        steps = [[self._step(0.9, 1), self._step(0.7, 2)]]
+        self.assertEqual(len(R._as_prob_steps(steps, 3)), 2)
+
+    def test_flat_two_dim(self):
+        self.assertEqual(len(R._as_prob_steps([self._step(0.9, 1)], 3)), 1)
+
+    def test_degenerate_inputs(self):
+        self.assertEqual(R._as_prob_steps([], 3), [])
+        self.assertEqual(R._as_prob_steps(None, 3), [])
+        self.assertEqual(R._as_prob_steps([[0.1, 0.2]], 3), [], "长度对不上应视为无")
+
+    def test_end_to_end_confidences_from_real_shape(self):
+        """(T,1,C) 下必须能取到与 text 逐位对齐的置信度"""
+        text = "ab"
+        probs = [
+            [self._step(0.95, 1)],   # a
+            [self._step(0.99, 0)],   # blank
+            [self._step(0.60, 2)],   # b
+        ]
+        got, confs = R._decode_ocr_result(
+            {"text": text, "charset": self.CHARSET, "probabilities": probs})
+        self.assertEqual(got, text)
+        self.assertEqual(len(confs), 2, "必须与 text 位数一致")
+        self.assertAlmostEqual(confs[0], 0.95)
+        self.assertAlmostEqual(confs[1], 0.60)
+
+
+class TestCtcConfidences(unittest.TestCase):
+    """recognize._ctc_confidences —— 从 CTC 输出还原逐字符置信度。"""
 
     CHARSET = "_ab"  # 下标 0 = blank
 
@@ -167,35 +217,32 @@ class TestCtcConfidences(unittest.TestCase):
         return row
 
     def test_drops_blank_and_collapses_repeats(self):
-        # a  b  a  b  -> 无相邻重复、无 blank 干扰，取两项
-        arr = [self._step(0.9, 1), self._step(0.7, 2)]
-        confs = R._ctc_confidences(arr, self.CHARSET)
+        confs = R._ctc_confidences(
+            [self._step(0.9, 1), self._step(0.7, 2)], self.CHARSET)
         self.assertEqual(len(confs), 2)
         self.assertAlmostEqual(confs[0], 0.9)
         self.assertAlmostEqual(confs[1], 0.7)
 
     def test_consecutive_repeats_need_blank_separator(self):
-        # 无 blank 隔开的重复字符按 CTC 规则应折叠成 1 个
-        arr = [self._step(0.9, 1), self._step(0.8, 1)]
-        self.assertEqual(len(R._ctc_confidences(arr, self.CHARSET)), 1)
+        self.assertEqual(
+            len(R._ctc_confidences([self._step(0.9, 1), self._step(0.8, 1)], self.CHARSET)), 1)
 
     def test_repeats_separated_by_blank_both_survive(self):
-        arr = [self._step(0.9, 1), self._step(0.99, 0), self._step(0.8, 1)]
-        self.assertEqual(len(R._ctc_confidences(arr, self.CHARSET)), 2)
+        self.assertEqual(
+            len(R._ctc_confidences(
+                [self._step(0.9, 1), self._step(0.99, 0), self._step(0.8, 1)], self.CHARSET)), 2)
 
     def test_all_blank_yields_none(self):
-        arr = [self._step(0.99, 0), self._step(0.98, 0)]
-        self.assertIsNone(R._ctc_confidences(arr, self.CHARSET))
+        self.assertIsNone(R._ctc_confidences(
+            [self._step(0.99, 0), self._step(0.98, 0)], self.CHARSET))
 
     def test_blank_is_index_zero_not_last(self):
-        """回归：blank 曾被误当成最后一个下标，会把空白步解成字符。"""
-        arr = [self._step(0.95, 2), self._step(0.99, 0)]
-        self.assertEqual(len(R._ctc_confidences(arr, self.CHARSET)), 1)
+        self.assertEqual(len(R._ctc_confidences(
+            [self._step(0.95, 2), self._step(0.99, 0)], self.CHARSET)), 1)
 
     def test_degenerate_all_zero_step_is_skipped(self):
-        """无信息量的时间步不得被 argmax 硬解成一个低置信度字符。"""
-        arr = [[0.0, 0.0, 0.0], self._step(0.9, 1)]
-        self.assertEqual(len(R._ctc_confidences(arr, self.CHARSET)), 1)
+        self.assertEqual(len(R._ctc_confidences(
+            [[0.0, 0.0, 0.0], self._step(0.9, 1)], self.CHARSET)), 1)
 
     def test_missing_inputs_return_none_not_crash(self):
         self.assertIsNone(R._ctc_confidences(None, self.CHARSET))
@@ -203,8 +250,8 @@ class TestCtcConfidences(unittest.TestCase):
         self.assertIsNone(R._ctc_confidences([self._step(0.9, 1)], None))
 
     def test_low_confidence_step_is_reported_faithfully(self):
-        arr = [self._step(0.99, 1), self._step(0.11, 2)]
-        confs = R._ctc_confidences(arr, self.CHARSET)
+        confs = R._ctc_confidences(
+            [self._step(0.99, 1), self._step(0.11, 2)], self.CHARSET)
         self.assertAlmostEqual(min(confs), 0.11)
 
 
@@ -213,14 +260,6 @@ class TestDecodeOcrResult(unittest.TestCase):
 
     def test_plain_string_passthrough(self):
         self.assertEqual(R._decode_ocr_result("ab3d"), ("ab3d", None))
-
-    def test_extracts_confidences_from_dict(self):
-        row = [0.0, 0.0, 0.0]
-        row[1] = 0.9
-        res = {"text": "a", "charset": "_ab", "probabilities": [[row]]}
-        text, confs = R._decode_ocr_result(res)
-        self.assertEqual(text, "a")
-        self.assertEqual(confs, [0.9])
 
     def test_malformed_payload_degrades_gracefully(self):
         """拿不到置信度时退化为 (文本, None)，绝不能因缺字段而丢弃好结果。"""
@@ -232,11 +271,13 @@ class TestDecodeOcrResult(unittest.TestCase):
 
     def test_ignores_ddddocr_own_blurred_confidence_field(self):
         """自带的 confidence 被 blank 稀释且无法定位问题位，不予采用。"""
-        res = {"text": "ab", "charset": "ab_", "confidence": 0.99,
-               "probabilities": "junk"}
+        row = [0.0, 0.0, 0.0]
+        row[1] = 0.9
+        res = {"text": "a", "charset": "_ab", "confidence": 0.42,
+               "probabilities": [[row]]}
         text, confs = R._decode_ocr_result(res)
-        self.assertEqual(text, "ab")
-        self.assertIsNone(confs)
+        self.assertEqual(text, "a")
+        self.assertEqual(confs, [0.9])
 
 
 class TestOcrStats(unittest.TestCase):
@@ -348,42 +389,63 @@ class TestSegmentationFallback(unittest.TestCase):
 
 
 class _FakeCharsetManager:
-    """复刻 ddddocr CharsetManager 的 O(n^2) 索引重建语义。"""
+    """复刻 ddddocr 1.6.1 CharsetManager 的语义。
 
-    def __init__(self, charset):
+    关键：真实默认配置下 charset_range 为**空**，走 else 分支
+    「先 clear() 共享列表，再整体重新赋值」—— clear 与赋值之间的窗口正是
+    并发读到空列表、产出位数不足验证码的根因。刻意保留这个语义。
+    """
+
+    def __init__(self, charset, empty_range=True):
         self.charset = list(charset)
-        self.charset_range = list(charset)
+        self.charset_range = [] if empty_range else list(charset)
         self.valid_charset_range_index = []
-        self.rebuild_calls = 0
         self._update_valid_indices()
 
     def _update_valid_indices(self):
-        self.rebuild_calls += 1
+        # 与 ddddocr 1.6.1 完全一致（含先 clear 再重绑的窗口）
         self.valid_charset_range_index.clear()
-        for item in self.charset_range:
-            if item in self.charset:
-                self.valid_charset_range_index.append(self.charset.index(item))
+        if len(self.charset_range) > 0:
+            for item in self.charset_range:
+                if item in self.charset:
+                    self.valid_charset_range_index.append(self.charset.index(item))
+        else:
+            self.valid_charset_range_index = list(range(len(self.charset)))
 
     def get_valid_indices(self):
         return self.valid_charset_range_index.copy()
 
 
-class _FakeOcr:
-    def __init__(self, n_charset=400):
+class _FakeEngine:
+    def __init__(self, n_charset=400, empty_range=True):
         self.charset_manager = _FakeCharsetManager(
-            [f"c{i}" for i in range(n_charset)])
+            [f"c{i}" for i in range(n_charset)], empty_range)
+
+
+class _FakeOcr:
+    """复刻 1.6.1 的门面结构：charset_manager 挂在 ocr_engine 下面。"""
+
+    def __init__(self, n_charset=400, empty_range=True):
+        self.ocr_engine = _FakeEngine(n_charset, empty_range)
         self.calls = 0
 
     def classification(self, data, probability=False):
-        # 模拟真实 predict()：每次都先重跑一次索引重建
-        self.charset_manager._update_valid_indices()
+        self.ocr_engine.charset_manager._update_valid_indices()
         self.calls += 1
-        idx = self.charset_manager.get_valid_indices()
-        return "ab3d" if len(idx) == len(self.charset_manager.charset) else "ab"
+        idx = self.ocr_engine.charset_manager.get_valid_indices()
+        return "ab3d" if len(idx) == len(self.ocr_engine.charset_manager.charset) else "ab"
+
+    @property
+    def _cm(self):
+        return self.ocr_engine.charset_manager
 
 
 class TestCharsetIndexPin(unittest.TestCase):
-    """recognize._pin_charset_index —— 消掉每次识别 336ms 的 O(n^2) 索引重建。"""
+    """recognize._pin_charset_index —— 消掉索引重建的并发竞态。
+
+    价值是正确性（避免静默产出位数不足的验证码），不是性能：
+    服务器实测该重建净耗时约 200µs，相对整图 ONNX 推理可忽略。
+    """
 
     def setUp(self):
         self._real_get = R._get_ddddocr
@@ -395,31 +457,42 @@ class TestCharsetIndexPin(unittest.TestCase):
         R._get_ddddocr = self._real_get
         R._pinned = self._real_pinned
 
+    def test_finds_charset_manager_nested_under_engine(self):
+        """回归：1.6.1 的 charset_manager 在 ocr_engine 下，早先按顶层找
+        导致整个 pin 静默失效（服务器实测 pin 未生效）。"""
+        self.assertIs(R._find_charset_manager(self.ocr),
+                      self.ocr.ocr_engine.charset_manager)
+        self.assertTrue(R._pin_charset_index(self.ocr))
+
+    def test_finds_charset_manager_at_top_level_too(self):
+        class Old:
+            charset_manager = _FakeCharsetManager(["a", "b"])
+        self.assertIs(R._find_charset_manager(Old()), Old.charset_manager)
+
     def test_pin_succeeds_and_stops_rebuilding(self):
         self.assertTrue(R._pin_charset_index(self.ocr))
-        before = self.ocr.charset_manager.rebuild_calls
+        cm = self.ocr._cm
+        before = len(cm.valid_charset_range_index)
         for _ in range(10):
             self.ocr.classification(b"x")
-        self.assertEqual(self.ocr.charset_manager.rebuild_calls, before,
-                         "钉住之后不应再重建索引")
+        self.assertEqual(len(cm.valid_charset_range_index), before)
+        self.assertEqual(self.ocr.classification(b"x"), "ab3d")
 
-    def test_pinned_index_is_byte_identical_to_original(self):
-        cm = self.ocr.charset_manager
-        expected = list(cm.valid_charset_range_index)
+    def test_pinned_index_is_identical_to_original(self):
+        cm = self.ocr._cm
+        expected = list(range(len(cm.charset)))
         R._pin_charset_index(self.ocr)
-        cm._update_valid_indices()  # 触发被替换后的快路径
+        cm._update_valid_indices()
         self.assertEqual(cm.valid_charset_range_index, expected)
 
-    def test_pin_refuses_when_index_is_not_full_charset(self):
-        """范围受限时索引会随 charset_range 变化，快照会过期 -> 必须拒绝钉住"""
-        cm = self.ocr.charset_manager
-        cm.charset_range = cm.charset[:10]
-        cm._update_valid_indices()
+    def test_pin_refuses_when_range_is_restricted(self):
+        """范围受限时索引随 charset_range 变化，快照会过期 -> 必须拒绝"""
+        self.ocr = _FakeOcr(empty_range=False)
         self.assertFalse(R._pin_charset_index(self.ocr))
 
     def test_pin_declines_gracefully_on_unknown_structure(self):
-        """ddddocr 内部结构变化时静默退回原实现，只损失性能不影响功能"""
         self.assertFalse(R._pin_charset_index(object()))
+        self.assertIsNone(R._find_charset_manager(object()))
 
     def test_pin_declines_when_rebuild_raises(self):
         class Boom:
@@ -433,35 +506,40 @@ class TestCharsetIndexPin(unittest.TestCase):
         self.assertFalse(R._pin_charset_index(Boom()))
 
     def test_self_heals_if_index_gets_clobbered(self):
-        """有人清空索引时，快路径要把它原样写回，不能留下半截状态"""
-        cm = self.ocr.charset_manager
+        cm = self.ocr._cm
         expected = list(cm.valid_charset_range_index)
         R._pin_charset_index(self.ocr)
         cm.valid_charset_range_index.clear()
         cm._update_valid_indices()
-        self.assertEqual(cm.valid_charset_range_index, expected,
-                         "被清空后应被写回完整快照")
+        self.assertEqual(cm.valid_charset_range_index, expected)
 
-    def test_pinned_path_is_far_cheaper(self):
-        """量化收益：钉住后每次识别的索引维护开销应远低于原实现"""
-        import time
-        self.ocr.classification(b"x")  # warm
-        n = 20
-        t0 = time.perf_counter()
-        for _ in range(n):
-            self.ocr.classification(b"x")
-        t_orig = (time.perf_counter() - t0) / n
+    def test_never_leaves_index_cleared_mid_interleave(self):
+        """确定性验证：钉住后即使别的代码在重建中途把索引清空，
+        下一次调用也会原样写回，绝不会让并发读者看到空列表。
+
+        这是替代「并发压测」的可靠写法：真实默认配置下 charset_range 为空，
+        clear->重绑的窗口只有几十微秒，靠线程压测复现不稳定（负向对照显示
+        8x40 次并发在未修复时也未必复现），所以这里直接构造交错来断言机制。
+        """
+        cm = self.ocr._cm
+        expected = list(cm.valid_charset_range_index)
         R._pin_charset_index(self.ocr)
-        t0 = time.perf_counter()
-        for _ in range(n):
-            self.ocr.classification(b"x")
-        t_pinned = (time.perf_counter() - t0) / n
-        self.assertLess(t_pinned, t_orig,
-                        f"钉住后应更快：{t_pinned * 1000:.3f}ms vs {t_orig * 1000:.3f}ms")
 
-    def test_concurrent_classification_never_yields_truncated_output(self):
-        """回归：索引重建被并发打断时，另一线程会读到半截列表，
-        解码出位数不足的验证码（静默错误）。钉住之后必须不再发生。"""
+        # 模拟：某线程正在跑旧的重建逻辑，clear() 之后、重新赋值之前被打断
+        cm.valid_charset_range_index.clear()
+        self.assertEqual(cm.valid_charset_range_index, [], "前置条件：此刻确实是空的")
+
+        # 下一个 classification 的重建走钉住后的快路径，必须修回来
+        self.assertEqual(self.ocr.classification(b"x"), "ab3d")
+        self.assertEqual(cm.valid_charset_range_index, expected,
+                         "被打断后必须恢复成完整索引")
+
+    def test_concurrent_classification_smoke(self):
+        """并发冒烟：只断言「没观察到异常结果」，不作为竞态不存在的证明。
+
+        真实配置下竞态窗口极窄，本用例通过并不能证明 pin 有效；
+        机制层面的保证见 test_never_leaves_index_cleared_mid_interleave。
+        """
         R._get_ddddocr = lambda: self.ocr
         R._pin_charset_index(self.ocr)
         results, errors = [], []
@@ -482,8 +560,7 @@ class TestCharsetIndexPin(unittest.TestCase):
             t.join()
         self.assertEqual(errors, [])
         self.assertEqual(len(results), 320)
-        bad = [r for r in results if len(r) != 4]
-        self.assertEqual(bad, [], f"出现 {len(bad)} 次位数不足的识别结果")
+        self.assertEqual([r for r in results if len(r) != 4], [])
 
 
 class TestConcurrency(unittest.TestCase):
@@ -531,6 +608,61 @@ class TestConcurrency(unittest.TestCase):
         self.assertEqual(errs, [])
         self.assertEqual(len(out), 400)
         self.assertTrue(all(c == "ab3d" for c in out))
+
+
+class TestModelSelection(unittest.TestCase):
+    """recognize 的模型选择（CAPTCHA_OCR_MODEL）。"""
+
+    def setUp(self):
+        self._old_env = os.environ.get("CAPTCHA_OCR_MODEL")
+        self._real_singleton = R._ddddocr
+        self._real_pinned = R._pinned
+        R._ddddocr = None
+        R._pinned = False
+        made = {}
+
+        class FakeDdddOcr:
+            def __init__(self, show_ad=False, **kw):
+                made.update(kw)
+                made["show_ad"] = show_ad
+
+        self._made = made
+        fake = types.ModuleType("ddddocr")
+        fake.DdddOcr = FakeDdddOcr
+        self._real_mod = sys.modules.get("ddddocr")
+        sys.modules["ddddocr"] = fake
+
+    def tearDown(self):
+        R._ddddocr = self._real_singleton
+        R._pinned = self._real_pinned
+        if self._old_env is None:
+            os.environ.pop("CAPTCHA_OCR_MODEL", None)
+        else:
+            os.environ["CAPTCHA_OCR_MODEL"] = self._old_env
+        if self._real_mod is None:
+            sys.modules.pop("ddddocr", None)
+        else:
+            sys.modules["ddddocr"] = self._real_mod
+
+    def test_default_is_the_old_model(self):
+        """回归：默认必须是老版（common_old.onnx），DdddOcr 的隐式默认。
+        我们要显式钉住这个事实，免得无意中换模型。"""
+        os.environ.pop("CAPTCHA_OCR_MODEL", None)
+        R._get_ddddocr()
+        self.assertEqual(self._made.get("beta", False), False)
+        self.assertEqual(R.ocr_model_name(), "old")
+
+    def test_beta_selected_via_env(self):
+        os.environ["CAPTCHA_OCR_MODEL"] = "beta"
+        R._get_ddddocr()
+        self.assertEqual(self._made.get("beta"), True)
+        self.assertEqual(R.ocr_model_name(), "beta")
+
+    def test_unknown_value_falls_back_to_old(self):
+        os.environ["CAPTCHA_OCR_MODEL"] = "nonsense"
+        R._get_ddddocr()
+        self.assertEqual(self._made.get("beta", False), False)
+        self.assertEqual(R.ocr_model_name(), "old")
 
 
 if __name__ == "__main__":
