@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api'
 import BrandWordmark from '@/components/BrandWordmark.vue'
+import ScheduleLoading, { type Phase as LoadPhase } from '@/components/schedule/ScheduleLoading.vue'
 import ToolboxModal from '@/components/schedule/ToolboxModal.vue'
 import { processImageFile } from '@/utils/image'
 
@@ -256,6 +257,11 @@ const rememberCredentials = ref(remember)
 const syncingLatest = ref(false)
 const loading = ref(false)
 const error = ref('')
+/**
+ * 缓冲界面用：同步当前处在哪个阶段。
+ * 阶段由 ScheduleView 在发请求前后显式设置，而不是让前端自己"猜"进度。
+ */
+const loadPhase = ref<LoadPhase>('idle')
 const switching = ref(false)
 const detail = ref<Course | null>(null)
 const viewer = ref<'calendar' | 'time' | null>(null)
@@ -774,6 +780,9 @@ onMounted(async () => {
 
     // 后台静默校验与更新课表（优先使用服务端新鲜缓存，绝不每次打开都重爬教务）
     syncingLatest.value = !schedule.value
+    // 前端唯一真正"等得到"的一段就是这次 HTTP 请求（读 localStorage 是同步的，
+    // 发生在首帧之前，没有可展示的中间态）。阶段从 remote 起，不编造进度。
+    loadPhase.value = 'remote'
     try {
       const fresh = await api.post<ScheduleData>('/api/schedule/get', {
         student_id: savedSid.trim(),
@@ -792,6 +801,7 @@ onMounted(async () => {
       }
     } catch (err: any) {
       console.warn('Auto fetch latest schedule failed:', err)
+      loadPhase.value = 'error'
       // 若拉取失败但已有缓存课表，保持展示当前课表，绝不弹回登录页面
       if (!schedule.value) {
         error.value = err.message || '自动拉取最新课表失败，请检查账号密码'
@@ -840,12 +850,14 @@ async function fetchSchedule(force = true) {
   }
   loading.value = true
   error.value = ''
+  loadPhase.value = 'remote'
   try {
     schedule.value = await api.post<ScheduleData>('/api/schedule/get', {
       student_id: studentId.value.trim(),
       password: password.value,
       force,
     })
+    loadPhase.value = 'done'
     // 根据是否勾选“保存账号密码”进行持久化存储或清理
     if (rememberCredentials.value) {
       localStorage.setItem('bjfu-remember-credentials', 'true')
@@ -868,6 +880,7 @@ async function fetchSchedule(force = true) {
     syncUrlWithUser(studentId.value.trim())
   } catch (err: any) {
     error.value = err.message || '获取失败，请重试'
+    loadPhase.value = 'error'
   } finally {
     loading.value = false
   }
@@ -885,6 +898,12 @@ async function refresh() {
     setTimeout(() => (switching.value = false), 200)
   }
 }
+
+/**
+ * 已有课表时的手动同步：顶部浮层提示（而不是让整页进骨架屏）。
+ * 用户在看着课表，不该被骨架屏替换掉 —— 课表保留在下面，顶上只告知"在同步"。
+ */
+const showRefreshToast = computed(() => switching.value && !!schedule.value?.courses?.length)
 
 // ================= 自定义时间安排系统 (空闲时段添加日程) =================
 function getCustomEventsStorageKey(): string {
@@ -1672,9 +1691,10 @@ function deleteCustomEvent(id: string) {
             <span>记住账号与密码 (免重复输入)</span>
           </label>
           <p v-if="error" class="text-red-500 text-xs">{{ error }}</p>
-          <button type="submit" :disabled="loading" class="w-full rounded bg-neutral-900 dark:bg-white text-white dark:text-neutral-950 py-2.5 font-bold cursor-pointer">
+          <button type="submit" :disabled="loading" class="w-full rounded bg-neutral-900 dark:bg-white text-white dark:text-neutral-950 py-2.5 font-bold cursor-pointer disabled:opacity-60">
             {{ loading ? '正在同步...' : '立即同步课表' }}
           </button>
+          <ScheduleLoading v-if="loading" mode="inline" :phase="loadPhase" />
         </form>
       </section>
     </template>
@@ -1914,6 +1934,7 @@ function deleteCustomEvent(id: string) {
         >
           {{ loading ? '正在同步...' : '同步课表' }}
         </button>
+        <ScheduleLoading v-if="loading" mode="inline" :phase="loadPhase" />
       </form>
     </section>
 
@@ -2277,12 +2298,17 @@ function deleteCustomEvent(id: string) {
 
     </template>
 
-    <!-- Loading placeholder for first-time auto sync without cached data -->
-    <div v-else-if="syncingLatest || loading" class="max-w-md mx-auto text-center py-20 font-mono text-xs text-neutral-400">
-      <div class="inline-block h-5 w-5 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-900 mb-3" />
-      <p class="font-sans text-neutral-600 text-sm">正在同步最新课表...</p>
-    </div>
+    <!-- 首次同步且无本地缓存：整页缓冲界面（骨架屏） -->
+    <ScheduleLoading v-else-if="syncingLatest || loading" mode="boot" :phase="loadPhase" />
     </template>
+
+    <!-- 手动同步时的顶部浮层提示：课表保持可见，只在上面说明状态 -->
+    <div
+      v-if="showRefreshToast"
+      class="pointer-events-none fixed inset-x-0 top-0 z-40 flex justify-center px-4 pt-3"
+    >
+      <ScheduleLoading mode="submit" :phase="loadPhase" />
+    </div>
 
     <!-- Course Detail Modal -->
     <div
