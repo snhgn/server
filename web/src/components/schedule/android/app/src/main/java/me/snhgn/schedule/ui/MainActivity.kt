@@ -30,6 +30,7 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import me.snhgn.schedule.BuildConfig
 import me.snhgn.schedule.R
 import me.snhgn.schedule.config.AppConfig
 import me.snhgn.schedule.network.UrlProbe
@@ -238,6 +239,13 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
+        // 仅 debug 包开启 WebView 远程调试（CDP），用于在真机上驱动页面做端到端验证。
+        // release 包这一行不执行。历史上"编译通过 + 产物常量齐全"连续放过了
+        // 一个启动即崩的 bug，只有真机跑才暴露得出来，这个开关就是为此留的抓手。
+        if (BuildConfig.DEBUG) {
+            WebView.setWebContentsDebuggingEnabled(true)
+        }
+
         val wv = webView ?: return
         val settings = wv.settings
         settings.apply {

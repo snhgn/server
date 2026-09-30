@@ -17,12 +17,17 @@ android {
         //      3 = 1.0.2 灵动岛自唤醒修复
         //      4 = 1.0.3 启动前线路探测（修 lan/cn 不可达导致的长等待与报错页外露）
         //      5 = 1.0.4 补 WebView 文件选择器（修 App 端"设置背景"拉不起相册）
-        versionCode = 5
-        versionName = "1.0.4"
+        //      6 = 1.0.5 修 <include> 覆盖根节点 id 导致的启动即崩（v2~v4 全部有此问题）
+        versionCode = 6
+        versionName = "1.0.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    buildFeatures {
+        // MainActivity 用 BuildConfig.DEBUG 门控 WebView 远程调试开关
+        buildConfig = true
+    }
     buildTypes {
         release {
             isMinifyEnabled = false
