@@ -93,8 +93,97 @@ function openAndroidSettings() {
 
 function testFluidCloud() {
   if (typeof window !== 'undefined' && (window as any).AndroidBridge?.testFluidCloud) {
-    (window as any).AndroidBridge.testFluidCloud()
+    ;(window as any).AndroidBridge.testFluidCloud()
   }
+}
+
+// ================= 灵动岛自检 =================
+// 课前提醒有两条独立唤醒路径：打开 App 时的前台内联唤起（一定能成），
+// 和 AlarmManager 广播触发的后台路径。后者此前从不留任何痕迹，
+// "到点不弹胶囊"既可能是闹钟没注册、也可能是系统拒绝了后台启动，
+// 用户侧看到的现象完全一样。这里把每一环的结论显式拉出来。
+interface ReminderStatus {
+  cachedCourses: number
+  alarmCount: number
+  nextAlarmText: string
+  lastSyncText: string
+  lastSyncCount: number
+  lastAtText: string
+  lastOutcome: string
+  lastDetail: string
+  exactAlarm: boolean
+  overlay: boolean
+  batteryExempt: boolean
+  notification: boolean
+  device: string
+  sdkInt: number
+  error?: string
+}
+
+const OUTCOME_LABEL: Record<string, { text: string; tone: 'ok' | 'warn' | 'bad' }> = {
+  none: { text: '从未尝试唤醒', tone: 'warn' },
+  ok: { text: '上次唤醒成功', tone: 'ok' },
+  fgs_refused: { text: '系统拒绝后台启动', tone: 'bad' },
+  no_course: { text: '闹钟到了但没匹配到课', tone: 'bad' },
+  course_passed: { text: '闹钟到达时课程已结束', tone: 'warn' },
+  no_overlay: { text: '缺少悬浮窗权限', tone: 'bad' },
+  empty_cache: { text: '本地无课表缓存', tone: 'bad' },
+}
+
+const showReminderCheck = ref(false)
+const reminderStatus = ref<ReminderStatus | null>(null)
+
+function openReminderCheck() {
+  showReminderCheck.value = true
+  reminderStatus.value = null
+  // 等弹窗渲染出来再拉，避免拿到上一轮的旧数据
+  setTimeout(() => {
+    try {
+      const raw = (window as any).AndroidBridge?.getReminderStatus?.()
+      reminderStatus.value = raw ? JSON.parse(raw) : null
+    } catch (err) {
+      console.error('[Toolbox] 拉取灵动岛自检数据失败:', err)
+      reminderStatus.value = null
+    }
+  }, 60)
+}
+
+function closeReminderCheck() {
+  showReminderCheck.value = false
+}
+
+function outcomeOf(s: ReminderStatus) {
+  return OUTCOME_LABEL[s.lastOutcome] ?? { text: s.lastOutcome || '未知', tone: 'warn' as const }
+}
+
+/** 把诊断结论翻译成"该做什么"，而不是只罗列状态 */
+function diagnosisOf(s: ReminderStatus): string[] {
+  const tips: string[] = []
+  if (s.cachedCourses === 0) {
+    tips.push('本地没有课表缓存，闹钟一个都注册不了。在 App 内完整加载一次课表页面即可。')
+  }
+  if (s.cachedCourses > 0 && s.alarmCount === 0) {
+    tips.push('有课表数据但没有注册到任何闹钟，通常是课程时间解析失败或超出 7 天窗口。')
+  }
+  if (!s.exactAlarm) {
+    tips.push('未授予「闹钟和提醒」权限，闹钟会被系统降级为非精确，可能延迟数小时。')
+  }
+  if (!s.overlay) {
+    tips.push('未授予悬浮窗权限，顶部胶囊无法显示（通知仍会送达）。')
+  }
+  if (!s.batteryExempt) {
+    tips.push('未加入电池优化白名单，系统休眠时可能推迟甚至掐断唤醒。')
+  }
+  if (!s.notification) {
+    tips.push('未授予通知权限，降级提醒将无法送达。')
+  }
+  if (s.lastOutcome === 'fgs_refused') {
+    tips.push('上次唤醒被系统拒绝后台启动前台服务。已自动降级为通知；若要恢复胶囊，需在系统设置中允许该 App 后台弹窗。')
+  }
+  if (tips.length === 0) {
+    tips.push('各环节权限与闹钟注册均正常。若到点仍未弹出，请记录下方「上次唤醒」时间以便排查。')
+  }
+  return tips
 }
 
 // ================= 凭据解析与弹窗内即时输入支持 =================
@@ -1490,6 +1579,19 @@ async function saveMonitor() {
               <span class="font-medium text-purple-800 dark:text-purple-300">测试流体云</span>
               <span class="text-[10px] text-purple-600/80 dark:text-purple-400/80 mt-0.5">即刻弹出胶囊</span>
             </button>
+
+            <!-- 灵动岛自检 (App 专属)：定位"到点不弹"的断在哪一环 -->
+            <button
+              v-if="hasAndroidBridge"
+              class="flex flex-col items-center justify-center p-3 rounded-lg border border-sky-300 dark:border-sky-700 bg-sky-50/60 dark:bg-sky-950/30 hover:bg-sky-100 hover:border-sky-500 transition-all text-center cursor-pointer group"
+              @click="openReminderCheck"
+            >
+              <svg class="w-5 h-5 text-sky-600 dark:text-sky-400 mb-1.5 group-hover:scale-105 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span class="font-medium text-sky-800 dark:text-sky-300">灵动岛自检</span>
+              <span class="text-[10px] text-sky-600/80 dark:text-sky-400/80 mt-0.5">到点不弹看这里</span>
+            </button>
           </div>
         </div>
 
@@ -1511,6 +1613,147 @@ async function saveMonitor() {
       </div>
 
     </div>
+
+    <!-- ======================= 灵动岛自检弹窗 ======================= -->
+    <Teleport to="body">
+      <div
+        v-if="showReminderCheck"
+        class="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+        @click.self="closeReminderCheck"
+      >
+        <div
+          class="w-full max-w-md max-h-[80vh] overflow-y-auto rounded-xl bg-white dark:bg-[#131418] border border-neutral-200 dark:border-[#1F2128] shadow-2xl"
+        >
+          <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-200 dark:border-[#1F2128] sticky top-0 bg-white dark:bg-[#131418]">
+            <h3 class="text-sm font-semibold text-neutral-800 dark:text-[#F4F4F6]">灵动岛自检</h3>
+            <button
+              type="button"
+              class="w-6 h-6 flex items-center justify-center rounded text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 transition-colors"
+              @click="closeReminderCheck"
+            >
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <div class="p-4 space-y-3 text-xs">
+            <p v-if="!reminderStatus" class="text-center text-neutral-400 py-6">正在读取…</p>
+
+            <template v-else>
+              <p v-if="reminderStatus.error" class="text-red-600 dark:text-red-400">
+                读取失败：{{ reminderStatus.error }}
+              </p>
+
+              <template v-else>
+                <!-- 唤醒结论 -->
+                <div
+                  class="rounded-lg px-3 py-2 border"
+                  :class="{
+                    'border-emerald-300 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950/30': outcomeOf(reminderStatus).tone === 'ok',
+                    'border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30': outcomeOf(reminderStatus).tone === 'warn',
+                    'border-red-300 bg-red-50 dark:border-red-700 dark:bg-red-950/30': outcomeOf(reminderStatus).tone === 'bad',
+                  }"
+                >
+                  <div class="font-semibold text-neutral-800 dark:text-[#F4F4F6]">
+                    上次唤醒：{{ outcomeOf(reminderStatus).text }}
+                  </div>
+                  <div class="text-neutral-500 dark:text-neutral-400 mt-0.5">
+                    {{ reminderStatus.lastAtText }}
+                  </div>
+                  <div v-if="reminderStatus.lastDetail" class="text-neutral-600 dark:text-neutral-300 mt-1 break-all">
+                    {{ reminderStatus.lastDetail }}
+                  </div>
+                </div>
+
+                <!-- 状态明细 -->
+                <dl class="divide-y divide-neutral-100 dark:divide-[#1F2128] rounded-lg border border-neutral-200 dark:border-[#1F2128]">
+                  <div class="flex items-center justify-between px-3 py-2">
+                    <dt class="text-neutral-500 dark:text-neutral-400">本地课表缓存</dt>
+                    <dd class="font-mono font-medium text-neutral-800 dark:text-[#F4F4F6]">
+                      {{ reminderStatus.cachedCourses }} 门
+                    </dd>
+                  </div>
+                  <div class="flex items-center justify-between px-3 py-2">
+                    <dt class="text-neutral-500 dark:text-neutral-400">已注册闹钟</dt>
+                    <dd class="font-mono font-medium text-neutral-800 dark:text-[#F4F4F6]">
+                      {{ reminderStatus.alarmCount }} 个
+                    </dd>
+                  </div>
+                  <div class="flex items-center justify-between px-3 py-2">
+                    <dt class="text-neutral-500 dark:text-neutral-400">下次课前提醒</dt>
+                    <dd class="font-mono font-medium text-neutral-800 dark:text-[#F4F4F6]">
+                      {{ reminderStatus.nextAlarmText }}
+                    </dd>
+                  </div>
+                  <div class="flex items-center justify-between px-3 py-2">
+                    <dt class="text-neutral-500 dark:text-neutral-400">上次课表同步</dt>
+                    <dd class="font-mono font-medium text-neutral-800 dark:text-[#F4F4F6]">
+                      {{ reminderStatus.lastSyncText }}
+                    </dd>
+                  </div>
+                </dl>
+
+                <!-- 权限 -->
+                <div class="space-y-1.5">
+                  <div
+                    v-for="perm in [
+                      { label: '闹钟和提醒（精确）', ok: reminderStatus.exactAlarm },
+                      { label: '悬浮窗', ok: reminderStatus.overlay },
+                      { label: '电池优化白名单', ok: reminderStatus.batteryExempt },
+                      { label: '通知', ok: reminderStatus.notification },
+                    ]"
+                    :key="perm.label"
+                    class="flex items-center justify-between px-3 py-1.5 rounded border border-neutral-200 dark:border-[#1F2128]"
+                  >
+                    <span class="text-neutral-600 dark:text-neutral-300">{{ perm.label }}</span>
+                    <span
+                      class="font-medium"
+                      :class="perm.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'"
+                    >
+                      {{ perm.ok ? '已授予' : '未授予' }}
+                    </span>
+                  </div>
+                </div>
+
+                <!-- 处置建议 -->
+                <ul class="space-y-1.5 rounded-lg bg-neutral-50 dark:bg-[#0A0B0D] p-3 border border-neutral-200 dark:border-[#1F2128]">
+                  <li
+                    v-for="(tip, i) in diagnosisOf(reminderStatus)"
+                    :key="i"
+                    class="flex gap-1.5 text-neutral-700 dark:text-neutral-300"
+                  >
+                    <span class="text-neutral-400 shrink-0">·</span>
+                    <span>{{ tip }}</span>
+                  </li>
+                </ul>
+
+                <div class="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    class="flex-1 px-3 py-2 rounded-lg bg-neutral-100 dark:bg-[#1C1E24] text-neutral-700 dark:text-neutral-200 hover:bg-neutral-200 dark:hover:bg-[#2D313B] transition-colors text-xs font-medium"
+                    @click="openAndroidSettings(); closeReminderCheck()"
+                  >
+                    去设置权限
+                  </button>
+                  <button
+                    type="button"
+                    class="flex-1 px-3 py-2 rounded-lg bg-neutral-100 dark:bg-[#1C1E24] text-neutral-700 dark:text-neutral-200 hover:bg-neutral-200 dark:hover:bg-[#2D313B] transition-colors text-xs font-medium"
+                    @click="openReminderCheck()"
+                  >
+                    刷新
+                  </button>
+                </div>
+
+                <p class="text-[10px] text-neutral-400 pt-1">
+                  {{ reminderStatus.device }} · API {{ reminderStatus.sdkInt }}
+                </p>
+              </template>
+            </template>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
     <!-- ======================= 子功能弹窗合集 ======================= -->
 

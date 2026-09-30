@@ -63,9 +63,81 @@ class FloatingWindowService : Service() {
                 } else {
                     context.startService(intent)
                 }
+                ReminderDiagnostics.recordAttempt(
+                    context, "胶囊", ReminderDiagnostics.OUTCOME_OK,
+                    "已启动前台服务，悬浮窗权限=${Settings.canDrawOverlays(context)}"
+                )
             } catch (e: Exception) {
-                Log.e(TAG, "启动 FloatingWindowService 异常: ${e.message}", e)
+                // Android 12+ 禁止后台启动前台服务，ColorOS 限制更严。
+                // 这里原本只有一个 Log.e，用户侧表现为"到点什么都不弹"，
+                // 完全没有反馈、也无法排查。改为：记录原因 + 降级发普通通知。
+                // 普通通知不受后台启动前台服务的限制，是保证提醒不丢的底线。
+                Log.e(TAG, "启动前台服务被拒绝: ${e.message}", e)
+                ReminderDiagnostics.recordAttempt(
+                    context, "胶囊", ReminderDiagnostics.OUTCOME_FGS_REFUSED,
+                    "${e.javaClass.simpleName}: ${e.message ?: "无详细信息"}"
+                )
+                postFallbackNotification(context, course)
             }
+        }
+
+        /**
+         * 降级提醒：不启动前台服务，只发一条高优先级通知。
+         *
+         * 这条路径在"App 处于后台"这一唯一场景下有意义 —— 前台打开 App 时
+         * 走的是内联唤起分支，本来就能成功，不该被这条降级路径影响。
+         */
+        private fun postFallbackNotification(context: Context, course: Course) {
+            try {
+                ensureChannel(context)
+
+                val minutes = ((course.startMillis - System.currentTimeMillis()) / 60000L)
+                    .coerceAtLeast(0L)
+                val body = if (course.startMillis > System.currentTimeMillis()) {
+                    "${course.classRoom} · $minutes 分钟后上课"
+                } else {
+                    "${course.classRoom} · 正在上课"
+                }
+
+                val pendingIntent = PendingIntent.getActivity(
+                    context, 0,
+                    Intent(context, MainActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    },
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+
+                val notification: Notification = NotificationCompat.Builder(context, CHANNEL_ID)
+                    .setContentTitle(course.courseName)
+                    .setContentText(body)
+                    .setSmallIcon(R.mipmap.ic_launcher)
+                    .setContentIntent(pendingIntent)
+                    .setAutoCancel(true)
+                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .setCategory(NotificationCompat.CATEGORY_EVENT)
+                    .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                    .build()
+
+                val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                nm?.notify(NOTIFICATION_ID, notification)
+                Log.i(TAG, "已降级为普通通知提醒: ${course.courseName}")
+            } catch (e: Exception) {
+                Log.e(TAG, "降级通知发送失败: ${e.message}", e)
+            }
+        }
+
+        private fun ensureChannel(context: Context) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+            val channel = NotificationChannel(
+                CHANNEL_ID, "课程流体云提醒", NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "在课程即将开始及上课期间展示轻量提醒"
+                setShowBadge(true)
+                enableVibration(false)
+                setSound(null, null)
+            }
+            (context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)
+                ?.createNotificationChannel(channel)
         }
 
         fun stopService(context: Context) {
@@ -140,7 +212,13 @@ class FloatingWindowService : Service() {
         if (Settings.canDrawOverlays(this)) {
             showOrUpdateFloatingCapsule()
         } else {
+            // 服务起来了但画不出胶囊 —— 通知还在，但用户想要的灵动岛不会出现。
+            // 这个状态必须显式记录，否则自检面板会误报"成功"。
             Log.w(TAG, "未授予悬浮窗权限，仅保留前台通知提醒")
+            ReminderDiagnostics.recordAttempt(
+                this, "胶囊", ReminderDiagnostics.OUTCOME_NO_OVERLAY,
+                "前台服务已启动，但 SYSTEM_ALERT_WINDOW 未授予，顶部胶囊无法显示"
+            )
         }
 
         return START_NOT_STICKY

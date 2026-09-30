@@ -16,6 +16,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.ProgressBar
+import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
@@ -23,11 +24,15 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import me.snhgn.schedule.R
 import me.snhgn.schedule.config.AppConfig
 import me.snhgn.schedule.permission.PermissionHelper
+import me.snhgn.schedule.reminder.ReminderDiagnostics
 import me.snhgn.schedule.reminder.ScheduleSyncManager
+import org.json.JSONObject
 
 /**
  * APP 主界面：纯粹、无边框、支持持久登录态的全屏 WebView 容器
@@ -40,6 +45,23 @@ class MainActivity : AppCompatActivity() {
     private lateinit var layoutError: View
     private lateinit var btnRetry: Button
     private var currentUrlIndex = 0
+
+    // ---- 冷启动缓冲层 ----
+    // 进程起来到网页出首帧之间 WebView 是纯白屏，只有一根顶边细条。
+    // 这里盖一层与网页端同一套语言的缓冲界面（wordmark + 骨架 + 状态文案），
+    // 加载完淡出，把画面交给网页自己的 ScheduleLoading 接手。
+    private lateinit var splash: View
+    private var splashDismissed = false
+    private var slowHintJob: Job? = null
+    private var splashFadeJob: Job? = null
+
+    private companion object {
+        /** 超过该时长仍在加载，状态文案改为安抚措辞（与网页端 slowAfter 同量级） */
+        const val SPLASH_SLOW_AFTER_MS = 6000L
+
+        /** 淡出时长：短到几乎察觉不到，只为消除"啪"地一下的硬切 */
+        const val SPLASH_FADE_MS = 180L
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -57,6 +79,7 @@ class MainActivity : AppCompatActivity() {
         setupImmersiveWindow()
 
         initViews()
+        showSplash()
         setupWebView()
 
         // 每次打开 APP 时在后台自动静默同步一次最新课表及闹钟
@@ -90,6 +113,7 @@ class MainActivity : AppCompatActivity() {
         progressBar = findViewById(R.id.progress_bar)
         layoutError = findViewById(R.id.layout_error)
         btnRetry = findViewById(R.id.btn_retry)
+        splash = findViewById(R.id.splash_container)
 
         findViewById<View>(R.id.btn_open_settings).setOnClickListener {
             startActivity(Intent(this, PermissionGuideActivity::class.java))
@@ -99,6 +123,8 @@ class MainActivity : AppCompatActivity() {
             layoutError.visibility = View.GONE
             webView?.visibility = View.VISIBLE
             currentUrlIndex = 0
+            // 重试时把缓冲层重新盖上：这次是真的要重新拉网页，不该是裸白屏
+            showSplash()
             webView?.loadUrl(AppConfig.CANDIDATE_URLS[0])
         }
 
@@ -114,6 +140,49 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         })
+    }
+
+    /**
+     * 重新盖上缓冲层（冷启动或点击重试时调用）。
+     * 幂等：已在显示时只重置文案与计时，不会叠加动画。
+     */
+    private fun showSplash() {
+        splashDismissed = false
+        splashFadeJob?.cancel()
+        splash.animate().cancel()
+        splash.alpha = 1f
+        splash.visibility = View.VISIBLE
+        findViewById<TextView>(R.id.splash_status).setText(R.string.splash_connecting)
+
+        slowHintJob?.cancel()
+        slowHintJob = lifecycleScope.launch {
+            delay(SPLASH_SLOW_AFTER_MS)
+            // 只在仍然等待时才改文案：加载早就结束时不该再冒出"网络较慢"
+            if (!splashDismissed) {
+                findViewById<TextView>(R.id.splash_status).setText(R.string.splash_slow)
+            }
+        }
+    }
+
+    /**
+     * 网页首帧已渲染，淡出缓冲层。
+     *
+     * 时机说明：用 onPageFinished 而不是 onProgressChanged=100。
+     * 资源加载进度到 100 只代表字节下完，网页此时可能还没画出任何东西；
+     * onPageFinished 更接近"用户真的能看到内容"，此时交棒才不会白一下。
+     */
+    private fun dismissSplash() {
+        if (splashDismissed) return
+        splashDismissed = true
+        slowHintJob?.cancel()
+        splashFadeJob?.cancel()
+        splashFadeJob = lifecycleScope.launch {
+            splash.animate()
+                .alpha(0f)
+                .setDuration(SPLASH_FADE_MS)
+                .withEndAction { splash.visibility = View.GONE }
+                .start()
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -155,6 +224,23 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
+            /**
+             * 灵动岛自检数据。
+             *
+             * "到课时间不弹胶囊"这个故障此前完全不可观测：闹钟没注册、广播没收到、
+             * 前台服务被系统拒绝，三种情况在用户侧都是同一副面孔。
+             * 把 ReminderDiagnostics 的结论透出到网页，才能定位到具体哪一环断了。
+             */
+            @android.webkit.JavascriptInterface
+            fun getReminderStatus(): String {
+                return try {
+                    ReminderDiagnostics.toJson(applicationContext).toString()
+                } catch (e: Exception) {
+                    android.util.Log.e("AndroidBridge", "生成自检数据失败", e)
+                    JSONObject().put("error", e.message ?: "未知错误").toString()
+                }
+            }
+
             @android.webkit.JavascriptInterface
             fun testFluidCloud() {
                 android.util.Log.d("AndroidBridge", "触发流体云悬浮胶囊即刻测试")
@@ -180,6 +266,7 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 progressBar.visibility = View.GONE
+                dismissSplash()
                 CookieManager.getInstance().flush()
 
                 // 彻底注销旧 ServiceWorker 并清理 CacheStorage，确保页面直接拉取最新代码
@@ -214,6 +301,10 @@ class MainActivity : AppCompatActivity() {
                         view?.loadUrl(fallbackUrl)
                     } else {
                         progressBar.visibility = View.GONE
+                        // 缓冲层必须让位：否则会盖住错误卡片，用户只看到"还在加载"
+                        splash.visibility = View.GONE
+                        splashDismissed = true
+                        slowHintJob?.cancel()
                         webView?.visibility = View.GONE
                         layoutError.visibility = View.VISIBLE
                     }
@@ -255,6 +346,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        // 协程随 lifecycleScope 自动取消，这里只需停掉 View 动画，
+        // 否则 onDestroy 后动画回调仍可能触碰已脱离窗口的 View
+        splashFadeJob?.cancel()
+        slowHintJob?.cancel()
+        splash.animate().cancel()
         webView?.destroy()
         webView = null
         super.onDestroy()

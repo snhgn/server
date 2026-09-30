@@ -179,6 +179,11 @@ object AlarmManagerHelper {
 
     /**
      * 注册每日固定时间 (如凌晨 03:00) 自动同步课表的系统闹钟
+     *
+     * 这条闹钟是整条链路的自愈锚点：它负责每天把未来 7 天的课程闹钟重新注册一遍。
+     * 原先无条件用 setAndAllowWhileIdle（非精确），在 ColorOS 深度休眠下可能
+     * 整天不触发 —— 一次丢失之后没有任何东西会再把它排上，课表提醒就静默停摆。
+     * 因此有精确闹钟权限时改用精确闹钟。
      */
     fun scheduleDailySync(context: Context) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
@@ -202,13 +207,33 @@ object AlarmManagerHelper {
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         val pendingIntent = PendingIntent.getBroadcast(context, requestCode, intent, flags)
 
+        val canExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            alarmManager.canScheduleExactAlarms()
+        } else {
+            true
+        }
+
         try {
-            alarmManager.setAndAllowWhileIdle(
-                AlarmManager.RTC_WAKEUP,
-                calendar.timeInMillis,
-                pendingIntent
-            )
-            Log.d(TAG, "已安排下一次每日同步闹钟: ${calendar.time}")
+            if (canExact) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP, calendar.timeInMillis, pendingIntent
+                )
+            } else {
+                alarmManager.setAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP, calendar.timeInMillis, pendingIntent
+                )
+            }
+            Log.d(TAG, "已安排下一次每日同步闹钟: ${calendar.time} (精确=$canExact)")
+        } catch (e: SecurityException) {
+            // 权限在两次检查之间被收回：降级重试，保证自愈链不会断在这里
+            Log.w(TAG, "注册每日同步闹钟被拒，降级为非精确: ${e.message}")
+            try {
+                alarmManager.setAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP, calendar.timeInMillis, pendingIntent
+                )
+            } catch (ex: Exception) {
+                Log.e(TAG, "降级注册每日同步闹钟仍失败: ${ex.message}", ex)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "注册每日同步闹钟失败: ${e.message}", e)
         }
