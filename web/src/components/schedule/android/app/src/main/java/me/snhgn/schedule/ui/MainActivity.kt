@@ -46,9 +46,15 @@ import org.json.JSONObject
 class MainActivity : AppCompatActivity() {
 
     private var webView: WebView? = null
-    private lateinit var progressBar: ProgressBar
-    private lateinit var layoutError: View
-    private lateinit var btnRetry: Button
+
+    // 这几个是"可空"而不是 lateinit：首次启动时 onCreate 会在完成权限引导前
+    // 提前 return，initViews() 根本不会执行，但 onDestroy 照样会被调用。
+    // 用 lateinit 时，onDestroy 里一次 splash.animate() 就足以让全新安装的用户
+    // 在启动瞬间崩掉（实测：OnePlus 装完会盖一层 InstallFinishActivity，
+    // MainActivity 随即被销毁）。
+    private var progressBar: ProgressBar? = null
+    private var layoutError: View? = null
+    private var btnRetry: Button? = null
     private var currentUrlIndex = 0
 
     /** 承接网页里的文件选择（设置背景的上传入口），见 [FileChooserBridge] */
@@ -58,7 +64,7 @@ class MainActivity : AppCompatActivity() {
     // 进程起来到网页出首帧之间 WebView 是纯白屏，只有一根顶边细条。
     // 这里盖一层与网页端同一套语言的缓冲界面（wordmark + 骨架 + 状态文案），
     // 加载完淡出，把画面交给网页自己的 ScheduleLoading 接手。
-    private lateinit var splash: View
+    private var splash: View? = null
     private var splashDismissed = false
     private var slowHintJob: Job? = null
     private var splashFadeJob: Job? = null
@@ -121,7 +127,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun startLoad() {
         erroredUrls.clear()
-        layoutError.visibility = View.GONE
+        layoutError?.visibility = View.GONE
         webView?.visibility = View.VISIBLE
         showSplash()
         setSplashStatus(R.string.splash_probing)
@@ -165,7 +171,7 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, PermissionGuideActivity::class.java))
         }
 
-        btnRetry.setOnClickListener {
+        btnRetry?.setOnClickListener {
             // 重试要连线路选择一起重来：只把 currentUrlIndex 归零再 load，
             // 等于每次都先把 lan / cn 的超时重付一遍
             startLoad()
@@ -192,9 +198,10 @@ class MainActivity : AppCompatActivity() {
     private fun showSplash() {
         splashDismissed = false
         splashFadeJob?.cancel()
-        splash.animate().cancel()
-        splash.alpha = 1f
-        splash.visibility = View.VISIBLE
+        val sp = splash ?: return
+        sp.animate().cancel()
+        sp.alpha = 1f
+        sp.visibility = View.VISIBLE
         setSplashStatus(R.string.splash_connecting)
 
         slowHintJob?.cancel()
@@ -228,11 +235,12 @@ class MainActivity : AppCompatActivity() {
         splashDismissed = true
         slowHintJob?.cancel()
         splashFadeJob?.cancel()
+        val sp = splash ?: return
         splashFadeJob = lifecycleScope.launch {
-            splash.animate()
+            sp.animate()
                 .alpha(0f)
                 .setDuration(SPLASH_FADE_MS)
-                .withEndAction { splash.visibility = View.GONE }
+                .withEndAction { sp.visibility = View.GONE }
                 .start()
         }
     }
@@ -324,12 +332,12 @@ class MainActivity : AppCompatActivity() {
         wv.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
-                progressBar.visibility = View.VISIBLE
+                progressBar?.visibility = View.VISIBLE
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
-                progressBar.visibility = View.GONE
+                progressBar?.visibility = View.GONE
 
                 // 失败线路的错误页也会回调 onPageFinished。这里直接返回而不撤缓冲层，
                 // 让 WebView 自带的报错页始终盖在缓冲层下面——故障转移期间不该把它露出来。
@@ -388,13 +396,13 @@ class MainActivity : AppCompatActivity() {
                         )
                         view?.loadUrl(fallbackUrl)
                     } else {
-                        progressBar.visibility = View.GONE
+                        progressBar?.visibility = View.GONE
                         // 缓冲层必须让位：否则会盖住错误卡片，用户只看到"还在加载"
-                        splash.visibility = View.GONE
+                        splash?.visibility = View.GONE
                         splashDismissed = true
                         slowHintJob?.cancel()
                         webView?.visibility = View.GONE
-                        layoutError.visibility = View.VISIBLE
+                        layoutError?.visibility = View.VISIBLE
                     }
                 }
             }
@@ -431,11 +439,12 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                val bar = progressBar
                 if (newProgress in 1..99) {
-                    progressBar.visibility = View.VISIBLE
-                    progressBar.progress = newProgress
+                    bar?.visibility = View.VISIBLE
+                    bar?.progress = newProgress
                 } else {
-                    progressBar.visibility = View.GONE
+                    bar?.visibility = View.GONE
                 }
             }
         }
@@ -458,7 +467,7 @@ class MainActivity : AppCompatActivity() {
         splashFadeJob?.cancel()
         slowHintJob?.cancel()
         probeJob?.cancel()
-        splash.animate().cancel()
+        splash?.animate()?.cancel()
         fileChooser.dispose()
         webView?.destroy()
         webView = null

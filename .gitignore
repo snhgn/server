@@ -20,6 +20,9 @@ config/.env
 *.key
 *.pem
 *.p12
+*.jks
+*.keystore
+keystore.properties
 yaml/
 
 # ===== 数据库与运行时数据 =====
