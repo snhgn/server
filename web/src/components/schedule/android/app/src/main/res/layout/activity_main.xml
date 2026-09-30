@@ -117,9 +117,13 @@
     <!--
       冷启动缓冲层：盖在 WebView 之上，网页首帧渲染完成后淡出。
       放在最后 = 层级最高，能遮住 WebView 加载期间的白屏。
+
+      这里绝对不能再写 android:id：<include> 上的 id 会覆盖被 include 布局
+      根节点自己的 id，写了之后 activity_splash 根节点的 @+id/splash_container
+      就消失了，MainActivity 里的 findViewById(R.id.splash_container) 拿到 null，
+      启动即崩（编译期查不出来，只有真机跑才会暴露）。
     -->
     <include
-        android:id="@+id/splash"
         layout="@layout/activity_splash"
         android:layout_width="0dp"
         android:layout_height="0dp"
