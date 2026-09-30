@@ -99,3 +99,10 @@ web/dist/
 web/dist-ssr/
 *.local
 *.tsbuildinfo
+
+# ===== 部署载荷镜像 =====
+# 唯一事实来源是 web/dist（vite 构建产物，已含 web/public 静态资源）。
+# 这两份历史镜像曾被提交进 git 共 558 个文件，内容早已与线上脱节：
+# 用它们部署会把线上悄悄退回旧版。已于 2026-09-30 移除并删除。
+deploy/web/
+packages/website-deploy/deploy/web/

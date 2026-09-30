@@ -95,7 +95,7 @@ services:
       - "8080:80"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./deploy/web:/srv/web:ro
+      - ./web/dist:/srv/web:ro
       - ./certs:/srv/certs:ro
       - caddy_data:/data
       - caddy_config:/config
