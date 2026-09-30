@@ -13,8 +13,8 @@ android {
         targetSdk = 34
         // 同版本号无法覆盖安装（INSTALL_FAILED_VERSION_DOWNGRADE），每次发布必须递增。
         // 历史：1 = 线上初版，2 = 1.0.1 冷启动缓冲层，3 = 1.0.2 灵动岛自唤醒修复
-        versionCode = 3
-        versionName = "1.0.2"
+        versionCode = 4
+        versionName = "1.0.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -21,4 +21,7 @@
     <string name="splash_connecting">正在连接课表服务</string>
     <string name="splash_slow">网络较慢，正在加载…</string>
     <string name="splash_wordmark">snhgn.</string>
+    <!-- 线路择优与故障转移：让等待可解释，而不是一段没有回应的空白 -->
+    <string name="splash_probing">正在选择可用线路…</string>
+    <string name="splash_switching">线路切换中（%1$d/%2$d）…</string>
 </resources>
