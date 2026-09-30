@@ -3,12 +3,15 @@ package me.snhgn.schedule.ui
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.graphics.Bitmap
+import android.net.Uri
 import android.net.http.SslError
 import android.os.Bundle
 import android.view.View
 import android.webkit.CookieManager
 import android.webkit.SslErrorHandler
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
+import android.webkit.WebChromeClient.FileChooserParams
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -46,6 +49,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var layoutError: View
     private lateinit var btnRetry: Button
     private var currentUrlIndex = 0
+
+    /** 承接网页里的文件选择（设置背景的上传入口），见 [FileChooserBridge] */
+    private val fileChooser = FileChooserBridge(this)
 
     // ---- 冷启动缓冲层 ----
     // 进程起来到网页出首帧之间 WebView 是纯白屏，只有一根顶边细条。
@@ -246,6 +252,11 @@ class MainActivity : AppCompatActivity() {
             loadWithOverviewMode = true
             setSupportZoom(false)
             displayZoomControls = false
+            // content:// 与 file:// 是两套开关：设置背景选中的图片由系统选择器以 content:// 返回，
+            // 由 allowContentAccess 决定能否读取（默认 true，这里写明以免日后有人一并关掉）。
+            // allowFileAccess 管的是 file://，保持关闭：不需要它，且开着等于把本地文件
+            // 暴露给网页脚本。若日后出现"选择器能打开但图片读不出来"，先看这一行。
+            allowContentAccess = true
             allowFileAccess = false
             userAgentString = "${settings.userAgentString} SnhgnScheduleAndroid/1.0"
         }
@@ -392,6 +403,25 @@ class MainActivity : AppCompatActivity() {
         }
 
         wv.webChromeClient = object : WebChromeClient() {
+
+            /**
+             * 网页里的 `<input type="file">`（设置背景的上传入口）需要宿主提供选择器，
+             * WebView 自己不会弹。基类实现返回 false 且什么都不做，
+             * 缺了这一段就是"点了上传毫无反应"，详见 [FileChooserBridge]。
+             */
+            override fun onShowFileChooser(
+                view: WebView?,
+                filePathCallback: ValueCallback<Array<Uri>>?,
+                fileChooserParams: FileChooserParams?
+            ): Boolean {
+                val callback = filePathCallback
+                    ?: run {
+                        android.util.Log.w("MainActivity", "onShowFileChooser 收到空回调，忽略")
+                        return false
+                    }
+                return fileChooser.onShowFileChooser(callback, fileChooserParams)
+            }
+
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                 if (newProgress in 1..99) {
                     progressBar.visibility = View.VISIBLE
@@ -421,6 +451,7 @@ class MainActivity : AppCompatActivity() {
         slowHintJob?.cancel()
         probeJob?.cancel()
         splash.animate().cancel()
+        fileChooser.dispose()
         webView?.destroy()
         webView = null
         super.onDestroy()

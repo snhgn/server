@@ -12,9 +12,13 @@ android {
         minSdk = 31
         targetSdk = 34
         // 同版本号无法覆盖安装（INSTALL_FAILED_VERSION_DOWNGRADE），每次发布必须递增。
-        // 历史：1 = 线上初版，2 = 1.0.1 冷启动缓冲层，3 = 1.0.2 灵动岛自唤醒修复
-        versionCode = 4
-        versionName = "1.0.3"
+        // 历史：1 = 线上初版
+        //      2 = 1.0.1 冷启动缓冲层
+        //      3 = 1.0.2 灵动岛自唤醒修复
+        //      4 = 1.0.3 启动前线路探测（修 lan/cn 不可达导致的长等待与报错页外露）
+        //      5 = 1.0.4 补 WebView 文件选择器（修 App 端"设置背景"拉不起相册）
+        versionCode = 5
+        versionName = "1.0.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
