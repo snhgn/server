@@ -6,7 +6,6 @@ import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import me.snhgn.schedule.config.AppConfig
-import me.snhgn.schedule.network.ApiClient
 import me.snhgn.schedule.network.Course
 import org.json.JSONArray
 
@@ -22,6 +21,7 @@ object ScheduleSyncManager {
      */
     suspend fun updateFromWebJson(context: Context, jsonStr: String): Int = withContext(Dispatchers.IO) {
         val courseList = mutableListOf<Course>()
+        var badTimeCount = 0
         try {
             val jsonArray = JSONArray(jsonStr)
             for (i in 0 until jsonArray.length()) {
@@ -29,6 +29,15 @@ object ScheduleSyncManager {
                 if (obj != null) {
                     val course = Course.fromJson(obj)
                     if (course.id > 0 && course.startTime.isNotEmpty()) {
+                        // 时间解析失败的门课会在 scheduleAlarm 里因
+                        // "触发时间已过" 被静默跳过，用户侧表现为某门课从不提醒。
+                        // 这里先统计出来，交给自检面板显示，避免无从排查。
+                        if (!Course.isTimeValid(course.startTime) || !Course.isTimeValid(course.endTime)) {
+                            badTimeCount++
+                            Log.w(TAG, "课程时间无法解析，将无法注册闹钟: ${course.courseName} " +
+                                "[${course.startTime} ~ ${course.endTime}]")
+                            continue
+                        }
                         courseList.add(course)
                     }
                 }
@@ -40,42 +49,55 @@ object ScheduleSyncManager {
 
         if (courseList.isEmpty()) {
             Log.w(TAG, "从前端解析得到的课程列表为空")
+            ReminderDiagnostics.recordAttempt(
+                context, "同步", ReminderDiagnostics.OUTCOME_EMPTY_CACHE,
+                "前端推送 ${jsonArrayLength(jsonStr)} 门课，但全部不可用（时间无法解析 $badTimeCount 门）"
+            )
             return@withContext 0
         }
 
         saveCoursesToCache(context, courseList)
         val registeredCount = scheduleFutureCourses(context, courseList)
-        Log.i(TAG, "前端推送课表同步完成！解析得到 ${courseList.size} 门具体课程，已注册未来 7 天内 ${registeredCount} 个闹钟")
+        Log.i(TAG, "前端推送课表同步完成！解析得到 ${courseList.size} 门具体课程，已注册未来 7 天内 $registeredCount 个闹钟")
         registeredCount
     }
 
+    private fun jsonArrayLength(jsonStr: String): Int = try {
+        JSONArray(jsonStr).length()
+    } catch (e: Exception) {
+        0
+    }
+
     /**
-     * 统一入口：全量同步课表并更新系统闹钟 (本地缓存优先，手机开机/每日定时调用)
+     * 统一入口：全量同步课表并更新系统闹钟 (本地缓存唯一来源，开机/每日定时/App 打开时调用)
+     *
+     * 数据来源说明：课表数据的唯一来源是 WebView 前端通过 JS 桥推送
+     * (见 MainActivity 的 AndroidBridge.syncCourses)。这里原先还有一条
+     * "本地无缓存就去拉后端 API"的兜底，但 AppConfig.API_CANDIDATE_URLS
+     * 里的三个端点 /api/course/list 实测全部返回 404，从未成功过。
+     *
+     * 保留它有两个实际危害，不是"多一条保险"：
+     *  1) 3 个 URL × (6s 连接 + 6s 读取) 最坏 36 秒，而 BootReceiver /
+     *     AlarmBroadcastReceiver 走 goAsync() 只有 10 秒预算 —— 一旦本地
+     *     无缓存，广播处理必然超时被杀，闹钟一个也注册不上。
+     *  2) 3 次注定失败的请求在每次同步里重复付出延迟。
+     * 因此改为纯本地缓存：无缓存就是无缓存，如实记录，不再假装还有网络兜底。
      */
     suspend fun syncSchedule(context: Context): Result<Int> = withContext(Dispatchers.IO) {
         Log.d(TAG, "开始执行课表同步...")
 
-        // 1. 本地可靠缓存优先
-        var courses = getCachedCourses(context)
-
-        // 2. 若本地暂无缓存，尝试通过候选 API 端点拉取兜底
+        val courses = getCachedCourses(context)
         if (courses.isEmpty()) {
-            val fetchResult = ApiClient.fetchCourses()
-            if (fetchResult.isSuccess) {
-                courses = fetchResult.getOrDefault(emptyList())
-                if (courses.isNotEmpty()) {
-                    saveCoursesToCache(context, courses)
-                }
-            }
-        }
-
-        if (courses.isEmpty()) {
-            Log.w(TAG, "未获取到任何有效课程数据，结束同步")
+            Log.w(TAG, "本地无课表缓存，无法注册任何闹钟（需先在 App 内加载一次课表）")
+            ReminderDiagnostics.recordAttempt(
+                context, "同步", ReminderDiagnostics.OUTCOME_EMPTY_CACHE,
+                "本地无课表缓存：打开 App 加载一次课表即可恢复"
+            )
             return@withContext Result.success(0)
         }
 
         val registeredCount = scheduleFutureCourses(context, courses)
-        Log.i(TAG, "课表同步调度完成！成功注册闹钟数: $registeredCount")
+        Log.i(TAG, "课表同步调度完成！成功注册闹钟数: $registeredCount（本地课程 ${courses.size} 门）")
         Result.success(registeredCount)
     }
 
@@ -97,19 +119,29 @@ object ScheduleSyncManager {
 
         val currentActiveAlarmKeys = mutableSetOf<String>()
         var registeredCount = 0
+        // 记录"下一次开课提醒"的时间，供 App 内自检面板显示。
+        // 不依赖进程内状态：进程被杀后从 SharedPreferences 依然读得到。
+        var nextReminderAt = 0L
 
         for (course in validFutureCourses) {
             val (startOk, endOk) = AlarmManagerHelper.registerCourseAlarms(context, course)
             if (startOk) {
                 currentActiveAlarmKeys.add(course.startKey)
                 registeredCount++
+                if (course.reminderMillis > now &&
+                    (nextReminderAt == 0L || course.reminderMillis < nextReminderAt)
+                ) {
+                    nextReminderAt = course.reminderMillis
+                }
             }
             if (endOk) {
                 currentActiveAlarmKeys.add(course.endKey)
                 registeredCount++
             }
 
-            // 特殊场景：若当前正好处于课前 5 分钟内或正在上课中，立即唤起流体云悬浮胶囊
+            // 特殊场景：若当前正好处于课前 5 分钟内或正在上课中，立即唤起流体云悬浮胶囊。
+            // 注意这是"前台路径"——打开 App 就能看到灵动岛，与闹钟路径是否可用无关，
+            // 所以它曾经掩盖了"后台闹钟从不触发"的问题。
             if (course.reminderMillis <= now && now < course.endMillis) {
                 Log.i(TAG, "当前正处于即将上课或上课中，立即拉起流体云胶囊: ${course.courseName}")
                 FloatingWindowService.startService(context, course)
@@ -135,6 +167,11 @@ object ScheduleSyncManager {
 
         sp.edit().putStringSet(AppConfig.KEY_REGISTERED_KEYS, currentActiveAlarmKeys).apply()
         AlarmManagerHelper.scheduleDailySync(context)
+        ReminderDiagnostics.recordScheduling(context, registeredCount, nextReminderAt)
+
+        if (registeredCount == 0) {
+            Log.w(TAG, "未来 ${AppConfig.SYNC_FUTURE_DAYS} 天内没有可注册的课程闹钟")
+        }
         return registeredCount
     }
 
@@ -147,8 +184,7 @@ object ScheduleSyncManager {
             jsonArray.put(Course.toJson(course))
         }
         getPrefs(context).edit().putString(AppConfig.KEY_CACHED_COURSES, jsonArray.toString()).apply()
-        Log.d(TAG, "已持久化 ${courses.size} 门课程到本地存储")
-    }
+        Log.d(TAG, "已持久化 ${courses.size} 门课程到本地存储")    }
 
     /**
      * 从本地存储读取缓存的课程数据

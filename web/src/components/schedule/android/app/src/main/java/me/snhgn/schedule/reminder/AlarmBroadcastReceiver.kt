@@ -7,7 +7,6 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import me.snhgn.schedule.network.ApiClient
 import me.snhgn.schedule.network.Course
 
 /**
@@ -86,18 +85,36 @@ class AlarmBroadcastReceiver : BroadcastReceiver() {
             validCourse = cachedList.find { it.id == courseId && it.startTime == startTime }
         }
 
-        // 3. 校验确认有效且未过下课时间，立即唤起流体云/灵动岛悬浮胶囊前台服务
-        if (validCourse != null) {
-            val now = System.currentTimeMillis()
-            if (validCourse.endMillis > now) {
-                Log.i(TAG, "课程有效，立即唤起短生命周期流体云悬浮胶囊: ${validCourse.courseName}")
-                FloatingWindowService.startService(context, validCourse)
-            } else {
-                Log.d(TAG, "课程已经结束，跳过提醒: ${validCourse.courseName}")
-            }
-        } else {
+        // 3. 校验课程有效性。这里每一条"静默结束"的分支都留痕：
+        //    闹钟从触发到胶囊出现，中间只有这一个可观测点，
+        //    不记录就等于让"提醒没弹出来"变成无法排查的黑盒。
+        if (validCourse == null) {
             Log.w(TAG, "未能确认课程有效性，静默结束本次任务")
+            ReminderDiagnostics.recordAttempt(
+                context,
+                "开课提醒",
+                ReminderDiagnostics.OUTCOME_NO_COURSE,
+                "闹钟已送达但匹配不到课程 id=$courseId start=$startTime key=$uniqueKey"
+            )
+            return
         }
+
+        val now = System.currentTimeMillis()
+        if (validCourse.endMillis <= now) {
+            Log.d(TAG, "课程已经结束，跳过提醒: ${validCourse.courseName}")
+            ReminderDiagnostics.recordAttempt(
+                context,
+                "开课提醒",
+                ReminderDiagnostics.OUTCOME_COURSE_PASSED,
+                "闹钟送达时课程已结束 (end=${validCourse.endTime})"
+            )
+            return
+        }
+
+        Log.i(TAG, "课程有效，立即唤起短生命周期流体云悬浮胶囊: ${validCourse.courseName}")
+        // 起点与结果由 FloatingWindowService.startService 记录：
+        // 系统若拒绝后台启动前台服务，会写入 OUTCOME_FGS_REFUSED 并降级发通知
+        FloatingWindowService.startService(context, validCourse)
     }
 
     /**

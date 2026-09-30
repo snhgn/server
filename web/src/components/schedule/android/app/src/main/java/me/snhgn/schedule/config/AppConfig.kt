@@ -17,17 +17,11 @@ object AppConfig {
 
     const val WEBVIEW_URL = "https://lan.snhgn.me/schedule?app=1"
 
-    /**
-     * 后端课程同步 API 地址 (GET) 候选列表
-     * 返回标准 JSON 数组: [{"id": 1, "courseName": "高等数学", "classRoom": "教2-301", "startTime": "...", "endTime": "..."}]
-     */
-    val API_CANDIDATE_URLS = listOf(
-        "https://lan.snhgn.me/api/course/list",
-        "https://cn.snhgn.me/api/course/list",
-        "https://snhgn.me/api/course/list"
-    )
-
-    const val COURSE_API_URL = "https://lan.snhgn.me/api/course/list"
+    // 注意：这里曾经有 API_CANDIDATE_URLS / COURSE_API_URL（/api/course/list），
+    // 作为"本地无缓存就去后端拉课表"的兜底。实测三个候选端点全部返回
+    // 404 {"detail":"Not Found"}，从未成功过；且 3 URL × (6s 连接 + 6s 读取)
+    // 最坏 36 秒，会把走 goAsync()（仅 10 秒预算）的开机/每日同步广播拖到超时被杀。
+    // 课表数据的唯一来源现为 WebView 前端经 JS 桥 syncCourses 推送，见 ScheduleSyncManager。
 
     /**
      * 课前提醒提前量 (分钟)
