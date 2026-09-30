@@ -591,15 +591,19 @@ CSS/JS 本就命中 Cloudflare 边缘缓存（cf-cache-status=HIT），但 **HTM
 
 ### 待办（需 Cloudflare 控制台操作）
 
-1. ~~Cache Rule：让 HTML 也进边缘缓存~~（2026-08-25 已通过 API 完成：规则 id `00721e35c3bd4a80b0ad509d93272c12`，匹配 `http.host eq snhgn.me 且路径不以 /api 开头`，Edge TTL override 10 分钟；**部署新前端后需在 CF 控制台 Purge Everything 或等 10 分钟自动过期**）
+1. ~~Cache Rule：让 HTML 也进边缘缓存~~ → **已于 2026-09-30 回退**。原规则（2026-08-25 建，规则集 id `00721e35c3bd4a80b0ad509d93272c12`）匹配 `http.host eq snhgn.me 且路径不以 /api 开头`，`edge_ttl.mode=override_origin` 10 分钟——它**覆盖掉源站的 `Cache-Control: no-store`**，导致每次部署后 HTML 在各边缘节点最长滞留 10 分钟，用户刷新拿到的仍是旧 HTML（进而引用旧 CSS），而实测同一 URL 会在两份缓存（新/旧 HTML）之间来回跳，`Cache-Control: no-cache` 也绕不过。现规则只缓存内容哈希资源、其余尊重源站：
+   - expression：`(http.host eq "snhgn.me" and starts_with(http.request.uri.path, "/assets/"))`
+   - action_parameters：`{"cache":true,"edge_ttl":{"mode":"respect_origin"}}`
+   - 改法：Rulesets API 的 **PATCH 返回 405 `method_not_allowed`（code 1001）**，只能用 **PUT 整体替换规则集**
 2. ~~Browser Cache TTL 改为 Respect Existing Headers~~（2026-08-25 已通过 API 完成，zone setting `browser_cache_ttl=0`，源站 immutable 头已透出）
 3. 可选：开启 Tiered Cache 减少回源；国内访问慢的根本约束是免费版 CF 无中国节点，属架构级限制
 
 ### 缓存配置注意事项
 
-- **API 响应绝不能被缓存**：缓存规则的 expression 明确排除了 `/api/*`（SSE 流式、登录态接口都是动态响应），改动该规则时务必保留此排除条件
-- 实测：`/` 首次 MISS ~1.4s（穿隧道），第二次起边缘 HIT；浏览器复用 HTTP/2 连接后体感更快
-- **部署后清缓存**：运行 `scripts/purge-cf-cache.ps1`（凭据从环境变量 `CF_API_EMAIL` / `CF_API_KEY` 读取，已写入本机用户级注册表；AI 部署时会自动调用）。手动运行方式：
+- **API 响应绝不能被缓存**：现行规则的 expression 只匹配 `/assets/`，`/api/*`、HTML、APK、`images/*`、`sw.js` 全部排除在外，改动该规则时务必保留这个收窄
+- **HTML / APK 绝对不能进边缘缓存**：HTML 引用内容哈希的 CSS/JS，旧 HTML 会把旧资源一起钉住；APK 更要命——2026-09-30 把签名从 debug key 换成正式 release key 后，若边缘还缓存着旧 APK，用户会下载到签名不符的包、装不上更新。两者源站都发 `no-store, no-cache, must-revalidate`，CF 侧应让这份意图透出（实测 HTML `cf-cache-status=DYNAMIC`、APK `BYPASS`）
+- 实测：`/assets/*` 命中边缘（源站 `immutable` 一年，CF 尊重）；`/` 与 `/schedule` 每次 DYNAMIC 穿隧道。**代价**：HTML 的隧道往返（~1.4s）现在每次都要付，这是为正确性付的账，不要为了省这 1.4s 把 HTML 加回缓存
+- **部署后清缓存**：HTML 已不进边缘缓存，正常情况下**不需要** purge。仅当怀疑 `/assets/` 或改动了 Cloudflare 规则时才跑 `scripts/purge-cf-cache.ps1`（凭据从环境变量 `CF_API_EMAIL` / `CF_API_KEY` 读取，已写入本机用户级注册表）。手动运行方式：
   ```powershell
   powershell -ExecutionPolicy Bypass -File scripts\purge-cf-cache.ps1
   ```
