@@ -29,6 +29,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import me.snhgn.schedule.R
 import me.snhgn.schedule.config.AppConfig
+import me.snhgn.schedule.network.UrlProbe
 import me.snhgn.schedule.permission.PermissionHelper
 import me.snhgn.schedule.reminder.ReminderDiagnostics
 import me.snhgn.schedule.reminder.ScheduleSyncManager
@@ -54,6 +55,20 @@ class MainActivity : AppCompatActivity() {
     private var splashDismissed = false
     private var slowHintJob: Job? = null
     private var splashFadeJob: Job? = null
+    private var probeJob: Job? = null
+
+    /**
+     * 本轮加载中已确认主文档失败的 URL。
+     *
+     * 用它拦住一个具体陷阱：主文档加载失败时，WebView 会渲染它自带的错误页，
+     * 并对这个错误页同样回调 onPageFinished。onPageFinished 因此不能当作"网页已就绪"的信号，
+     * 否则缓冲层会在第一条线路失败的瞬间被撤掉，把系统那张"网页不可用"直接甩给用户看——
+     * 恰好是最不该露出来的时刻。
+     *
+     * 记 URL 而不是记布尔量：onReceivedError 与下一条线路的 onPageFinished 之间没有固定的先后，
+     * 单一标志位会被回调乱序击穿。
+     */
+    private val erroredUrls = HashSet<String>()
 
     private companion object {
         /** 超过该时长仍在加载，状态文案改为安抚措辞（与网页端 slowAfter 同量级） */
@@ -79,7 +94,6 @@ class MainActivity : AppCompatActivity() {
         setupImmersiveWindow()
 
         initViews()
-        showSplash()
         setupWebView()
 
         // 每次打开 APP 时在后台自动静默同步一次最新课表及闹钟
@@ -87,9 +101,34 @@ class MainActivity : AppCompatActivity() {
             ScheduleSyncManager.syncSchedule(applicationContext)
         }
 
-        // 加载课程网站（优先校园网直连，失败自动切公网兜底）
-        currentUrlIndex = 0
-        webView?.loadUrl(AppConfig.CANDIDATE_URLS[0])
+        // 先探测再加载：在校走 lan 内网直连，离校直接落到公网隧道，
+        // 不必先在一条解析不了的线路前干等二三十秒
+        startLoad()
+    }
+
+    /**
+     * 探测候选线路后把选中的那条交给 WebView。
+     *
+     * 冷启动与"重新加载"都走这里：重试同样需要重新择优，否则每次重试都要把
+     * lan / cn 的超时重付一遍，用户按几次就是几次长等待。
+     */
+    private fun startLoad() {
+        erroredUrls.clear()
+        layoutError.visibility = View.GONE
+        webView?.visibility = View.VISIBLE
+        showSplash()
+        setSplashStatus(R.string.splash_probing)
+
+        probeJob?.cancel()
+        probeJob = lifecycleScope.launch {
+            val picked = UrlProbe.pickFirstReachable(AppConfig.CANDIDATE_URLS)
+            currentUrlIndex = picked.index
+            android.util.Log.i("MainActivity", "选定线路 ${picked.url}（${picked.detail}）")
+            // 探测只解决"选谁"，成败仍由 WebView 的加载结果判定；
+            // 探测没选出可用线路时也照常往下走，好让错误卡片与重试保持唯一一套流程
+            setSplashStatus(R.string.splash_connecting)
+            webView?.loadUrl(picked.url)
+        }
     }
 
     private fun setupImmersiveWindow() {
@@ -120,12 +159,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         btnRetry.setOnClickListener {
-            layoutError.visibility = View.GONE
-            webView?.visibility = View.VISIBLE
-            currentUrlIndex = 0
-            // 重试时把缓冲层重新盖上：这次是真的要重新拉网页，不该是裸白屏
-            showSplash()
-            webView?.loadUrl(AppConfig.CANDIDATE_URLS[0])
+            // 重试要连线路选择一起重来：只把 currentUrlIndex 归零再 load，
+            // 等于每次都先把 lan / cn 的超时重付一遍
+            startLoad()
         }
 
         // 适配 Android 13+ 返回键逻辑：网页内部跳转支持返回上一页
@@ -152,16 +188,25 @@ class MainActivity : AppCompatActivity() {
         splash.animate().cancel()
         splash.alpha = 1f
         splash.visibility = View.VISIBLE
-        findViewById<TextView>(R.id.splash_status).setText(R.string.splash_connecting)
+        setSplashStatus(R.string.splash_connecting)
 
         slowHintJob?.cancel()
         slowHintJob = lifecycleScope.launch {
             delay(SPLASH_SLOW_AFTER_MS)
             // 只在仍然等待时才改文案：加载早就结束时不该再冒出"网络较慢"
             if (!splashDismissed) {
-                findViewById<TextView>(R.id.splash_status).setText(R.string.splash_slow)
+                setSplashStatus(R.string.splash_slow)
             }
         }
+    }
+
+    /** 统一改写缓冲层状态文案，避免各处 findViewById 散落。 */
+    private fun setSplashStatus(resId: Int) {
+        findViewById<TextView>(R.id.splash_status).setText(resId)
+    }
+
+    private fun setSplashStatus(text: String) {
+        findViewById<TextView>(R.id.splash_status).text = text
     }
 
     /**
@@ -266,6 +311,15 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 progressBar.visibility = View.GONE
+
+                // 失败线路的错误页也会回调 onPageFinished。这里直接返回而不撤缓冲层，
+                // 让 WebView 自带的报错页始终盖在缓冲层下面——故障转移期间不该把它露出来。
+                val finishedUrl = url ?: view?.url
+                if (finishedUrl != null && finishedUrl in erroredUrls) {
+                    android.util.Log.w("MainActivity", "onPageFinished 命中失败线路 $finishedUrl，视为错误页，保留缓冲层")
+                    return
+                }
+
                 dismissSplash()
                 CookieManager.getInstance().flush()
 
@@ -294,10 +348,25 @@ class MainActivity : AppCompatActivity() {
                 super.onReceivedError(view, request, error)
                 // 仅针对主页面加载失败时尝试候选故障转移线路，若所有线路均失败再显示错误重试界面
                 if (request?.isForMainFrame == true) {
+                    val failedUrl = request.url?.toString() ?: view?.url
+                    if (failedUrl != null) erroredUrls.add(failedUrl)
+
                     if (currentUrlIndex + 1 < AppConfig.CANDIDATE_URLS.size) {
                         currentUrlIndex++
                         val fallbackUrl = AppConfig.CANDIDATE_URLS[currentUrlIndex]
-                        android.util.Log.w("MainActivity", "主线路加载失败，自动切换至候选线路: $fallbackUrl")
+                        android.util.Log.w(
+                            "MainActivity",
+                            "线路 $failedUrl 加载失败（${error?.errorCode} ${error?.description}），切换至: $fallbackUrl"
+                        )
+                        // 缓冲层保持盖住，并说明正在换线：这段时间用户看得见发生了什么，
+                        // 而不是一段不知所以然的空白
+                        setSplashStatus(
+                            getString(
+                                R.string.splash_switching,
+                                currentUrlIndex + 1,
+                                AppConfig.CANDIDATE_URLS.size,
+                            )
+                        )
                         view?.loadUrl(fallbackUrl)
                     } else {
                         progressBar.visibility = View.GONE
@@ -350,6 +419,7 @@ class MainActivity : AppCompatActivity() {
         // 否则 onDestroy 后动画回调仍可能触碰已脱离窗口的 View
         splashFadeJob?.cancel()
         slowHintJob?.cancel()
+        probeJob?.cancel()
         splash.animate().cancel()
         webView?.destroy()
         webView = null
