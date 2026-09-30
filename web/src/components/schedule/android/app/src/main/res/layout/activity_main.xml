@@ -114,4 +114,18 @@
 
     </LinearLayout>
 
+    <!--
+      冷启动缓冲层：盖在 WebView 之上，网页首帧渲染完成后淡出。
+      放在最后 = 层级最高，能遮住 WebView 加载期间的白屏。
+    -->
+    <include
+        android:id="@+id/splash"
+        layout="@layout/activity_splash"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
 </androidx.constraintlayout.widget.ConstraintLayout>
