@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  骨架块的高亮态：alpha 动画配合，模拟"扫过"的感觉。
+  只做亮度呼吸，不做位移或缩放 —— 符合"快、轻、稳"的动效原则。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="4dp" />
+    <solid android:color="#1E222A" />
+</shape>

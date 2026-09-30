@@ -1,0 +1,327 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  冷启动缓冲层。
+
+  为什么需要它：
+  App 是 WebView 套壳，进程起来后要下载 HTML + JS + CSS 才能画出任何东西，
+  这段时间 WebView 是纯空白的，只有一根 2.5dp 细进度条贴着屏幕顶边。
+  白屏加细条，用户既不知道在等什么，也判断不了是在加载还是卡死了。
+
+  设计对齐（与网页端 ScheduleLoading 同一套语言）：
+  - 单色自洽：全程中性灰阶，不引入第二个强调色
+  - 骨架行列与真实课表一致（节次列 + 5 天），加载结束时不产生跳一下的错觉
+  - 不编造进度百分比：宽度百分比在这里没有意义，只表达还在动
+
+  退场：网页首帧渲染完成后淡出（见 MainActivity.onPageFinished），
+  交给网页自己的缓冲界面接手，两段衔接不重叠、不闪断。
+-->
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/splash_container"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg_root"
+    android:clickable="true"
+    android:focusable="true">
+
+    <!-- wordmark：品牌签名的最简形态，克制、不做动画炫技 -->
+    <TextView
+        android:id="@+id/splash_wordmark"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:letterSpacing="0.28"
+        android:text="@string/splash_wordmark"
+        android:textColor="@color/text_primary"
+        android:textSize="16sp"
+        app:layout_constraintBottom_toTopOf="@id/splash_status"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintVertical_chainStyle="packed" />
+
+    <TextView
+        android:id="@+id/splash_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:text="@string/splash_connecting"
+        android:textColor="@color/text_secondary"
+        android:textSize="13sp"
+        app:layout_constraintBottom_toTopOf="@id/splash_bar"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/splash_wordmark" />
+
+    <!-- 不确定进度：1dp 细线，循环扫光 -->
+    <ProgressBar
+        android:id="@+id/splash_bar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="120dp"
+        android:layout_height="1dp"
+        android:layout_marginTop="16dp"
+        android:indeterminate="true"
+        android:indeterminateDrawable="@drawable/progress_bar_splash"
+        app:layout_constraintBottom_toTopOf="@id/splash_skeleton"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/splash_status" />
+
+    <!-- 骨架：与真实课表同构（左侧节次列 + 5 天格），退场时不产生形状跳变 -->
+    <LinearLayout
+        android:id="@+id/splash_skeleton"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="20dp"
+        android:layout_marginTop="36dp"
+        android:layout_marginEnd="20dp"
+        android:orientation="vertical"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/splash_bar">
+
+        <!-- 表头 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <View
+                android:layout_width="32dp"
+                android:layout_height="14dp"
+                android:layout_marginEnd="6dp"
+                android:background="@drawable/bg_skeleton_block" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="14dp"
+                android:layout_marginEnd="6dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_skeleton_block" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="14dp"
+                android:layout_marginEnd="6dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_skeleton_block" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="14dp"
+                android:layout_marginEnd="6dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_skeleton_block" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="14dp"
+                android:layout_marginEnd="6dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_skeleton_block" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="14dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_skeleton_block" />
+        </LinearLayout>
+
+        <!-- 课程行：4 行，形状贴近真实课表格子 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:orientation="horizontal">
+
+                <View
+                    android:layout_width="32dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/bg_skeleton_block" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_skeleton_block" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_skeleton_block" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_skeleton_block" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_skeleton_block" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_skeleton_block" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal">
+
+                <View
+                    android:layout_width="32dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/bg_skeleton_block" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_skeleton_block" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_skeleton_block" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_skeleton_block" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_skeleton_block" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_skeleton_block" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal">
+
+                <View
+                    android:layout_width="32dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/bg_skeleton_block" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_skeleton_block" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_skeleton_block" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_skeleton_block" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_skeleton_block" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_skeleton_block" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal">
+
+                <View
+                    android:layout_width="32dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/bg_skeleton_block" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_skeleton_block" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_skeleton_block" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_skeleton_block" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_skeleton_block" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_skeleton_block" />
+            </LinearLayout>
+
+        </LinearLayout>
+    </LinearLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

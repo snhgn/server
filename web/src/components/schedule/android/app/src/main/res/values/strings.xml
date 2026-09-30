@@ -16,4 +16,9 @@
     <string name="network_error_title">网络连接异常</string>
     <string name="network_error_desc">无法连接到课程网站，请检查网络设置后重试</string>
     <string name="btn_retry">重新加载</string>
+
+    <!-- 冷启动缓冲层：文案只描述确实在做的事，不编造进度百分比 -->
+    <string name="splash_connecting">正在连接课表服务</string>
+    <string name="splash_slow">网络较慢，正在加载…</string>
+    <string name="splash_wordmark">snhgn.</string>
 </resources>

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  启动层的文字式进度指示：一条 1dp 细线 + 循环扫光。
+  刻意不用粗进度条：宽度百分比在这里没有意义（WebView 资源加载进度
+  和"课表是否就绪"不是一回事），只表达"还在动"。
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:id="@android:id/background">
+        <shape>
+            <solid android:color="#1F2128" />
+        </shape>
+    </item>
+    <item android:id="@android:id/progress">
+        <clip>
+            <shape>
+                <solid android:color="#2D313B" />
+            </shape>
+        </clip>
+    </item>
+</layer-list>

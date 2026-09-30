@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  骨架块：中性灰阶的极淡方块。
+  用 bg_surface_pressed（比 bg_surface 略亮一档）而不是半透明白，
+  这样在深色底上仍有可见的"格子感"，且去掉颜色后层次依然成立。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="4dp" />
+    <solid android:color="#14161B" />
+</shape>
