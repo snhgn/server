@@ -1380,3 +1380,110 @@ no_code        0        ← 门控一次都没拒收
 （防止把 `abcde` 这类非 4 位输出提交上去），不是性能机制。
 保留成本极低（一次长度+字符集检查），**建议保留**。
 
+## 十二、校园网链路与认证脚本实测（2026-10-02）
+
+### 12.1 服务器的出网拓扑：只有一条，且是 2.4GHz Wi-Fi
+
+```
+default via 172.28.204.1 dev wlp3s0 proto dhcp metric 600   ← 唯一出网
+wlp3s0   bjfu-wifi-office  freq 2437 (2.4GHz)  signal -60~-71 dBm
+enp2s0f2 192.168.50.2/24   只有 scope link 路由、无默认路由  ← 纯管理网
+```
+
+管理网走有线且与 Wi-Fi 无关，所以**切 Wi-Fi 不会切断 SSH**，可以放心操作；
+反过来说 Wi-Fi 一断，整机就完全没有出网，隧道随之失效。
+
+### 12.2 `102` 这个 Wi-Fi 的实测状态（未切换，配置保留但 autoconnect=no）
+
+| 项 | bjfu-wifi-office（现用） | 102 |
+|---|---|---|
+| 频段 | 2.4GHz 2437MHz | 2.4GHz 2462MHz |
+| 信号 | 54 | 92~100 |
+| 子网 | 172.28.204.0/22 | 172.25.252.0/23 |
+| Dr.COM 门户 10.1.1.10 | 可达 | **可达** |
+| 认证后出网 | 正常 | **不通** |
+
+关键点：**102 的信号好得多、门户也通，但没有完成认证就没有出网**，
+`github`/`baidu` 全程 `000`。切换本身做过多次，DHCP 时好时坏——
+有一次 45 秒后 `ip-config-unavailable` 被 NM 判失败，也有一次稳稳撑住 109 秒。
+
+**未解决的前置问题**：102 上用 `250100109` 登录门户没有成功。
+证据不充分——当时门户页面加载空白（`页面文本=` 空、Playwright `goto` 30s 超时），
+且**从未在同一条路径上用旧账号做过基线对照**，所以不能断定是账号问题还是网络抖动。
+要继续推进必须先补基线对照。
+
+> 教训：NetworkManager 在连接失败时会**自动回退**到 `autoconnect=yes` 的旧连接。
+> 测「切换到新 Wi-Fi」时，如果在等待过程中不持续断言 SSID，就会把
+> 「回退到旧网络后恢复的出网」误读成「新网络可用」。我连续两次栽在这上面，
+> 其中一次还把 102 设成了 autoconnect=yes（重启会连上看不见的网络）。
+> 正确做法：**测网络期间先把旧连接的 autoconnect 关掉**，让回退无处可去。
+
+### 12.3 校园网认证脚本的坑
+
+- 凭据在 `/opt/bjfu-login/config/config.env`（`0600 root`），**代码里没有默认值**，
+  也不走 `.env` 覆盖，改完要 `systemctl restart bjfu-login`。
+- 日志**不在 journald**，`logger.py` 同时写控制台与 `logs/app.log`；
+  查历史一律看 `/opt/bjfu-login/logs/app.log`。查 journalctl 会一无所获。
+- 门户页面是 **GBK 编码**、`DrcomServer1.0`，约 3268 字节，正文几乎全是 JS。
+  命令行里 grep 中文会乱码，拉回本地按 GBK 解码再读。
+- **会话僵死**：门户存在陈旧会话时会返回「注销页」且 `term.is_online = 1`，
+  此时页面里**没有登录表单**，`login.py` 只能报
+  `未识别到账号/密码输入框，页面结构可能已变化`。解法是先注销再登录。
+- 门户自带 Dr.COM 哆点 API 参数（`authloginpath='/eportal/?c=ACSetting&a=Login'`、
+  `authlogoutpath='...&a=Logout&ver=1.0'`，端口 **801**），
+  比抓表单可靠得多——但**实测 801 端口从本机不可达**（连接超时），暂时用不上。
+- 门户表单含验证码字段 `vip_vcode_input_pc` + `enable_vcode`，
+  而 `login.py` **完全没处理验证码**。若某天门户强制启用验证码，
+  无人值守登录会直接失效——这是已知未覆盖的风险。
+
+### 12.4 已修复：联网判定假阳性导致自愈循环失明
+
+**这是 2026-10-02 站点持续 530 的直接原因**，与 Wi-Fi 无关。
+
+原 `is_online()` 只要**任意一个**探针返回 True 就判定在线：
+
+```python
+if res is True:
+    online_hits += 1
+    if online_hits >= 1:      # ← 单个探针即可翻案
+        return True
+```
+
+而校园网网关会对少数探测端点做透明应答（典型是缓存 `generate_204` 并回 204），
+于是在**实际完全断网**时仍有探针返回正常。故障期实测：
+
+```
+https://api.github.com    -> 000  TLS 握手 10.4s 超时
+https://www.baidu.com     -> 000
+裸 TCP 443 → 140.82.121.4 / 223.5.5.5 / 104.16.132.229   全部 OPEN
+ping 网关 0% 丢包    DNS 正常    门户 10.1.1.10 返回 200
+探针：connect.rom.miui.com=True   www.qq.com=True
+      cp.cloudflare.com=None      www.baidu.com=None
+→ is_online() = True
+→ bjfu-login 每 60 秒记「网络正常，无需认证」，永远不去登录门户
+→ snhgn.me 持续 530
+```
+
+**握手能通但数据流被黑洞**是这个故障的典型特征，与服务器自身无关
+（Caddy 本机始终 200）。
+
+修复见 `tests/checker_fixed.py`（仓库内该文件与线上
+`/opt/bjfu-login/src/checker.py` 保持 SHA256 一致）：
+
+- 抽出 `judge_online()`：命中门户劫持证据即离线；否则要求命中数
+  ≥ `MIN_ONLINE_HITS`(3) **且严格多于**「无法判定」数
+- 探针 4 → 6 个，新增 `mirrors.aliyun.com`、`www.163.com`
+- 端点按实测响应耗时挑选（0.03~0.89s），排除 `www.bing.com`(8.13s)、
+  `cn.bing.com`(6.50s) 这类常态就接近超时上限的慢端点
+- 保留「容忍两个探针故障」的余量：4 通过 / 2 不确定仍判在线，
+  免得个别探针偶发慢就触发多余重登与隧道重启
+- 回归测试 `TestJudgeOnline` 把当天故障的判定结果 `[T,N,N,T,N,N]` 固化为用例
+
+线上实测 `is_online()` 耗时 1.7~2.7s，远低于 60s 检查间隔。
+
+### 12.5 认证账号已更换
+
+`/opt/bjfu-login/config/config.env` 的 `BJFU_USERNAME` 由 `260101208` 改为
+`250100109`，`BJFU_PASSWORD` **未改动**（改前改后 md5 一致）。
+旧版备份：`config.env.bak-20261002-163728`。
+
