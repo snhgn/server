@@ -68,5 +68,48 @@ class TestChecker(unittest.TestCase):
         self.assertTrue(res)
 
 
+class TestJudgeOnline(unittest.TestCase):
+    """judge_online 的多数派判定，回归 2026-10-02 的真实误判故障。"""
+
+    def test_incident_pattern_is_offline(self):
+        # 当天实测：miui 与 qq 判定 True，cloudflare/baidu 连接失败。
+        # 旧逻辑"任意一个通过即在线"在这里返回 True，导致自愈循环永不登录门户、
+        # 站点持续 530。必须判为离线。
+        self.assertFalse(checker.judge_online([True, None, None, True]))
+        # 若新增的阿里云/网易探针同样失败
+        self.assertFalse(checker.judge_online([True, None, None, True, None, None]))
+
+    def test_two_flaky_probes_still_counts_as_online(self):
+        # 有意保留的容忍度：多数派成立（4 通过 / 2 不确定）仍判在线，
+        # 免得个别探针偶发慢就把好好的网络判成断网、触发多余的重登与隧道重启。
+        self.assertTrue(checker.judge_online([True, None, None, True, True, True]))
+
+    def test_all_online_is_online(self):
+        self.assertTrue(checker.judge_online([True] * len(checker.PROBE_TARGETS)))
+
+    def test_all_unknown_is_offline(self):
+        self.assertFalse(checker.judge_online([None] * len(checker.PROBE_TARGETS)))
+
+    def test_portal_hijack_forces_offline(self):
+        # 只要有一个探针命中劫持标记，无论其它探针多正常都判离线
+        self.assertFalse(checker.judge_online([False] + [True] * 5))
+
+    def test_majority_boundary(self):
+        # 6 探针：4 通过 / 2 不确定 -> 在线（容忍两个探针故障）
+        self.assertTrue(checker.judge_online([True] * 4 + [None] * 2))
+        # 6 探针：3 通过 / 3 不确定 -> 不确定不算在线
+        self.assertFalse(checker.judge_online([True] * 3 + [None] * 3))
+        # 命中数低于 MIN_ONLINE_HITS 一律离线
+        self.assertFalse(checker.judge_online([True, True, None, None, None, None]))
+
+    def test_min_online_hits_is_covered_by_probe_count(self):
+        # 阈值不能高到即使全部探针在线也判不出来
+        self.assertLessEqual(checker.MIN_ONLINE_HITS, len(checker.PROBE_TARGETS))
+
+    def test_probe_targets_are_distinct(self):
+        urls = [u for u, _ in checker.PROBE_TARGETS]
+        self.assertEqual(len(urls), len(set(urls)))
+
+
 if __name__ == "__main__":
     unittest.main()
