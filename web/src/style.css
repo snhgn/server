@@ -13,58 +13,999 @@
  */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* ============================================================================
+   Material Design 2 — Design Foundation
+   ----------------------------------------------------------------------------
+   这一层是整个站点的 MD2 底座：色彩角色、阴影层级、字体阶梯、动效曲线与
+   组件类。设计原则是「token 驱动」——所有 MD2 组件只消费 --md2-* 变量，
+   主题切换（utils/theme.ts 写在 <html> 上的 .dark / data-theme）只改变量，
+   组件本身不需要写任何深色分支。
+
+   为什么做成独立的一层，而不是把 40 多个 .vue 里的 neutral-500 这类类名
+   逐个改掉：
+     * ScheduleView.vue (119KB) 与 ToolboxModal.vue (159KB) 的模板里内联了
+       成千上百个工具类，逐个替换极易漏改、且难以回归验证；
+     * 下面那片深色覆写块是按工具类名（.bg-white / .text-neutral-900 …）写的
+       !important 规则，它仍然服务于尚未迁移的重型页面（课表 / AI 工作区）。
+       MD2 层与它并存、互不覆盖，两套风格可以在同一个应用里共存，
+       之后再按页面逐步迁移。
+
+   全部 MD2 组件都带 .md2-state 式的 state layer（悬停 8% / 按下 16% 的
+   currentColor 叠加），这是 MD2 的交互特征；纯 CSS 实现，无需 JS。
+   ============================================================================ */
+
+:root {
+  /* --- 主色与强调色：Google 品牌四色 ----------------------------------
+     四色正好填满 MD2 的语义槽位，不引入第五个色：
+       蓝 #4285F4 → primary（app bar、包含按钮、进度条）
+       黄 #FBBC05 → secondary（FAB、开关滑块）
+       红 #EA4335 → error
+       绿 #34A853 → success
+
+     两个必须处理的结构性问题：
+
+     1) app bar 走「浅色底 + 深色字」。Google Yellow 压白字只有 1.71:1，
+        压深字 #3e2f00 是 7.79:1 —— 差得非常远，所以 on-primary 必须是
+        深色，白色在黄色上任何用法都不可能过 AA。
+
+     2) 主色拆成「填充」与「上色」两个角色。#fbbf05 直接当文字色在
+        #fafafa 上只有 1.67:1，所以另开 --md2-primary-ink（#a05600，
+        最坏底 #f1f3f4 上 4.93:1）专供文字/图标/描边/进度条/输入框下边框。
+        凡是「用主色上色」的规则都必须走 -ink。 */
+  --md2-primary: #fbbf05;            /* Google Yellow 500 */
+  --md2-primary-ink: #a05600;        /* 白 5.49 / #fafafa 5.26 / #f1f3f4 4.93 */
+  --md2-primary-variant: #f0a500;    /* hover 态，压深字仍有 6.26:1 */
+  --md2-primary-container: #fef7e0;  /* Google Yellow 50，chip / selection 底 */
+  --md2-on-primary-container: #8f6c02; /* 压 #fef7e0 4.54:1 */
+
+  /* secondary 与 primary 同为 Google Yellow 500 —— 四色里没有第二个独立
+     色相可当 secondary。它现在只服务 FAB 和开关轨道，视觉上与主色一致
+     是预期结果，不是漏改。 */
+  --md2-secondary: #fbbf05;
+  --md2-secondary-variant: #f29900;
+  --md2-secondary-container: #fef7e0;
+  --md2-on-secondary-container: #7a4f00;
+
+  /* --- 表面与背景 ----------------------------------------------------- */
+  --md2-background: #fafafa;
+  --md2-surface: #ffffff;
+  --md2-surface-alt: #f1f3f4;        /* Google Grey 100，填充式输入框底 */
+  --md2-on-surface: #202124;         /* Google Grey 900 */
+
+  /* --- 状态色：Google 红 / 绿 / 黄深档 ------------------------------- */
+  --md2-error: #c5221f;              /* Red 700，error 文字需比 #ea4335 更深 */
+  --md2-error-container: #fce8e6;
+  --md2-on-error-container: #a50e0e;
+  --md2-success: #188038;            /* Green 700 */
+  /* Google Yellow #fbbc05 太亮，当文字只有 1.87:1；warning 与字标 g 这类
+     「需要被读出来」的用法必须压深。实测：#b06000 在 #f1f3f4 上 4.17:1 仍
+     不达标，#a05600 是 4.93:1（#fafafa 上 5.26:1），取后者。 */
+  --md2-warning: #a05600;
+  /* 品牌字标里那个 g 的文字色（同 --md2-secondary 的可读版本） */
+  --md2-accent-ink: #a05600;
+  --md2-info: #1967d2;
+
+  /* --- 四色强调系统 ----------------------------------------------------
+     四个 Google 品牌色各自解出 4 个角色。之所以不是一个色一组，是因为
+     四个角色的对比度门槛不同、落点底色也不同，混用会掉出 AA：
+
+       ink        文字压在普通表面（卡片 #fff / 页面 #fafafa / alt #f1f3f4）
+                  门槛 4.5:1（正文多为 12–14px，不按大字 3:1 算）
+       bar        非文字色条                    门槛 3.0:1
+       container  chip / 卡片块的淡底          本身无门槛
+       on-container  压在 container 上的文字   门槛 4.5:1（对 container，不是对白）
+
+     on-container 不能直接复用 ink：把按白底解出的 ink 放到 16% 淡底上
+     会掉 0.5～0.9，实测 blue 4.41:1、red 4.28:1、green 3.98:1，全部不达标。
+     所以它是独立解出来的另一个值，这也是 MD2 本身要分 onXxxContainer 的原因。
+
+     取值优先用 Google 官方色阶（Blue 700、Red 800、Green 800），官方没有
+     对应档的（深黄）才用解算值；每个都实测过，16 组配对 0 失败。       */
+  --md2-blue-ink: #1967d2;            /* B700，#fff 5.37 / #fafafa 5.14 / #f1f3f4 4.82 */
+  --md2-blue-bar: #4285f4;
+  --md2-blue-container: #e1ebfd;
+  --md2-blue-on-container: #0e60ea;   /* 压 #e1ebfd 4.51:1 */
+
+  --md2-yellow-ink: #a05600;          /* 官方无深黄档；#fff 5.49 / #f1f3f4 4.93 */
+  /* bar 与其他三色不同：品牌黄 #fbbf05 在白卡片上只有 1.67:1，既不过 3:1 的
+     非文本门槛，在视觉上也几乎看不见 —— 压深反而更符合「多彩」的意图。
+     Google 官方 Yellow 700 #e37400 是 3.10:1，是官方色阶里最接近品牌黄又能
+     过线的一档，比解算器给的 #bb8e03（3.01:1）更亮更金。深色档不用改，
+     #fbbf05 在 #202124 上有 9.63:1。
+
+     再深了 1 个单位到 #e27300：色条画在卡片顶边，上下两面都得够 3:1。
+     压白卡片 3.10 ✓，但压身后的页面底 #fafafa 只有 2.97 ✗，差 0.03。
+     直接跳到官方 Yellow 800 #d87500 能过（3.11），但那一下暗得看得见；
+     按同色相只降 0.4% 亮度得到 #e27300（页面 3.01 ✓ / 卡片 3.14 ✓），
+     肉眼与品牌黄无差别。 */
+  --md2-yellow-bar: #e27300;
+  --md2-yellow-container: #fef5d7;
+  --md2-yellow-on-container: #8d6b02; /* 压 #fef5d7 4.55:1 */
+
+  --md2-red-ink: #a50e0e;             /* R800，#fff 7.87 / #f1f3f4 7.07 */
+  --md2-red-bar: #ea4335;
+  --md2-red-container: #fce1df;
+  --md2-red-on-container: #ca2315;    /* 压 #fce1df 4.51:1 */
+
+  --md2-green-ink: #0d652d;           /* G800，#fff 7.20 / #f1f3f4 6.47 */
+  /* 同 yellow-bar：#34a853 压白卡片 3.06 ✓，压页面底 #fafafa 2.93 ✗。
+     官方 Green 600 #188038 能过（4.81）但暗得太明显，这里只降 1.8% 亮度
+     到 #33a552（页面 3.03 ✓ / 卡片 3.16 ✓），色相饱和度不变。 */
+  --md2-green-bar: #33a552;
+  --md2-green-container: #dff1e3;
+  --md2-green-on-container: #267a3c;  /* 压 #dff1e3 4.53:1 */
+
+  /* --- 文本层级（MD2 的 87% / 60% / 38% 三档透明度） ------------------- */
+  --md2-text-primary: rgba(0, 0, 0, 0.87);
+  --md2-text-secondary: rgba(0, 0, 0, 0.6);
+  --md2-text-hint: rgba(0, 0, 0, 0.38);
+  --md2-text-disabled: rgba(0, 0, 0, 0.26);
+  --md2-divider: rgba(0, 0, 0, 0.12);
+  /* 非文本边界要 3:1（WCAG 1.4.11）。这个 token 是 outlined 按钮、
+     outline 输入框、outline chip 唯一的识别线，实测阶梯（压最坏的
+     #f1f3f4）：38%→2.64 ✗  40%→2.80 ✗  42%→2.99 ✗  44%→3.19 ✓
+     所以 0.38 差一点点不够，必须 0.44。 */
+  --md2-divider-strong: rgba(0, 0, 0, 0.44);
+  /* contained 按钮填充外侧的一圈 inset 描边。黄色做大面积填充在白底上
+     天生过不了 3:1 —— 实测没有任何一档黄能过，最深的 Yellow800 #d87500
+     也只有 2.92:1。所以边界只能由描边承担：#a05600 压白底 5.49:1，
+     压填充本身 3.28:1（既看得见轮廓，也不至于变成黑框）。
+     用 inset 而不是 border，是为了不给按钮加宽 2px。
+     深色档下填充本身就 9.15:1，且 -ink 与填充同色（描边会变隐形），
+     所以那一档把本 token 置为 transparent。 */
+  --md2-contained-ring: var(--md2-primary-ink);
+  --md2-disabled-bg: rgba(0, 0, 0, 0.12);
+  --md2-overlay: rgba(0, 0, 0, 0.54);
+
+  /* --- app bar 反色：深色字压浅黄底 ----------------------------------- */
+  --md2-on-primary: #3e2f00;         /* 7.79:1 on #fbbf05 */
+  --md2-on-secondary: #3e2f00;       /* 同上 */
+  --md2-appbar-bg: var(--md2-primary);
+  --md2-on-appbar: #3e2f00;
+
+  /* app bar 内导航项的未选中态透明度。分主题给值，因为两档 app bar 底色
+     不同：深字压浅黄底的余量比深字压深色底大得多。
+     实测阶梯（on-appbar 一律 #3e2f00）：
+       亮色底 #fbbf05  100%→7.79  95%→6.99  90%→6.22  85%→5.49  80%→4.87 ✓  75%→4.35 ✗
+       深色底 #fdd463  100%→9.17  95%→8.10  90%→7.08  85%→6.21  75%→4.81 ✓  70%→4.25 ✗
+     取各自最后一档达标值。未选中 4.87 对选中 7.79，层级差比之前更大。 */
+  --md2-nav-idle-op: 0.8;
+
+  /* --- 阴影层级（MD2 elevation 0–16，umbra + penumbra 双层） ---------- */
+  --md2-elev-0: none;
+  --md2-elev-1: 0 1px 2px 0 rgba(0, 0, 0, 0.14), 0 1px 3px 1px rgba(0, 0, 0, 0.12);
+  --md2-elev-2: 0 1px 3px 0 rgba(0, 0, 0, 0.15), 0 1px 1px 0 rgba(0, 0, 0, 0.14);
+  --md2-elev-3: 0 1px 5px 0 rgba(0, 0, 0, 0.16), 0 2px 2px 0 rgba(0, 0, 0, 0.14);
+  --md2-elev-4: 0 2px 4px -1px rgba(0, 0, 0, 0.16), 0 4px 5px 0 rgba(0, 0, 0, 0.14);
+  --md2-elev-5: 0 3px 6px -2px rgba(0, 0, 0, 0.16), 0 6px 10px 0 rgba(0, 0, 0, 0.14);
+  --md2-elev-6: 0 6px 10px -3px rgba(0, 0, 0, 0.16), 0 10px 14px 1px rgba(0, 0, 0, 0.12);
+  --md2-elev-7: 0 8px 10px -5px rgba(0, 0, 0, 0.16), 0 14px 18px 2px rgba(0, 0, 0, 0.12);
+  --md2-elev-8: 0 9px 12px -6px rgba(0, 0, 0, 0.16), 0 18px 24px 3px rgba(0, 0, 0, 0.12);
+  --md2-elev-9: 0 11px 14px -7px rgba(0, 0, 0, 0.16), 0 24px 30px 4px rgba(0, 0, 0, 0.12);
+  --md2-elev-10: 0 12px 16px -8px rgba(0, 0, 0, 0.16), 0 30px 36px 6px rgba(0, 0, 0, 0.12);
+  --md2-elev-11: 0 13px 18px -9px rgba(0, 0, 0, 0.16), 0 38px 44px 7px rgba(0, 0, 0, 0.12);
+  --md2-elev-12: 0 14px 20px -10px rgba(0, 0, 0, 0.16), 0 46px 54px 9px rgba(0, 0, 0, 0.12);
+
+  /* --- state layer 不透明度与动效 ------------------------------------- */
+  --md2-hover-op: 0.08;
+  --md2-pressed-op: 0.16;
+  --md2-selected-op: 0.12;
+  --md2-focus-op: 0.1;
+  --md2-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --md2-ease-emphasis: cubic-bezier(0.4, 0, 0.2, 1);
+  --md2-dur-short4: 200ms;
+  --md2-dur-medium4: 400ms;
+  --md2-dur-full: 450ms;
+}
+
+/* MD2 深色主题基线。注意与下方那片 legacy 深色覆写块共存：那一块按
+   .bg-white / .text-neutral-900 这类工具类名工作，服务尚未迁移的页面；
+   本块只改 --md2-* 变量，两者不会互相污染。 */
+html[data-theme="dark"],
+html.dark {
+  /* 深色下主色换成 Google Yellow 300 (#fdd463)，比亮色档柔和一点，
+     在深色面上不刺眼：
+       #fdd463 作填充 + 深字 #3e2f00 → 9.17:1
+       #fdd463 作文字，压最坏底 #303134 → 9.15:1
+     on-primary 仍然是深色 —— 黄色上放白字在任何一档都过不了 AA。 */
+  --md2-nav-idle-op: 0.75;
+
+  --md2-primary: #fdd463;             /* Google Yellow 300 */
+  --md2-primary-ink: #fdd463;         /* #202124 11.33 / #303134 9.15 / #17181a 12.50 */
+  --md2-primary-variant: #fbbc04;     /* hover 态，压深字 7.63:1 */
+  --md2-primary-container: #50441d;
+  --md2-on-primary-container: #fdd463; /* 压 #50441d 6.76:1 */
+  --md2-secondary: #fdd663;
+  --md2-secondary-variant: #fbbc04;
+  --md2-secondary-container: #4a3a00;
+  --md2-on-secondary-container: #feefc3;
+
+  /* 表面沿用 Google Dark 的官方灰阶，而不是自造色 */
+  --md2-background: #17181a;
+  --md2-surface: #202124;            /* Google Grey 900 */
+  --md2-surface-alt: #303134;        /* Google Grey 700，填充式输入框底 */
+  --md2-on-surface: #e8eaed;         /* Google Grey 200 */
+
+  --md2-error: #f28b82;              /* Red 300 */
+  --md2-error-container: #5c1512;
+  --md2-on-error-container: #f6a3a0;
+  --md2-success: #81c995;            /* Green 300 */
+  --md2-warning: #fdd663;
+  --md2-accent-ink: #fdd663;         /* #fdd663 在 #202124 上 11.48:1 */
+  --md2-info: #aecbfa;
+
+  /* --- 四色强调系统（深色档） ------------------------------------------
+     同一个角色在深色下要反过来「变浅」而不是复用亮色值，且门槛的落点底色
+     也换成深色三档（卡片 #202124 / alt #303134 / 页面 #17181a）。
+     bar 仍用品牌原色：深色面上四色对 #202124 分别是 4.52 / 9.63 / 4.10 /
+     5.27，全部过 3:1，不用再压。                                        */
+  --md2-blue-ink: #8ab4f8;            /* B200，#202124 7.64 / #303134 6.17 */
+  --md2-blue-bar: #4285f4;
+  --md2-blue-container: #253145;
+  --md2-blue-on-container: #5d97f6;   /* 压 #253145 4.50:1 */
+
+  --md2-yellow-ink: #fdd663;          /* Y300，#202124 11.48 / #303134 9.28 */
+  --md2-yellow-bar: #fbbf05;
+  --md2-yellow-container: #433a1f;
+  --md2-yellow-on-container: #fbbf05; /* 压 #433a1f 6.74:1 */
+
+  --md2-red-ink: #f28b82;             /* R300，#202124 6.74 / #303134 5.44 */
+  --md2-red-bar: #ea4335;
+  --md2-red-container: #402627;
+  --md2-red-on-container: #ee6a5f;    /* 压 #402627 4.50:1 */
+
+  --md2-green-ink: #81c995;           /* G300，#202124 8.22 / #303134 6.64 */
+  --md2-green-bar: #34a853;
+  --md2-green-container: #23372c;
+  --md2-green-on-container: #36b057;  /* 压 #23372c 4.54:1 */
+
+  --md2-text-primary: rgba(255, 255, 255, 0.87);
+  --md2-text-secondary: rgba(255, 255, 255, 0.6);
+  --md2-text-hint: rgba(255, 255, 255, 0.38);
+  --md2-text-disabled: rgba(255, 255, 255, 0.26);
+  --md2-divider: rgba(255, 255, 255, 0.12);
+  --md2-divider-strong: rgba(255, 255, 255, 0.46);
+  --md2-contained-ring: transparent;
+  --md2-disabled-bg: rgba(255, 255, 255, 0.12);
+  --md2-overlay: rgba(0, 0, 0, 0.72);
+
+  --md2-on-primary: #3e2f00;         /* 深字压浅黄 app bar，9.17:1 */
+  --md2-on-secondary: #3e2f00;
+  --md2-appbar-bg: var(--md2-primary);
+  --md2-on-appbar: #3e2f00;
+}
+
 @theme {
-  --font-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+  /* MD2 默认字体是 Roboto。这里不加远程 <link>：站点跑在校园网 + Cloudflare
+     隧道后面，历史上多次出现外部 CDN 拉取失败，而 Roboto 本身在 Android
+     端是系统字体，桌面端回落到系统 UI 字体即可，不引入新的外部依赖。 */
+  --font-sans: Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI",
     "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", Menlo,
     Consolas, monospace;
 
-  /* ---- snhgn. Master Brand Tokens ---- */
-  --color-canvas: #fafafa;
-  --color-canvas-pure: #ffffff;
-  --color-canvas-subtle: #f4f5f6;
-  --color-canvas-muted: #eceeed;
+  /* ---- MD2 色彩角色（转发到 --md2-* 变量，主题切换自动跟随） -------- */
+  --color-primary: var(--md2-primary);
+  /* 文字/图标专用。模板里凡是给文字上主色，必须用 primary-ink 而不是
+     primary —— 主色是亮薄荷，当文字色只有 1.48:1。 */
+  --color-primary-ink: var(--md2-primary-ink);
+  --color-primary-variant: var(--md2-primary-variant);
+  --color-primary-container: var(--md2-primary-container);
+  --color-accent-ink: var(--md2-accent-ink);
+  --color-on-primary-container: var(--md2-on-primary-container);
+  --color-accent: var(--md2-secondary);
+  --color-accent-variant: var(--md2-secondary-variant);
+  --color-background: var(--md2-background);
+  --color-surface: var(--md2-surface);
+  --color-surface-alt: var(--md2-surface-alt);
+  --color-on-surface: var(--md2-on-surface);
+  --color-on-primary: var(--md2-on-primary);
+  --color-on-secondary: var(--md2-on-secondary);
+  --color-divider: var(--md2-divider);
+  --color-error: var(--md2-error);
+  --color-error-container: var(--md2-error-container);
+  --color-on-error-container: var(--md2-on-error-container);
+  --color-success: var(--md2-success);
+  --color-warning: var(--md2-warning);
+  --color-info: var(--md2-info);
 
-  --color-ink: #111111;
-  --color-ink-secondary: #52525b;
-  --color-ink-tertiary: #71717a;
-  --color-ink-muted: #a1a1aa;
+  /* ---- 四色强调：转发到 Tailwind 工具类 --------------------------------
+     模板里写 text-red-ink / bg-green-container 这类类名时会自动跟随主题，
+     不需要在模板里判断 dark。                                             */
+  --color-blue-ink: var(--md2-blue-ink);
+  --color-blue-bar: var(--md2-blue-bar);
+  --color-blue-container: var(--md2-blue-container);
+  --color-blue-on-container: var(--md2-blue-on-container);
+  --color-yellow-ink: var(--md2-yellow-ink);
+  --color-yellow-bar: var(--md2-yellow-bar);
+  --color-yellow-container: var(--md2-yellow-container);
+  --color-yellow-on-container: var(--md2-yellow-on-container);
+  --color-red-ink: var(--md2-red-ink);
+  --color-red-bar: var(--md2-red-bar);
+  --color-red-container: var(--md2-red-container);
+  --color-red-on-container: var(--md2-red-on-container);
+  --color-green-ink: var(--md2-green-ink);
+  --color-green-bar: var(--md2-green-bar);
+  --color-green-container: var(--md2-green-container);
+  --color-green-on-container: var(--md2-green-on-container);
 
-  --color-border: #e5e5e5;
-  --color-border-subtle: #f0f0f0;
-  --color-border-hover: #d4d4d8;
+  /* 文本三档，直接对应 MD2 的 87% / 60% / 38% */
+  --color-ink: var(--md2-text-primary);
+  --color-ink-secondary: var(--md2-text-secondary);
+  --color-ink-tertiary: var(--md2-text-hint);
+  --color-ink-muted: var(--md2-text-disabled);
 
-  /* Brand Accent: Minimal Cold Slate */
-  --color-brand-accent: #7c96a8;
-  --color-brand-accent-hover: #698396;
-  --color-brand-accent-subtle: #edf3f7;
+  /* ---- MD2 阴影层级 -------------------------------------------------- */
+  --shadow-elev-1: var(--md2-elev-1);
+  --shadow-elev-2: var(--md2-elev-2);
+  --shadow-elev-3: var(--md2-elev-3);
+  --shadow-elev-4: var(--md2-elev-4);
+  --shadow-elev-5: var(--md2-elev-5);
+  --shadow-elev-6: var(--md2-elev-6);
+  --shadow-elev-8: var(--md2-elev-8);
+  --shadow-elev-12: var(--md2-elev-12);
 
-  /* State indicators */
-  --color-success: #16a34a;
-  --color-warning: #d97706;
-  --color-danger: #dc2626;
-  --color-info: #7c96a8;
+  /* MD2 卡片/按钮圆角是 4dp；chip 16dp、fab 50% 在组件类里各自定义 */
+  --radius-md2: 4px;
 }
 
+@layer base {
+  html {
+    background-color: var(--md2-background);
+    color: var(--md2-text-primary);
+  }
+
+  body {
+    background-color: var(--md2-background);
+    color: var(--md2-text-primary);
+    font-family: var(--font-sans);
+    /* MD2 body 1 是 1.5 倍行高 */
+    line-height: 1.5;
+  }
+
+  /* MD2 标题字距为 0（不是负字距） */
+  h1, h2, h3, h4, h5, h6 {
+    letter-spacing: normal;
+  }
+
+  /* MD2 选中态用 primary-container，不用原来那套中性灰 selection 工具类 */
+  ::selection {
+    background-color: var(--md2-primary-container);
+    color: var(--md2-on-primary-container);
+  }
+}
+
+@layer components {
+  /* ---- MD2 state layer（悬停 8% / 按下 16% 的 currentColor 叠加） ------ */
+  .md2-state {
+    position: relative;
+    overflow: hidden;
+  }
+  .md2-state::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background: currentColor;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--md2-dur-short4) var(--md2-ease-standard);
+  }
+  .md2-state:hover::before { opacity: var(--md2-hover-op); }
+  .md2-state:focus-visible::before { opacity: var(--md2-focus-op); }
+  .md2-state:active::before { opacity: var(--md2-pressed-op); }
+  /* 让子内容压在 state layer 之上（::before 是绝对定位，会盖住静态文本） */
+  .md2-state > * { position: relative; z-index: 1; }
+
+  /* ---- 字体阶梯（MD2 type scale） ------------------------------------- */
+  .md2-h1 { font-size: 2.125rem; line-height: 2.5rem; font-weight: 400; }
+  .md2-h2 { font-size: 1.625rem; line-height: 2rem; font-weight: 400; }
+  .md2-h3 { font-size: 1.5rem; line-height: 2rem; font-weight: 400; }
+  .md2-h4 { font-size: 1.25rem; line-height: 1.75rem; font-weight: 400; }
+  .md2-h5 { font-size: 1rem; line-height: 1.5rem; font-weight: 500; }
+  .md2-h6 { font-size: 0.875rem; line-height: 1.25rem; font-weight: 600; }
+  .md2-subtitle1 { font-size: 1rem; line-height: 1.5rem; font-weight: 400; }
+  .md2-subtitle2 { font-size: 0.875rem; line-height: 1.25rem; font-weight: 500; }
+  .md2-body1 { font-size: 1rem; line-height: 1.5rem; }
+  .md2-body2 { font-size: 0.875rem; line-height: 1.25rem; }
+  .md2-caption { font-size: 0.75rem; line-height: 1rem; }
+  .md2-overline {
+    font-size: 0.75rem;
+    line-height: 1.6rem;
+    font-weight: 500;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--md2-primary-ink);
+  }
+  /* 按钮/标签的字体规格：medium + 全大写 + 0.089em 字距 */
+  .md2-label {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 500;
+    letter-spacing: 0.089em;
+    text-transform: uppercase;
+  }
+
+  /* ---- App bar -------------------------------------------------------- */
+  .md2-appbar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    background-color: var(--md2-appbar-bg);
+    color: var(--md2-on-appbar);
+    box-shadow: var(--md2-elev-4);
+  }
+  .md2-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 56px;
+    padding: 0 12px;
+  }
+  .md2-toolbar-title {
+    flex: 1;
+    min-width: 0;
+    font-size: 1.25rem;
+    line-height: 2rem;
+    font-weight: 500;
+    color: var(--md2-on-appbar);
+  }
+  @media (min-width: 600px) {
+    .md2-toolbar { min-height: 64px; padding: 0 20px; }
+    .md2-toolbar-title { font-size: 1.5rem; }
+  }
+
+  /* app bar 内的导航项（等价于 MD2 tab：选中态带 2px 指示条） */
+  .md2-nav-item {
+    position: relative;
+    overflow: hidden;
+    display: inline-flex;
+    align-items: center;
+    height: 36px;
+    padding: 0 12px;
+    border-radius: 4px;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+    /* app bar 是浅黄，字色必须走 on-appbar（深色）；写死白色在黄色 app bar
+     上完全看不见（#fbbf05 上白字仅 1.71:1）。state layer 与指示条都用
+     currentColor，所以切到深色字后自动跟着变，无需另写。 */
+    color: color-mix(in srgb, var(--md2-on-appbar) calc(var(--md2-nav-idle-op) * 100%), transparent);
+    transition: color var(--md2-dur-short4) var(--md2-ease-standard);
+  }
+  .md2-nav-item:hover { color: var(--md2-on-appbar); }
+  .md2-nav-item[aria-current='page'] { color: var(--md2-on-appbar); }
+  .md2-nav-item[aria-current='page']::after {
+    content: '';
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    bottom: 0;
+    height: 2px;
+    background: currentColor;
+  }
+
+  /* ---- 卡片 ----------------------------------------------------------- */
+  .md2-card {
+    background-color: var(--md2-surface);
+    color: var(--md2-on-surface);
+    border-radius: var(--radius-md2);
+    box-shadow: var(--md2-elev-1);
+    transition: box-shadow var(--md2-dur-short4) var(--md2-ease-standard),
+      background-color var(--md2-dur-short4) var(--md2-ease-standard);
+  }
+  a.md2-card:hover,
+  button.md2-card:hover,
+  .md2-card.md2-interactive:hover {
+    box-shadow: var(--md2-elev-4);
+  }
+  .md2-card-flat { box-shadow: none; border: 1px solid var(--md2-divider); }
+  .md2-card-raised { box-shadow: var(--md2-elev-4); }
+
+  /* ---- 按钮 ----------------------------------------------------------- */
+  .md2-btn {
+    position: relative;
+    overflow: hidden;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-width: 64px;
+    height: 36px;
+    padding: 0 16px;
+    border: none;
+    border-radius: var(--radius-md2);
+    background: transparent;
+    /* 文字按钮默认色走 -ink：主色本身是亮薄荷，直接当字色不可读 */
+    color: var(--md2-primary-ink);
+    font-family: inherit;
+    font-size: 0.875rem;
+    font-weight: 500;
+    letter-spacing: 0.089em;
+    text-transform: uppercase;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color var(--md2-dur-short4) var(--md2-ease-standard),
+      box-shadow var(--md2-dur-short4) var(--md2-ease-standard),
+      color var(--md2-dur-short4) var(--md2-ease-standard);
+  }
+  .md2-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background: currentColor;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--md2-dur-short4) var(--md2-ease-standard);
+  }
+  .md2-btn > * { position: relative; z-index: 1; }
+  .md2-btn:hover::before { opacity: var(--md2-hover-op); }
+  .md2-btn:focus-visible::before { opacity: var(--md2-focus-op); }
+  .md2-btn:active::before { opacity: var(--md2-pressed-op); }
+  .md2-btn:disabled {
+    cursor: default;
+    color: var(--md2-text-disabled);
+    background: transparent;
+    box-shadow: none;
+  }
+  .md2-btn:disabled::before { opacity: 0; }
+
+  /* raised：白底 + 阴影，用于卡片内的次级动作 */
+  .md2-btn--raised {
+    background: var(--md2-surface);
+    color: var(--md2-primary-ink);
+    box-shadow: var(--md2-elev-2);
+  }
+  .md2-btn--raised:hover { box-shadow: var(--md2-elev-3); }
+  .md2-btn--raised:disabled { background: var(--md2-disabled-bg); }
+
+  /* contained：主色实心。
+     那道 inset 描边是必需的不是装饰 —— 黄色填充在浅色表面上是 1.50:1
+     （最坏底 #f1f3f4），远低于非文本元素要求的 3:1，按钮会变成一坨
+     贴在白卡片上、看不出边界的黄色斑。描边把识别线补回来，且不占布局
+     宽度。深色档 --md2-contained-ring 为 transparent，此环自动消失。 */
+  .md2-btn--contained {
+    background: var(--md2-primary);
+    color: var(--md2-on-primary);
+    box-shadow: var(--md2-elev-2), inset 0 0 0 1px var(--md2-contained-ring);
+  }
+  /* hover 必须把环一起带上：hover 填充换成更亮的 #f0a500，白底上只有
+     1.87:1，比静止态更弱。要是这里只写 elev-3，边界会在鼠标移上去的瞬间
+     消失。 */
+  .md2-btn--contained:hover {
+    background: var(--md2-primary-variant);
+    box-shadow: var(--md2-elev-3), inset 0 0 0 1px var(--md2-contained-ring);
+  }
+  .md2-btn--contained:disabled {
+    background: var(--md2-disabled-bg);
+    color: var(--md2-text-disabled);
+  }
+
+  .md2-btn--outlined { border: 1px solid var(--md2-divider-strong); }
+
+  /* 句式（不强制大写）变体：MD2 规范里按钮是全大写，但正文里的行内动作
+     （如「全部项目 (12)」）全大写会读着别扭，用这个修饰符放宽。 */
+  .md2-btn--sentence {
+    text-transform: none;
+    letter-spacing: normal;
+    font-weight: 500;
+  }
+
+  .md2-btn--danger { color: var(--md2-error); }
+  .md2-btn--danger.md2-btn--contained {
+    background: var(--md2-error);
+    color: #fff;
+  }
+
+  /* 图标按钮：圆形 state layer */
+  .md2-icon-btn {
+    position: relative;
+    overflow: hidden;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    transition: background-color var(--md2-dur-short4) var(--md2-ease-standard);
+  }
+  .md2-icon-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: currentColor;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--md2-dur-short4) var(--md2-ease-standard);
+  }
+  .md2-icon-btn:hover::before { opacity: var(--md2-hover-op); }
+  .md2-icon-btn:active::before { opacity: var(--md2-pressed-op); }
+  .md2-icon-btn > * { position: relative; z-index: 1; }
+
+  /* ---- 输入框（filled） ------------------------------------------------ */
+  .md2-field { display: flex; flex-direction: column; }
+  .md2-field-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    color: var(--md2-text-secondary);
+    margin-bottom: 6px;
+  }
+  .md2-input {
+    width: 100%;
+    height: 48px;
+    padding: 0 16px;
+    border: none;
+    /* 下边框走 -ink 而不是 primary：#fbbf05 在白色输入框底上只有 1.67:1，
+       远低于非文本元素要求的 3:1，等于看不见这条线。#a05600 是 5.49:1。 */
+     border-bottom: 2px solid var(--md2-primary-ink);
+    border-radius: 4px 4px 0 0;
+    background: var(--md2-surface-alt);
+    color: var(--md2-text-primary);
+    font-family: inherit;
+    font-size: 1rem;
+    transition: background-color var(--md2-dur-short4) var(--md2-ease-standard);
+  }
+  .md2-input::placeholder { color: var(--md2-text-hint); }
+  .md2-input:focus {
+    outline: none;
+    background: var(--md2-surface);
+  }
+  .md2-input:disabled {
+    color: var(--md2-text-disabled);
+    background: var(--md2-disabled-bg);
+    cursor: default;
+  }
+  /* outlined 变体 */
+  .md2-input--outline {
+    height: 44px;
+    border: 1px solid var(--md2-divider-strong);
+    border-radius: var(--radius-md2);
+  }
+  .md2-input--outline:focus {
+    border-color: var(--md2-primary-ink);
+    border-width: 2px;
+  }
+
+  /* ---- Chip ------------------------------------------------------------ */
+  .md2-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 12px;
+    border: none;
+    border-radius: 16px;
+    background: rgba(127, 127, 127, 0.14);
+    color: var(--md2-text-primary);
+    font-family: inherit;
+    font-size: 0.8125rem;
+    white-space: nowrap;
+  }
+  .md2-chip--outline {
+    background: transparent;
+    border: 1px solid var(--md2-divider-strong);
+  }
+  .md2-chip--accent { background: var(--md2-secondary); color: var(--md2-on-secondary); }
+  .md2-chip--primary {
+    background: var(--md2-primary-container);
+    color: var(--md2-on-primary-container);
+  }
+
+  /* ---- FAB ------------------------------------------------------------- */
+  .md2-fab {
+    position: relative;
+    overflow: hidden;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 56px;
+    height: 56px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: var(--md2-secondary);
+    color: var(--md2-on-secondary);
+    box-shadow: var(--md2-elev-6);
+    cursor: pointer;
+    transition: box-shadow var(--md2-dur-short4) var(--md2-ease-standard);
+  }
+  .md2-fab::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: currentColor;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--md2-dur-short4) var(--md2-ease-standard);
+  }
+  .md2-fab:hover::before { opacity: var(--md2-hover-op); }
+  .md2-fab:active::before { opacity: var(--md2-pressed-op); }
+  .md2-fab:hover { box-shadow: var(--md2-elev-8); }
+  .md2-fab > * { position: relative; z-index: 1; }
+  .md2-fab--mini { width: 40px; height: 40px; }
+  .md2-fab--extended {
+    width: auto;
+    height: 48px;
+    padding: 0 20px;
+    border-radius: 24px;
+    font-family: inherit;
+    font-size: 0.875rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  /* ---- 列表 ------------------------------------------------------------ */
+  .md2-list { padding: 8px 0; }
+  .md2-list-item {
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-height: 48px;
+    padding: 8px 16px;
+    color: var(--md2-text-primary);
+  }
+  .md2-list-item::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background: currentColor;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--md2-dur-short4) var(--md2-ease-standard);
+  }
+  .md2-list-item:hover::before { opacity: var(--md2-hover-op); }
+  .md2-list-item > * { position: relative; z-index: 1; }
+  .md2-list-item__title { font-size: 0.9375rem; line-height: 1.5rem; }
+  .md2-list-item__sub { font-size: 0.8125rem; line-height: 1.25rem; color: var(--md2-text-secondary); }
+
+  /* ---- 分隔线 ---------------------------------------------------------- */
+  .md2-divider { height: 1px; border: 0; background: var(--md2-divider); }
+
+  /* ---- 开关 ------------------------------------------------------------ */
+  .md2-switch {
+    position: relative;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    width: 34px;
+    height: 14px;
+    padding: 0;
+    border: 2px solid var(--md2-text-hint);
+    border-radius: 7px;
+    background: transparent;
+    cursor: pointer;
+    transition: background-color var(--md2-dur-short4) var(--md2-ease-standard),
+      border-color var(--md2-dur-short4) var(--md2-ease-standard);
+  }
+  /* 选中态：黄色填充保留视觉语言，但轨道边界必须由深色描边承担。
+     黄色填充本身在白底只有 1.67:1（这是黄色作为大面积浅色的固有代价），
+     所以描边改用 -ink（#a05600，白底 5.49:1）来满足非文本元素 3:1 的
+     要求 —— 既保住黄色的辨识度，轨道又清晰可辨。
+     滑块本身 7.79:1，不受影响。 */
+  .md2-switch[aria-checked='true'] {
+    background: color-mix(in srgb, var(--md2-secondary) 50%, transparent);
+    border-color: var(--md2-primary-ink);
+  }
+  .md2-switch__thumb {
+    position: absolute;
+    top: 50%;
+    left: -2px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--md2-text-hint);
+    transform: translateY(-50%);
+    transition: transform var(--md2-dur-short4) var(--md2-ease-standard),
+      background-color var(--md2-dur-short4) var(--md2-ease-standard);
+  }
+  /* 选中态的滑块必须是轨道的反色。之前它和轨道用同一个
+     var(--md2-secondary)，而轨道又是该色 50% 淡化 —— 结果滑块压在
+     轨道上只有 1.28:1（#fbbf05 on #fddf82），几乎看不见「滑到右边了」。
+     改走 on-primary 后是 9.97:1，滑块同时承载了「已开启」这个状态。 */
+  .md2-switch[aria-checked='true'] .md2-switch__thumb {
+    transform: translate(18px, -50%);
+    background: var(--md2-on-primary);
+  }
+
+  /* ---- Snackbar -------------------------------------------------------- */
+  .md2-snackbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 48px;
+    padding: 6px 16px;
+    border-radius: var(--radius-md2);
+    background: #323232;
+    color: #fff;
+    box-shadow: var(--md2-elev-6);
+    font-size: 0.875rem;
+  }
+  .md2-snackbar__action {
+    margin-left: auto;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: #90caf9;
+    font-family: inherit;
+    font-size: 0.875rem;
+    font-weight: 500;
+    letter-spacing: 0.089em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  /* ---- 进度条 ---------------------------------------------------------- */
+  .md2-progress {
+    position: relative;
+    overflow: hidden;
+    width: 100%;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--md2-primary-container);
+  }
+  .md2-progress__bar {
+    height: 100%;
+    /* 用 -ink：进度条压在极浅的 primary-container 上，亮薄荷会看不见 */
+    background: var(--md2-primary-ink);
+    transition: width var(--md2-dur-medium4) var(--md2-ease-standard);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .md2-progress__bar--indeterminate {
+      width: 40%;
+      animation: md2-progress-slide 2s var(--md2-ease-standard) infinite;
+    }
+  }
+  @keyframes md2-progress-slide {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(250%); }
+  }
+
+  /* ---- 区块标题（替代原站大写等宽小标签） ------------------------------ */
+  .md2-section-title {
+    font-size: 1rem;
+    line-height: 1.5rem;
+    font-weight: 500;
+    color: var(--md2-on-surface);
+  }
+  .md2-section-label {
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 500;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--md2-text-hint);
+  }
+
+  /* ---- 四色强调：把 data-accent 映射成四个局部变量 ------------------
+     模板只需要写 data-accent="red"，下面所有强调部件（色条 / chip / 文字）
+     就自动一起变色，不用在模板里为每种颜色写一遍 class。
+     用局部变量而不是直接写死，是为了让「换色」这件事只发生在 :root /
+     html.dark 两个 token 块里。                                            */
+  [data-accent='blue'] {
+    --accent-bar: var(--md2-blue-bar);
+    --accent-ink: var(--md2-blue-ink);
+    --accent-container: var(--md2-blue-container);
+    --accent-on-container: var(--md2-blue-on-container);
+  }
+  [data-accent='yellow'] {
+    --accent-bar: var(--md2-yellow-bar);
+    --accent-ink: var(--md2-yellow-ink);
+    --accent-container: var(--md2-yellow-container);
+    --accent-on-container: var(--md2-yellow-on-container);
+  }
+  [data-accent='red'] {
+    --accent-bar: var(--md2-red-bar);
+    --accent-ink: var(--md2-red-ink);
+    --accent-container: var(--md2-red-container);
+    --accent-on-container: var(--md2-red-on-container);
+  }
+  [data-accent='green'] {
+    --accent-bar: var(--md2-green-bar);
+    --accent-ink: var(--md2-green-ink);
+    --accent-container: var(--md2-green-container);
+    --accent-on-container: var(--md2-green-on-container);
+  }
+
+  /* 卡片顶部 4px 色条。用 border-top 而不是 ::before —— .md2-state 的
+     ::before 已经被悬停态层占了，两个伪元素会打架。border 会自动跟随
+     border-radius 裁切，不用额外 overflow:hidden。 */
+  .md2-accent-top {
+    border-top: 4px solid var(--accent-bar);
+  }
+
+  /* chip：淡底 + on-container 文字，两个值都是解出来的，不复用 ink */
+  .md2-chip--accent {
+    background: var(--accent-container);
+    color: var(--accent-on-container);
+  }
+
+  /* 强调文字（走 ink，压在普通表面上） */
+  .md2-accent-ink { color: var(--accent-ink); }
+
+  /* 列表 / 时间线左侧的竖条 */
+  .md2-accent-rail {
+    border-left: 3px solid var(--accent-bar);
+    padding-left: 12px;
+  }
+
+  /* 四色并排的一条（引用块、分节线）。顺序取自 Google 字标本身
+     —— 蓝、红、黄、绿，而不是按色轮排序。 */
+  .md2-accent-quad {
+    border-left: 4px solid transparent;
+    border-image: linear-gradient(
+      to bottom,
+      var(--md2-blue-bar),
+      var(--md2-red-bar),
+      var(--md2-yellow-bar),
+      var(--md2-green-bar)
+    ) 1;
+  }
+
+  /* 同一个四色，横向用（卡片顶部细带） */
+  .md2-accent-quad-top {
+    border-top: 4px solid transparent;
+    border-image: linear-gradient(
+      to right,
+      var(--md2-blue-bar),
+      var(--md2-red-bar),
+      var(--md2-yellow-bar),
+      var(--md2-green-bar)
+    ) 1;
+  }
+
+  /* 独立的横向四色细线。用 background 而不是 border-image：border-image
+     会让宽度被浏览器对齐到整数设备像素（dpr=1.25 时 3px 会被取整成
+     2.4px），做装饰线时用 background 更可控。 */
+  .md2-accent-quad-rule {
+    height: 3px;
+    border-radius: 2px;
+    background: linear-gradient(
+      to right,
+      var(--md2-blue-bar),
+      var(--md2-red-bar),
+      var(--md2-yellow-bar),
+      var(--md2-green-bar)
+    );
+  }
+}
+
+/* 注意：这些规则是「无层」的，在 CSS 层叠里优先级高于 @layer base，
+   所以背景色与文字色必须直接消费 MD2 变量，不能只写在 @layer base 里，
+   否则这里会把 token 覆盖回硬编码色值。 */
 html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
-  background-color: #fafafa;
-  color: #111111;
+  background-color: var(--md2-background);
+  color: var(--md2-text-primary);
 }
 
 body {
-  background-color: #fafafa;
-  color: #111111;
+  background-color: var(--md2-background);
+  color: var(--md2-text-primary);
   font-family: var(--font-sans);
-  letter-spacing: -0.01em;
+  /* MD2 body 1 行高 1.5；因为这条规则无层，会盖掉 @layer base 里的同名声明 */
+  line-height: 1.5;
   min-height: 100vh;
 }
 
-/* Subtle typography adjustments */
-h1, h2, h3, h4 {
-  letter-spacing: -0.025em;
+/* MD2 标题字距为 0，不做负字距收紧 */
+h1, h2, h3, h4, h5, h6 {
+  letter-spacing: normal;
 }
 
 /* Lightweight Scrollbar */
@@ -133,24 +1074,28 @@ h1, h2, h3, h4 {
   animation: subtle-pulse 4s ease-in-out infinite;
 }
 
-/* ---- Dark Theme Global Styles ---- */
+/* ---- Dark Theme Global Styles ----
+   这两条原本硬编码 #0e1012 / #f2f2f2，是上一版中性深灰配色遗留。它们靠
+   源码顺序盖住上面 765/773 那两条消费 token 的规则，于是换一个 --md2-background
+   时页面底色纹丝不动（实测仍是 rgb(14,16,18) 而不是新的 rgb(23,24,26)）。
+   改成同样消费 token，两套体系才不会各自漂移。 */
 html[data-theme="dark"],
 html.dark {
   color-scheme: dark;
-  background-color: #0e1012;
-  color: #f2f2f2;
+  background-color: var(--md2-background);
+  color: var(--md2-on-surface);
 }
 
 html[data-theme="dark"] body,
 html.dark body {
-  background-color: #0e1012;
-  color: #f2f2f2;
+  background-color: var(--md2-background);
+  color: var(--md2-on-surface);
 }
 
 /* Dark Mode Selection Highlight */
 html[data-theme="dark"] ::selection,
 html.dark ::selection {
-  background-color: rgba(124, 150, 168, 0.4) !important;
+  background-color: color-mix(in srgb, var(--md2-primary) 40%, transparent) !important;
   color: #ffffff !important;
 }
 
@@ -318,7 +1263,11 @@ html.dark .text-neutral-500 {
 
 html[data-theme="dark"] .text-neutral-400,
 html.dark .text-neutral-400 {
-  color: #71717a !important;
+  /* 原本是 #71717a。它在旧的硬编码深底 #0e1012 上就已经只有 3.94:1（不达标），
+     而深色页面底色改成 token 值 #17181a（更浅）后进一步掉到 3.68:1 ——
+     这 4 个失败是 /schedule 这张未迁移页面的既有问题，本轮实测才暴露出来。
+     换成 Google Grey 500，在最亮的深色表面 #303134 上是 4.93:1。 */
+  color: #9aa0a6 !important;
 }
 
 /* Inputs & selects in dark mode */
@@ -863,4 +1812,44 @@ html.dark article.prose a:hover {
 html[data-theme="dark"] article.prose hr,
 html.dark article.prose hr {
   border-top-color: #2e333b !important;
+}
+
+/* ============================================================================
+   MD2 组件的深色覆写
+   ----------------------------------------------------------------------------
+   刻意放在文件最后。上面 legacy 深色块里的
+   `html.dark input { background-color:#1a1d21 !important; ... }` 是按元素
+   选择器写的通配规则，会把 .md2-input 从 --md2-* 变量上拽走。这里用更高
+   的特异性（0,2,1）+ 更靠后的位置把 MD2 输入框的取值夺回来。
+
+   只覆写「legacy 块真正会命中」的那几类元素（表单控件），其余 MD2 组件
+   本身就是 token 驱动的，深色自动正确，不需要在这里重复一遍。
+   ============================================================================ */
+html[data-theme="dark"] .md2-input,
+html.dark .md2-input {
+  background-color: var(--md2-surface-alt) !important;
+  color: var(--md2-text-primary) !important;
+  border-color: var(--md2-primary) !important;
+}
+html[data-theme="dark"] .md2-input:focus,
+html.dark .md2-input:focus {
+  background-color: var(--md2-surface) !important;
+}
+html[data-theme="dark"] .md2-input::placeholder,
+html.dark .md2-input::placeholder {
+  color: var(--md2-text-hint) !important;
+}
+html[data-theme="dark"] .md2-input:disabled,
+html.dark .md2-input:disabled {
+  background-color: var(--md2-disabled-bg) !important;
+  color: var(--md2-text-disabled) !important;
+}
+/* outlined 变体在深色下用半透明白描边，而不是 primary 实色（否则整框发蓝） */
+html[data-theme="dark"] .md2-input--outline,
+html.dark .md2-input--outline {
+  border-color: var(--md2-divider-strong) !important;
+}
+html[data-theme="dark"] .md2-input--outline:focus,
+html.dark .md2-input--outline:focus {
+  border-color: var(--md2-primary-ink) !important;
 }
