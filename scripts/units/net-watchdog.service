@@ -1,0 +1,14 @@
+[Unit]
+Description=snhgn.me network/tunnel watchdog
+Documentation=file:/opt/snhgn/scripts/net_watchdog.sh
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/snhgn/scripts/net_watchdog.sh
+# 探测本身有 curl/dig 超时，给足余量；到点被杀也不留残留状态
+TimeoutStartSec=180
+User=root
+Nice=10
+IOSchedulingClass=idle

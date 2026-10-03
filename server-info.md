@@ -1487,3 +1487,106 @@ ping 网关 0% 丢包    DNS 正常    门户 10.1.1.10 返回 200
 `250100109`，`BJFU_PASSWORD` **未改动**（改前改后 md5 一致）。
 旧版备份：`config.env.bak-20261002-163728`。
 
+---
+
+## 二十三、2026-10-03 站点 502/530/1033 故障复盘
+
+### 23.1 结论先说：不是断网，是校园网认证层失效
+
+部署完 Google Yellow 主色后校验公网，站点持续 502 → 530 → 1033。
+**与本次部署无关**——Caddy 本机始终 200，线上文件与本地构建产物字节数逐字节一致。
+
+分层实测后确认链路层全程正常，断的是 **Dr.COM 门户认证**：
+校园网对未认证流量的数据面做黑洞，对外表现为 DNS 超时 + TLS 握手超时，
+但 ICMP 通、TCP 握手通、到网关 0% 丢包。
+
+| 探测项 | 结果 | 说明 |
+|---|---|---|
+| ping 到网关 56B | 0% 丢包 | **链路层正常** |
+| ping 1.1.1.1 56B | 0% 丢包 | 路由正常 |
+| TCP connect :7844 | 8/8 连通 | 仅完成 SYN/SYN-ACK |
+| 校园 DNS 202.204.112.87/66 | UDP+TCP 均超时 | 完全不可达 |
+| 真实 TLS 握手 :7844 / :443 | 全部超时 | 证书响应几 KB，卡死 |
+| 出网 HTTPS / 1MB 下载 | `code=000` | 传不了数据 |
+
+`bjfu-login` 日志与该判断完全吻合：
+
+```
+21:00:14 [WARNING] 网络离线，开始认证...
+21:00:17 [ERROR] 未识别到账号/密码输入框，页面结构可能已变化   ← 认证失败
+21:01:19 [INFO] 检测到网络由离线恢复，自动重启 cloudflared 容器以修复隧道假死...
+21:01:31 [INFO] cloudflared 容器重启成功
+```
+
+即：**`bjfu-login` 才是这条链路的真正修复者**，它重新认证后自动重启
+cloudflared，隧道随之恢复。21:02 外部复核 HTTP 200。
+
+### 23.2 我在排查中犯的三个错（已修正，勿重蹈）
+
+**1. 把 `/dev/tcp` 的成功当成出网可用。**
+`timeout 8 bash -c 'echo > /dev/tcp/1.1.1.1/443'` 报 OK，但真实
+`openssl s_client` 握手全部超时。`/dev/tcp` 只完成 SYN/SYN-ACK，
+不代表能传输数据。判定出网必须真正取到响应体（curl `%{http_code}` 非 `000`）。
+这个错误一度让我误判为 PMTU 黑洞并去改 MTU。
+
+**2. 误判为 PMTU 黑洞。**
+曾观察到 `ping -M do -s 500` 100% 丢包而 `ping -s 100` 正常，据此降 MTU 到
+1200——**无效且方向错误**。真实原因是认证层黑洞，不是路径 MTU。
+教训：单次分层探测不足以定性，必须做同一时刻的交错对照。
+
+**3. 用滑动窗口判活，差点反复重启健康容器。**
+初版 `check_tunnel` 用「最近 180s 内有无 `Registered tunnel connection`」。
+实测健康隧道稳定运行超过 60s 后，`--since 60s` 就已抓不到任何注册行，
+会把健康隧道误判成死的。正确判据是**比较时间戳先后**：最后一次成功注册
+晚于最后一次隧道级致命事件（`no more connections active and exiting` /
+`Failed to refresh DNS`）。注意单连接的
+`Unable to establish connection with Cloudflare edge` 是瞬时重试，
+**不能**计入致命事件。
+
+### 23.3 已实施的两项改动
+
+**1. 公共 DNS 兜底（治本，已生效）**
+
+校园 DNS 完全不可达而系统只配了它。已给活跃档案加兜底并保留 DHCP 下发的
+校园 DNS 作为后备：
+
+```bash
+nmcli con mod bjfu-wifi-office ipv4.dns "1.1.1.1,8.8.8.8,223.5.5.5"
+```
+
+**2. `net_watchdog.sh`（已上线，但职责经过一次重要修正）**
+
+仓库 `scripts/net_watchdog.sh`，服务器 `/opt/snhgn/scripts/net_watchdog.sh`，
+单元 `scripts/units/net-watchdog.{service,timer}`，每 2 分钟一轮。
+旧 `wifi-watchdog.service` 已 disable（其职责被吸收）。
+
+**初版是错的**：它把「DNS 死 / 出网死 / 隧道死」一律当成网络故障，
+激进重连 WiFi。实测后果有二——重连 WiFi 打断了 `bjfu-login` 的认证流程
+（认证需要网络去加载门户页并驱动无头浏览器填表），且与 bjfu-login 的
+容器重启撞车，21:01:31 和 21:06:33 连续重启了两次，多余的那次纯属添乱。
+
+**现版按层分工，三个机制互不重叠**：
+
+| 故障层 | 判据 | 归属 | 动作 |
+|---|---|---|---|
+| 链路层 | 无 IPv4，或到网关 ping 无回复 | 本脚本 | 重连 WiFi |
+| 认证层 | 链路通，但 DNS/出网数据面不通 | **bjfu-login** | 本脚本只告警，**不动 WiFi、不重启容器** |
+| 隧道层 | 链路与出网正常，但隧道无活跃连接 | 本脚本 | 重启 cloudflared |
+
+隧道层这一格是本脚本唯一不与 `bjfu-login` 重复的职责：bjfu-login
+只在它自己观察到「离线→在线」跳变时才重启容器，若它全程认为在线，
+隧道假死就无人处理。
+
+告警留空 `WEBHOOK_URL` 时为 no-op，需用户指定推送渠道后方可生效。
+
+### 23.4 未解决 / 待决
+
+- **`git push` 仍被 TLS 中间人阻断**（`SSL certificate problem: self-signed
+  certificate in certificate chain`）。已拒绝用 `sslVerify=false` 绕过。
+- **DHCP 跨子网震荡**：日志显示 IP 长期在 `172.25.252.63` 与
+  `172.28.204.40` 之间反复切换（网关相应在 `172.25.252.1` / `172.28.204.1`，
+  故障期间实测两种都出现过）。未做静态 IP：真实风险是 IP 冲突 +
+  校园网认证绑定，而收益仅是消除切换抖动。
+- **netplan 隐患**：netplan 只声明 SSID `102`，实际运行在 `bjfu-wifi-office`。
+  执行 `netplan apply` 可能把 WiFi 拉回 `102`。
+

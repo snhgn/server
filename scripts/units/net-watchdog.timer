@@ -1,0 +1,13 @@
+[Unit]
+Description=Run snhgn.me network watchdog every 2 minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=2min
+# 抖动 ±30s，避免和 campus_ddns.sh 每分钟的任务撞在一起
+RandomizedDelaySec=30
+AccuracySec=15s
+Unit=net-watchdog.service
+
+[Install]
+WantedBy=timers.target
