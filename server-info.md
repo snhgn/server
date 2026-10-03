@@ -1545,14 +1545,41 @@ cloudflared，隧道随之恢复。21:02 外部复核 HTTP 200。
 
 ### 23.3 已实施的两项改动
 
-**1. 公共 DNS 兜底（治本，已生效）**
+**1. 公共 DNS 兜底（治本，已生效；⚠ 首次加错了档案，见下）**
 
-校园 DNS 完全不可达而系统只配了它。已给活跃档案加兜底并保留 DHCP 下发的
-校园 DNS 作为后备：
+校园 DNS 在故障窗口内不可达，而系统只配了它。给活跃档案加兜底，
+并保留 DHCP 下发的校园 DNS 作后备（不设 `ignore-auto-dns=yes`，
+这样校园 DNS 恢复时仍优先用它，兜底只在它失效时接管）：
 
 ```bash
-nmcli con mod bjfu-wifi-office ipv4.dns "1.1.1.1,8.8.8.8,223.5.5.5"
+nmcli con mod netplan-wlp3s0-102 ipv4.dns "223.5.5.5,1.1.1.1,8.8.8.8"
 ```
+
+**这段兜底第一次加错了档案。** 当时机器跑在 `bjfu-wifi-office` 上，
+命令就写在了那个档案上；随后网络切到 `102`，兜底也跟着「失效」了。
+核查发现 `netplan-wlp3s0-102` 的 `ipv4.dns` 是空的，而生效的
+`resolvectl` 只列出 `202.204.112.87 202.204.122.66` —— **兜底从未生效过**。
+教训：改网络配置前先确认当前激活的是哪个档案
+（`nmcli -g GENERAL.CONNECTION device show wlp3s0`），
+别默认「上次改过的那个」还在用。
+
+**2. 校园 DNS「永久不可达」这个结论下得太重了。**
+故障窗口内实测 `202.204.112.87/66` UDP+TCP 全部超时，就下了「完全不可达」的
+定论。切到 `102` 后复测，`202.204.112.87`、`202.204.122.66` 各 5/5 全部正常
+解析。结论应当是「**在认证层失效期间不可达**」，而不是「永久不可达」。
+在故障窗口内做的测量只能描述那个时刻，不能外推成常态。
+
+修好后生效的完整 DNS 链（`223.5.5.5` 为首选）：
+
+```
+DNS Servers: 223.5.5.5 1.1.1.1 8.8.8.8 202.204.112.87 202.204.122.66
+```
+
+六个候选 DNS（含未采用的 `114.114.114.114`）逐个实测均 **5/5**；
+`resolvectl flush-caches` 后连测 8 次解析 **0 失败，平均 5ms**。
+
+> 曾把 `119.29.29.29` 凭记忆写进兜底列表，实测 **0/5 完全不通**，已剔除。
+> 这与下面探针踩的坑同源：**没实测过的地址不许进配置**。
 
 **2. `net_watchdog.sh`（已上线，但职责经过一次重要修正）**
 
@@ -1587,6 +1614,131 @@ nmcli con mod bjfu-wifi-office ipv4.dns "1.1.1.1,8.8.8.8,223.5.5.5"
   `172.28.204.40` 之间反复切换（网关相应在 `172.25.252.1` / `172.28.204.1`，
   故障期间实测两种都出现过）。未做静态 IP：真实风险是 IP 冲突 +
   校园网认证绑定，而收益仅是消除切换抖动。
-- **netplan 隐患**：netplan 只声明 SSID `102`，实际运行在 `bjfu-wifi-office`。
-  执行 `netplan apply` 可能把 WiFi 拉回 `102`。
+- ~~**netplan 隐患**：netplan 只声明 SSID `102`，实际运行在 `bjfu-wifi-office`。~~
+  **这条已经反转，不成立。** 后续排查中机器已切到 `102`，而 `102` 恰是
+  信号最强的那一个（详见 23.5），netplan 声明的正是它 ——
+  `bjfu-wifi-office` 才是**不在 netplan 里的野生档案**。
+  `netplan apply` 把 WiFi 拉回 `102` 是回到正确状态，不是隐患。
+
+### 23.5 后续一轮：切到 SSID `102` + 探针重做
+
+#### 23.5.1 网络实际早已在 `102`，而且它明显更好
+
+要连接 SSID `102`（密码 `88888888`，netplan 里已声明）时才发现，
+**机器早就连在 `102` 上了** —— 是看门狗调`nmcli device connect wlp3s0`
+时切过去的。信号对比（同一时刻实测）：
+
+| SSID | 信号 | 换算 | 频段 | 速率 |
+|---|---|---|---|---|
+| **`102`** | **79** | **-43 ~ -59 dBm** | 2462 MHz (ch11) | 19.5~26 / 21.7~43.3 Mbps |
+| `bjfu-wifi-office` | 34 / 64 / 35 | -82 ~ -68 dBm | 2437×2 + 2462 MHz | — |
+
+`102` 高出约 20dB，且是 netplan 里声明的那一个。
+
+#### 23.5.2 修掉 autoconnect 并列导致的乱跳
+
+`bjfu-wifi-office` 与 `netplan-wlp3s0-102` 两个档案**都是
+`autoconnect=yes` 且 `autoconnect-priority=0`（并列）**，
+所以 `nmcli device connect wlp3s0` 是随机挑的 —— 这就是它当初
+「莫名切到 102」的原因，也是看门狗随时可能把网卡切回弱信号网络的原因。
+
+```bash
+nmcli con mod netplan-wlp3s0-102  connection.autoconnect-priority 100
+nmcli con mod bjfu-wifi-office     connection.autoconnect-priority 10   # 留作备胎
+```
+
+同时把看门狗里硬编码的 `nmcli con up bjfu-wifi-office` 兜底改成参数化：
+
+```bash
+WIFI_CON_NAME="${WIFI_CON_NAME:-netplan-wlp3s0-102}"
+nmcli con up "$WIFI_CON_NAME" || nmcli device connect wlp3s0 || true
+```
+
+显式指定档案，不让 NetworkManager 自己挑。实测 `nmcli con up
+netplan-wlp3s0-102` 后落在 `102`，-47 dBm、26/21.7 Mbps、
+IP `172.25.252.63/23`、网关 `172.25.252.1`。
+
+#### 23.5.3 出网探针重做：统一 baidu.com，砍掉三个死目标
+
+按要求把所有探测目标统一到 baidu.com。先实测它够不够格：
+
+| 目标 | 状态 | 内容体 | 耗时 |
+|---|---|---|---|
+| **`http://www.baidu.com/`** | 200 | 2381 B | **102 ms** |
+| `https://www.baidu.com/` | 200 | 2443 B | 291 ms |
+| `https://speed.cloudflare.com/__down?bytes=2000`（原首选）| 200 | 2000 B | 1024 ms |
+| `http://mirrors.aliyun.com`（原备选）| 301 | — | 321 ms |
+
+合格依据：`<title>百度一下，你就知道</title>`；
+`wappass` / `portal` / `drcom` 关键字**均0 命中**（无门户劫持误判风险）；
+https 连测 **10/10** 成功；`--write-out` 实测
+`remote_ip=110.242.70.57`、实际取到 2381 B（证明真在连目标、真在传数据）。
+
+**顺带发现初版探针列表里有三个恒为 `000` 的死目标**：
+`https://1.1.1.1/`、`https://www.google.com/generate_204`、`http://neverssl.com/`
+在此网络下全部不通 —— 而且它们排在最前面，每轮先白等 12s 超时
+才轮询到可用目标。**剔除后单轮耗时从 ~54s 降到 2.5~3.0s。**
+
+> 我在这上面栽过：早期把 `https://1.1.1.1/` 的 `000` 当成「出网坏了」的证据，
+> 写进了复盘。实际 `speed.cloudflare.com` 同一时刻返回 200。
+> **探测目标自己不通 ≠ 网络不通**，混淆二者会把结论带偏。
+
+#### 23.5.4 又两次测试无效，都记下来
+
+**其一：定时器并发污染了测试结果。**
+测「探针全挂时会不会误判」时，我在跑测试前刚
+`systemctl start net-watchdog.timer`，定时器恰好在测试中途触发了一次
+**用真实探针**的运行，`tail -1` 抓到的是它那行 `OK`，
+我自己的黑洞运行结果被覆盖。看起来像「代码有 bug」，其实是测试没隔离变量。
+**涉及后台/定时任务时，任何依赖日志尾部或状态文件的验证都必须先停掉它。**
+
+**其二：把探针打黑洞后仍报 `OK` —— 这次是对的，不是 bug。**
+`net_watchdog.sh` 第 214~216 行有一段刻意的反向修正：
+
+```bash
+# 反向修正：cloudflared 能注册连接，说明到边缘 7844 的 TLS 握手已经跑通，
+# 这是"出网正常"最贴近真实需求的证据，比任何第三方探测点都可信。
+[ "$tunnel_ok" = 1 ] && egress_ok=1
+```
+
+我只打掉了第三方探针、却留着健康的隧道，脚本判 `OK` 是**正确**的。
+真实故障（Dr.COM 会话失效 → 数据面黑洞）时隧道会同时死、
+`tunnel_ok=0`，这条修正不会掩盖 502/530/1033。
+
+顺带量到一个真实数据：单点黑洞时耗时 **14.9s**（http 探针烧满 12s
+超时才轮到 https 兜底），双点全黑约 24s。在 2 分钟周期、
+`TimeoutStartSec=180` 下有余量，但这是把探针顺序按实测耗时排序的原因。
+
+#### 23.5.5 认证状态的实测证据
+
+切到 `102` 后按真实签名逐个跑 `checker._probe_single`：
+**6/6 全部 `True`**（miui / cp.cloudflare / baidu / qq / aliyun / 163），
+出网连续 8 次采样稳定 200/301，网关 0% 丢包。无需重新登录
+（强行登出反而会打断可用会话）。门户页只读可达（200，3268 字节，
+含 `user`/`pwd` 字段），登录表单结构完好。
+
+> 注意 `checker.py` 的探针签名是
+> `_probe_single(url: str, expected_status: int, timeout: int)` ——
+> 少传参会报 `TypeError`。
+> 另外它只在 `/opt/bjfu-login/venv/bin/python` 下可用，系统 `python3`
+> 没有 `playwright`。这 6 个探针**实测全部可用、没有死目标**，
+> 且带回归测试（`tests/test_checker.py` 依赖探针数 ≥ 3），
+> 故未按「统一 baidu」的指示改动它 —— 那里没有需要修的问题，
+> 强行改反而会破坏「多数派投票抗单点误判」的设计。
+
+#### 23.5.6 当前状态（外部视角复核）
+
+```
+SSID 102  信号 -43 dBm  IP 172.25.252.63/23 via 172.25.252.1
+DNS  223.5.5.5 1.1.1.1 8.8.8.8 202.204.112.87 202.204.122.66
+认证 True  bjfu-login active  cloudflared running restarts=0
+看门狗 连续 4 轮 rc=0，每次 2.5~3.0s，容器与 WiFi 均未被误动
+```
+
+从本机（非服务器，绕开 hairpin 限制）复核公网：
+`/` 200 (68117B)、`/schedule` 200 (2930B)、`/landing.html` 200、
+`/sw.js` 200；线上 CSS `--md2-primary: #fbbf05` 在位。
+
+`scripts/net_watchdog.sh` 仓库版与服务器版 SHA256 一致：
+`e92b93bae1a83c0afcf39285dbea8e8e0a9637d67c05f9e710713c093346b634`
 

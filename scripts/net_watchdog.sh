@@ -31,7 +31,17 @@ WIFI_RETRY_AFTER="${WIFI_RETRY_AFTER:-360}"   # 链路层不通多久后重连 W
 CONTAINER_RETRY_AFTER="${CONTAINER_RETRY_AFTER:-300}" # 隧道死了多久后重启容器 (秒)
 STUCK_GRACE="${STUCK_GRACE:-180}"      # 容器刚重启后的宽限期，不动它
 ALERT_AFTER="${ALERT_AFTER:-300}"      # 异常持续多久后开始推送通知 (秒)
-ALERT_COOLDOWN="${ALERT_COOLDOWN:-1800}" # 两次通知之间的最小间隔 (秒)
+ALERT_COOLDOWN="${ALERT_COOLDOWN:-1800}"
+
+# 要重连哪个 WiFi 档案。必须显式指定，不能用 `nmcli device connect wlp3s0`
+# 让 NetworkManager 自己挑 —— bjfu-wifi-office 与 netplan-wlp3s0-102 两个
+# 档案都是 autoconnect=yes 且 priority=0（并列），device connect 会在两者间
+# 随机命中，实测已导致网卡来回跳。
+#
+# 取 102：实测信号 79（-52 dBm，19.5/43.3 Mbps），bjfu-wifi-office 三个 AP
+# 只有 34/64/35（-82~-68 dBm）。且 netplan 00-installer-config.yaml 本来
+# 声明的就是 102，bjfu-wifi-office 是不在 netplan 里的野生档案。
+WIFI_CON_NAME="${WIFI_CON_NAME:-netplan-wlp3s0-102}" # 两次通知之间的最小间隔 (秒)
 STATE_DIR="/var/lib/netwatchdog"
 LOG_FILE="/opt/snhgn/logs/net_watchdog.log"
 WEBHOOK_URL="${WEBHOOK_URL:-}"         # 留空则不推送
@@ -82,12 +92,31 @@ check_egress() {
   #
   # 刻意不使用 https://snhgn.me 自测：cloudflared 不支持 hairpin，服务器自己
   # curl 公网域名恒为 000，那是结构性假阴性，不是故障。
+  # 探针目标统一用 baidu.com（用户指定）。2026-10-03 实测依据：
+  #   http://www.baidu.com/    200 / 2381B / 102ms   ← 实测最快的可用目标
+  #   https://www.baidu.com/   200 / 2443B / 291ms   ← 顺带验证 TLS 可用
+  #   https 连测 10 次成功 10/10
+  #   页面 title 为「百度一下，你就知道」，
+  #   wappass / portal / drcom 关键字均 0 命中 —— 无门户劫持误判风险。
+  #
+  # 已剔除的地址（此网络下恒为 000，是地址本身不通而非网络故障，放着只会
+  # 每轮白等超时并掩盖真实故障）：1.1.1.1 / www.google.com / neverssl.com。
+  # 剔除后单轮耗时从 ~54s 降到 4~5s。
+  #
+  # 两个目标都刻意取真实页面（2381B / 2443B）而非 204 空包：本故障的特征正是
+  # "握手能通、数据传不了"，只回空包的探针无法证伪。
+  #
+  # 顺序按实测耗时排（http 102ms 远快于 https 291ms），代价是单点故障时要等
+  # 满超时才轮询到下一个：实测单点黑洞耗时 14.9s，双点全黑约 24s。在 2 分钟
+  # 周期 + TimeoutStartSec=180 下有余量 —— 这是为健康时判定更快付的代价。
+  #
+  # 排查时踩过的坑：https://1.1.1.1/ 在此网络恒为 000，我一度把它当「出网坏了」
+  # 的证据写进复盘，实际同一时刻 speed.cloudflare.com 返回 200。
+  # **探测目标自己不通 != 网络不通**，别把两者混为一谈。
   local url code
   for url in \
-      "https://1.1.1.1/" \
-      "https://speed.cloudflare.com/__down?bytes=2000" \
-      "https://www.google.com/generate_204" \
-      "http://neverssl.com/" ; do
+      "http://www.baidu.com/" \
+      "https://www.baidu.com/" ; do
     code=$(timeout 16 curl -s -o /dev/null -w '%{http_code}' --max-time 12 "$url" 2>/dev/null)
     if [ -n "$code" ] && [ "$code" != "000" ]; then
       EGRESS_VIA="$url"
@@ -176,7 +205,7 @@ if ! check_ipv4; then
     notify "网卡无 IP" "wlp3s0 丢失 IPv4 地址，已触发 WiFi 重连"
     nmcli device disconnect wlp3s0 >/dev/null 2>&1 || true
     sleep 5
-    nmcli device connect wlp3s0 >/dev/null 2>&1 || nmcli con up bjfu-wifi-office >/dev/null 2>&1 || true
+    nmcli con up "$WIFI_CON_NAME" >/dev/null 2>&1 || nmcli device connect wlp3s0 >/dev/null 2>&1 || true
     write_state last_wifi_retry "$now0"
   fi
   write_state fail_since "$(date +%s)"
@@ -261,7 +290,7 @@ if [ "$link_ok" = 0 ]; then
     log "ACT: 链路层确认不通 ${down_for}s，重连 WiFi | $reason"
     nmcli device disconnect wlp3s0 >/dev/null 2>&1 || true
     sleep 5
-    nmcli device connect wlp3s0 >/dev/null 2>&1 || nmcli con up bjfu-wifi-office >/dev/null 2>&1 || true
+    nmcli con up "$WIFI_CON_NAME" >/dev/null 2>&1 || nmcli device connect wlp3s0 >/dev/null 2>&1 || true
     write_state last_wifi_retry "$now"
     log "ACT: WiFi 重连指令已发出"
     if [ $(( now - last_alert )) -ge "$ALERT_COOLDOWN" ]; then
