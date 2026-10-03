@@ -1779,5 +1779,9 @@ DNS  223.5.5.5 1.1.1.1 8.8.8.8 202.204.112.87 202.204.122.66
 
 需要用户把 `~/.ssh/id_rsa.pub` 加到 GitHub 账号的 SSH keys，
 之后即可用 `ssh://git@ssh.github.com:443/snhgn/server.git` 推送。
-在此之前 `main` 领先 `origin/main` 3 个提交（`ac7bd50` `7d8c5b8` `dc387e0`）。
+在此之前 `main` 领先 `origin/main` 5 个提交
+（`ac7bd50` `7d8c5b8` `dc387e0` `f0a5232` `70d9be2`）。
+
+> 这个数字会随每次提交变化，别把它当固定值看 —— 以
+> `git rev-list --count origin/main..main` 的实时输出为准。
 
