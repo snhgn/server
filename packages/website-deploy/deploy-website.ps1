@@ -30,7 +30,14 @@ $RepoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 
 function Invoke-Remote([string]$cmd) {
     # plink 无 TTY 时需要前置换行来跳过 banner
-    "`n" | & $PLINK -ssh -T -hostkey $HostKey -pw $Password "${User}@${Server}" $cmd
+    #
+    # -batch: 绝不让 plink 在本地抢着提示（主机密钥/口令），一旦远端失败要
+    #         立刻拿退出码，而不是挂在那里等一个永远不会来的输入。
+    # 2>&1:   远端任何 stderr（如 `sudo -S` 即使成功也会打印的
+    #         `[sudo] password for snhgn:` 提示）不再被 PowerShell 升级成
+    #         终止性错误。配合上面的 $ErrorActionPreference="Stop"，缺少这个
+    #         重定向时部署会在"其实已经成功了"的提示行上自杀。
+    "`n" | & $PLINK -ssh -T -batch -hostkey $HostKey -pw $Password "${User}@${Server}" $cmd 2>&1
     if ($LASTEXITCODE -ne 0) { throw "Remote command failed: $cmd" }
 }
 
@@ -106,8 +113,11 @@ Invoke-Remote "find $Stage -type f | wc -l" | ForEach-Object { Write-Host "  服
 # 4. 服务器侧替换 + 验证（脚本自带断言、备份、自动回滚）
 # ------------------------------------------------------------
 Step "[4/5] 服务器侧替换并验证"
-"`n" | & $PLINK -ssh -T -hostkey $HostKey -pw $Password "${User}@${Server}" `
-    "bash /tmp/deploy-web.sh '$Stage' '/opt/website' '/opt/snhgn/backups' '$Password'"
+# 同 Invoke-Remote：-batch 防本地提示，2>&1 让 sudo 的 stderr 提示不变成终止性错误。
+# 密码作为第 4 个参数传给 deploy-web.sh，由它用 `echo "$PW" | sudo -S` 消费，
+# 不走 plink 的 stdin —— 那个管道只用来跳过 banner。
+"`n" | & $PLINK -ssh -T -batch -hostkey $HostKey -pw $Password "${User}@${Server}" `
+    "bash /tmp/deploy-web.sh '$Stage' '/opt/website' '/opt/snhgn/backups' '$Password'" 2>&1
 $rc = $LASTEXITCODE
 
 # 清理暂存（部署脚本自身从不删它，这里收尾）

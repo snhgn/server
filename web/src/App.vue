@@ -15,7 +15,7 @@ const isApp = computed(() => {
 
 <template>
   <!-- App Mode (One-screen Zero-scroll full container for Android App) -->
-  <div v-if="isApp" class="h-[100dvh] w-full overflow-hidden bg-[#FAFAFA] dark:bg-[#0A0B0D] text-[#111111] dark:text-neutral-100 antialiased selection:bg-neutral-200 selection:text-neutral-900">
+  <div v-if="isApp" class="h-[100dvh] w-full overflow-hidden bg-background text-on-surface antialiased">
     <router-view />
   </div>
 
@@ -23,17 +23,17 @@ const isApp = computed(() => {
   <router-view v-else-if="fullScreen" />
 
   <!-- Standalone Mode (e.g. /schedule: no navbar/links to other pages, but keeps Footer logo) -->
-  <div v-else-if="isStandalone" class="flex min-h-screen flex-col bg-[#FAFAFA] text-[#111111] antialiased selection:bg-neutral-200 selection:text-neutral-900 overflow-x-hidden">
-    <main class="mx-auto w-full max-w-4xl flex-1 px-4 sm:px-6">
+  <div v-else-if="isStandalone" class="flex min-h-screen flex-col bg-background text-on-surface antialiased overflow-x-hidden">
+    <main class="mx-auto w-full max-w-5xl flex-1 px-4 sm:px-6">
       <router-view />
     </main>
     <Footer />
   </div>
 
   <!-- Standard Digital Space Layout with Navbar & Footer -->
-  <div v-else class="flex min-h-screen flex-col bg-[#FAFAFA] text-[#111111] antialiased selection:bg-neutral-200 selection:text-neutral-900 overflow-x-hidden">
+  <div v-else class="flex min-h-screen flex-col bg-background text-on-surface antialiased overflow-x-hidden">
     <Navbar />
-    <main class="mx-auto w-full max-w-4xl flex-1 px-4 sm:px-6">
+    <main class="mx-auto w-full max-w-5xl flex-1 px-4 sm:px-6">
       <router-view />
     </main>
     <Footer />

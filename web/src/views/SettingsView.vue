@@ -26,7 +26,7 @@ async function save() {
   savedMsg.value = ''
   try {
     await api.put('/api/settings', { memory_enabled: memoryEnabled.value })
-    savedMsg.value = 'Saved ✓'
+    savedMsg.value = '已保存 ✓'
     setTimeout(() => (savedMsg.value = ''), 2000)
   } finally {
     saving.value = false
@@ -37,84 +37,81 @@ onMounted(loadSettings)
 </script>
 
 <template>
-  <div class="py-14 sm:py-20">
-    <header class="border-b border-[#E5E5E5]/60 pb-8 mb-10">
-      <div class="font-mono text-xs text-neutral-400 uppercase tracking-widest mb-2">
-        User Preferences
-      </div>
-      <h1 class="text-2xl font-light tracking-tight text-neutral-900 sm:text-3xl">
-        Account Settings
-      </h1>
-      <p class="mt-2 text-xs sm:text-sm text-neutral-500 font-sans">
+  <div class="py-10 sm:py-14">
+    <header class="mb-8">
+      <div class="md2-overline">User Preferences</div>
+      <h1 class="md2-h2 mt-1 text-on-surface">Account Settings</h1>
+      <p class="mt-2 text-ink-secondary md2-body1">
         账户身份凭证与 AI 对话偏好设置
       </p>
     </header>
 
-    <div class="max-w-xl space-y-8">
+    <div class="max-w-2xl space-y-4">
       <!-- Profile Section -->
-      <section>
-        <h2 class="font-mono text-xs uppercase tracking-widest text-neutral-400 mb-3">
-          Account Profile
-        </h2>
-        <div class="divide-y divide-[#E5E5E5]/60 border-t border-b border-[#E5E5E5]/60 font-mono text-xs">
-          <div class="flex items-center justify-between py-3.5">
-            <span class="text-neutral-500 font-sans">Username</span>
-            <span class="font-medium text-neutral-900">{{ username }}</span>
+      <section class="md2-card p-5">
+        <h2 class="md2-section-title mb-1">Account Profile</h2>
+        <div class="md2-list -mx-5 -mb-5">
+          <div class="md2-list-item justify-between">
+            <span class="md2-list-item__sub">Username</span>
+            <span class="md2-list-item__title font-medium">{{ username }}</span>
           </div>
-          <div class="flex items-center justify-between py-3.5">
-            <span class="text-neutral-500 font-sans">Role</span>
-            <span class="text-neutral-900 uppercase font-medium">{{ role }}</span>
+          <div class="md2-divider" />
+          <div class="md2-list-item justify-between">
+            <span class="md2-list-item__sub">Role</span>
+            <span class="md2-list-item__title font-medium uppercase">{{ role }}</span>
           </div>
-          <div class="flex items-center justify-between py-3.5">
-            <span class="text-neutral-500 font-sans">Session Status</span>
-            <span class="flex items-center gap-1.5 text-neutral-800">
-              <span class="h-1.5 w-1.5 rounded-full bg-neutral-900 dark:bg-emerald-400" />
-              <span>Session Active</span>
+          <div class="md2-divider" />
+          <div class="md2-list-item justify-between">
+            <span class="md2-list-item__sub">Session Status</span>
+            <span class="md2-list-item__title flex items-center gap-2">
+              <span class="h-2 w-2 rounded-full bg-success" />
+              Session Active
             </span>
           </div>
         </div>
       </section>
 
       <!-- AI Preferences Section -->
-      <section>
-        <h2 class="font-mono text-xs uppercase tracking-widest text-neutral-400 mb-3">
-          AI Preferences
-        </h2>
+      <section class="md2-card p-5">
+        <h2 class="md2-section-title mb-1">AI Preferences</h2>
 
-        <div class="border-t border-b border-[#E5E5E5]/60 py-4">
-          <div class="flex items-start justify-between gap-4">
+        <div class="md2-list -mx-5">
+          <div class="md2-list-item justify-between gap-6">
             <div>
-              <p class="text-xs font-medium text-neutral-900 font-sans">长期对话记忆 (Long-term Memory)</p>
-              <p class="mt-1 text-xs text-neutral-500 leading-relaxed font-sans">
+              <p class="md2-body1 font-medium">长期对话记忆 (Long-term Memory)</p>
+              <p class="mt-1 text-ink-secondary md2-body2">
                 在对话过程中自动归纳偏好与关键工程上下文，以便在后续会话中无缝调用。
               </p>
             </div>
 
-            <!-- Minimal Switch -->
+            <!-- MD2 Switch -->
             <button
               type="button"
-              class="no-invert relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors cursor-pointer"
-              :class="memoryEnabled ? 'bg-neutral-900 dark:bg-white' : 'bg-neutral-200 dark:bg-neutral-700'"
+              role="switch"
+              class="md2-switch"
+              :aria-checked="memoryEnabled"
+              :aria-label="'长期对话记忆'"
               @click="memoryEnabled = !memoryEnabled"
             >
-              <span
-                class="inline-block h-3.5 w-3.5 transform rounded-full transition-transform"
-                :class="memoryEnabled ? 'translate-x-4.5 bg-white dark:bg-neutral-900' : 'translate-x-0.5 bg-white dark:bg-neutral-300'"
-              />
+              <span class="md2-switch__thumb" />
             </button>
           </div>
         </div>
 
-        <div class="mt-6 flex items-center gap-3">
+        <div class="mt-4 flex items-center gap-3 border-t border-divider pt-4">
           <button
             type="button"
             :disabled="saving"
-            class="font-mono text-xs px-4 py-2 bg-neutral-900 text-white rounded font-normal hover:bg-neutral-800 disabled:opacity-50 transition-colors cursor-pointer"
+            class="md2-btn md2-btn--contained md2-btn--sentence !h-10 px-6"
             @click="save"
           >
-            {{ saving ? 'Saving...' : 'Save Changes' }}
+            {{ saving ? '保存中...' : '保存修改' }}
           </button>
-          <span v-if="savedMsg" class="font-mono text-xs text-neutral-900 font-medium">
+          <span
+            v-if="savedMsg"
+            class="md2-body2 font-medium"
+            style="color: var(--md2-success);"
+          >
             {{ savedMsg }}
           </span>
         </div>

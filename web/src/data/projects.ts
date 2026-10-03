@@ -4,6 +4,8 @@
   stack: string[]
   period: string
   tag?: string
+  /** 四色强调色位，见 style.css 的 [data-accent] 映射 */
+  accent?: 'blue' | 'yellow' | 'red' | 'green'
 }
 
 /** 个人工程与硬件研发经历 */
@@ -14,6 +16,7 @@ export const projectList: Project[] = [
     stack: ['STM32F4', 'FreeRTOS', 'CAN Bus', 'PID', 'AHRS'],
     period: '2024 — Present',
     tag: 'Robotics',
+    accent: 'red',
   },
   {
     title: '钢球平板倾角视觉伺服控制系统',
@@ -21,6 +24,7 @@ export const projectList: Project[] = [
     stack: ['STM32', 'OpenCV', 'C++', 'Kalman Filter', 'PID'],
     period: '2025 — 2026',
     tag: 'Control Systems',
+    accent: 'yellow',
   },
   {
     title: 'snhgn.me 独立数字架构与自动化集群',
@@ -28,5 +32,6 @@ export const projectList: Project[] = [
     stack: ['Linux', 'Docker', 'FastAPI', 'Vue 3', 'Cloudflare'],
     period: '2026',
     tag: 'Infrastructure',
+    accent: 'blue',
   },
 ]
