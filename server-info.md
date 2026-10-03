@@ -1608,8 +1608,9 @@ DNS Servers: 223.5.5.5 1.1.1.1 8.8.8.8 202.204.112.87 202.204.122.66
 
 ### 23.4 未解决 / 待决
 
-- **`git push` 仍被 TLS 中间人阻断**（`SSL certificate problem: self-signed
-  certificate in certificate chain`）。已拒绝用 `sslVerify=false` 绕过。
+- **`git push` 仍被 TLS 中间人阻断。** 详见 23.6：已定位中间人、
+  已确认存在一条未被劫持的替代通道，但需要用户先在 GitHub 账号里
+  登记 SSH 公钥才能用。**已拒绝 `sslVerify=false`，也不会去装中间人的根证书。**
 - **DHCP 跨子网震荡**：日志显示 IP 长期在 `172.25.252.63` 与
   `172.28.204.40` 之间反复切换（网关相应在 `172.25.252.1` / `172.28.204.1`，
   故障期间实测两种都出现过）。未做静态 IP：真实风险是 IP 冲突 +
@@ -1741,4 +1742,42 @@ DNS  223.5.5.5 1.1.1.1 8.8.8.8 202.204.112.87 202.204.122.66
 
 `scripts/net_watchdog.sh` 仓库版与服务器版 SHA256 一致：
 `e92b93bae1a83c0afcf39285dbea8e8e0a9637d67c05f9e710713c093346b634`
+
+### 23.6 git push 被拦的真正原因，以及一条可用的绕法
+
+**中间人是谁**：`C=CN, ST=" ", O=Scholar Verify, CN=Scholar Root CA v1`
+（校园网的内容审计系统）。系统信任库里没有它，所以 git 报
+`self-signed certificate in certificate chain`。
+
+**但装它的根证书解决不了问题，也不该装。** 实测
+`curl -k https://github.com`（完全跳过校验）**依然是 `000`** ——
+这个代理根本没转发内容。装它的唯一效果是把全校 HTTPS 交给它。
+
+**拦截是有选择性的，不是无差别**：
+
+| 目标 | 跳过校验的结果 | 证书签发者 |
+|---|---|---|
+| `pypi.org` | **200** | `GlobalSign Atlas R3 DV TLS CA 2025 Q4`（合法）|
+| `github.com` / `api.github.com` / `codeload.github.com` | 000 | — |
+| `www.google.com` / `registry.npmjs.org` | 000 | 取不到 |
+
+即：**`github.com` 被直接黑洞，而不是被劫持**。本机 git 拿到的自签名
+证书来自办公网那一侧，与服务器这条校园网出口不是同一现象 ——
+两边的症状相同（self-signed），成因不同，排查时要分开看。
+
+**可用绕法：SSH over 443，未被劫持且可验证身份。**
+
+- `ssh.github.com:443` 的 SSH 握手在服务器侧与本机侧**都能通**
+  （`github.com:22` 则直接连接超时）。
+- 主机密钥 ED25519 指纹 `SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU`
+  与 GitHub 官方公布的指纹**逐字符一致**，确认真身而非中间人。
+- SSH 用自己的 host key 校验，不依赖 CA 信任链，天然免疫这类 CA 中间人。
+
+**卡在哪一步**：本机 `~/.ssh/id_rsa` 存在（RSA 4096，
+`SHA256:kdnkEbG/Hys2ilhSXu2YDvJIICi1UJ/36NQy2/c6ing`），
+但 GitHub 账号里没有登记它，`ssh -T` 返回 `Permission denied (publickey)`。
+
+需要用户把 `~/.ssh/id_rsa.pub` 加到 GitHub 账号的 SSH keys，
+之后即可用 `ssh://git@ssh.github.com:443/snhgn/server.git` 推送。
+在此之前 `main` 领先 `origin/main` 3 个提交（`ac7bd50` `7d8c5b8` `dc387e0`）。
 
