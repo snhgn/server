@@ -1145,10 +1145,18 @@ const todayState = computed<TodayState>(() => {
   return { type: 'none', course: null, label: '今日暂无课程安排' }
 })
 
-// 移动端专用日视图 / 日程流配置
-const mobileViewMode = ref<'agenda' | 'week'>(
-  isApp.value ? 'week' : ((localStorage.getItem('bjfu-mobile-view-mode') as 'agenda' | 'week') || 'agenda')
-)
+// 移动端视图模式记忆持久化：严格按照用户上次的显示偏好恢复展示（今日日程流 vs 整周课表）
+function getInitialMobileViewMode(): 'agenda' | 'week' {
+  if (typeof localStorage === 'undefined') return 'agenda'
+  const saved = localStorage.getItem('bjfu-mobile-view-mode')
+  if (saved === 'agenda' || saved === 'week') {
+    return saved
+  }
+  // 首次打开无历史存储记录时：App 模式默认整周，Web 移动端默认今日日程流
+  return isApp.value ? 'week' : 'agenda'
+}
+
+const mobileViewMode = ref<'agenda' | 'week'>(getInitialMobileViewMode())
 const selectedDay = ref<number>(nowDay.value)
 
 function selectDay(d: number) {
@@ -1157,11 +1165,22 @@ function selectDay(d: number) {
 
 function setMobileViewMode(mode: 'agenda' | 'week') {
   mobileViewMode.value = mode
-  localStorage.setItem('bjfu-mobile-view-mode', mode)
+  try {
+    localStorage.setItem('bjfu-mobile-view-mode', mode)
+  } catch {}
   if (mode === 'week') {
     nextTick(() => scrollToToday())
   }
 }
+
+// 统一监听移动端视图切换，确保任何入口的变动均实时持久化，下次打开完全遵循上次选择
+watch(mobileViewMode, (mode) => {
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem('bjfu-mobile-view-mode', mode)
+    } catch {}
+  }
+})
 
 const selectedDayCourses = computed(() => {
   return weekCourses.value
