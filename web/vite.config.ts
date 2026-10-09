@@ -13,12 +13,15 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
-  // 部署到服务器时，通过 Caddy 反代 /api 到后端服务
+  // 本地开发代理到线上真实后端或本地网关
   server: {
+    host: '0.0.0.0',
+    port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:3000',
+        target: process.env.VITE_API_TARGET || 'https://snhgn.me',
         changeOrigin: true,
+        secure: false,
       },
     },
   },
