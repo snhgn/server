@@ -10,4 +10,18 @@
         <item name="android:windowBackground">@color/bg_root</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
+
+    <!-- 课程强提醒居中弹窗主题 (支持锁屏穿透与半透明遮罩) -->
+    <style name="Theme.SnhgnSchedule.ReminderDialog" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:backgroundDimAmount">0.65</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
 </resources>

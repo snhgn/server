@@ -327,6 +327,21 @@ class MainActivity : AppCompatActivity() {
                 )
                 me.snhgn.schedule.reminder.FloatingWindowService.startService(this@MainActivity, testCourse)
             }
+
+            @android.webkit.JavascriptInterface
+            fun testCourseReminder() {
+                android.util.Log.d("AndroidBridge", "触发课程强提醒弹窗即刻测试")
+                val now = System.currentTimeMillis()
+                val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+                val testCourse = me.snhgn.schedule.network.Course(
+                    id = 999999L,
+                    courseName = "高等数学 (测试强提醒)",
+                    classRoom = "学研大厦 A0101",
+                    startTime = dateFormat.format(java.util.Date(now + 3 * 60 * 1000L)),
+                    endTime = dateFormat.format(java.util.Date(now + 45 * 60 * 1000L))
+                )
+                me.snhgn.schedule.reminder.CourseNotificationHelper.showCourseAlarm(this@MainActivity, testCourse)
+            }
         }, "AndroidBridge")
 
         wv.webViewClient = object : WebViewClient() {

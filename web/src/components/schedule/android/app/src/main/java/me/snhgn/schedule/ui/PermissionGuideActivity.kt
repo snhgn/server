@@ -73,22 +73,23 @@ class PermissionGuideActivity : AppCompatActivity() {
         }
 
         findViewById<View?>(R.id.btn_test_capsule)?.setOnClickListener {
-            if (!PermissionHelper.hasOverlayPermission(this)) {
-                android.widget.Toast.makeText(this, "请先开启上方【悬浮窗权限】", android.widget.Toast.LENGTH_SHORT).show()
-                PermissionHelper.requestOverlayPermission(this)
-                return@setOnClickListener
-            }
             val now = System.currentTimeMillis()
             val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
             val testCourse = me.snhgn.schedule.network.Course(
                 id = 999999L,
-                courseName = "高等数学 (流体云测试)",
+                courseName = "高等数学 (强提醒测试)",
                 classRoom = "学研大厦 A0101",
                 startTime = dateFormat.format(java.util.Date(now + 3 * 60 * 1000L)),
                 endTime = dateFormat.format(java.util.Date(now + 45 * 60 * 1000L))
             )
-            me.snhgn.schedule.reminder.FloatingWindowService.startService(this, testCourse)
-            android.widget.Toast.makeText(this, "已唤起顶部流体云胶囊！", android.widget.Toast.LENGTH_SHORT).show()
+            // 1. 发送高优先级 FullScreenIntent 强提醒与锁屏弹窗
+            me.snhgn.schedule.reminder.CourseNotificationHelper.showCourseAlarm(this, testCourse)
+
+            // 2. 若已授权悬浮窗，同步拉起流体云胶囊
+            if (PermissionHelper.hasOverlayPermission(this)) {
+                me.snhgn.schedule.reminder.FloatingWindowService.startService(this, testCourse)
+            }
+            android.widget.Toast.makeText(this, "已触发课程强提醒与锁屏弹窗！", android.widget.Toast.LENGTH_SHORT).show()
         }
 
         findViewById<Button>(R.id.btn_proceed).setOnClickListener {

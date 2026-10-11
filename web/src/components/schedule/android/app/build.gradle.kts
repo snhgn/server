@@ -49,8 +49,9 @@ android {
         //      6 = 1.0.5 修 <include> 覆盖根节点 id 导致的启动即崩（v2~v4 全部有此问题）
         //      7 = 1.0.6 改用 release 签名（此前所有版本都是 debug key 签的）
         //          + 修首次启动 onDestroy 访问未初始化 splash 导致的启动即崩
-        versionCode = 7
-        versionName = "1.0.6"
+        //      8 = 1.0.7 方案1: FullScreenIntent 课程强提醒与锁屏居中弹窗 (修复 Android 14+ / ColorOS 息屏锁屏不唤醒)
+        versionCode = 8
+        versionName = "1.0.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

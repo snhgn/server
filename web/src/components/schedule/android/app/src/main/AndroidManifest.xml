@@ -31,6 +31,12 @@
     <!-- 保持 CPU 短暂唤醒以完成校验 -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- 全屏闹钟强提醒弹窗权限 (Android 10+ 锁屏点亮弹窗) -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
+    <!-- 震动权限 -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -58,6 +64,16 @@
             android:name=".ui.PermissionGuideActivity"
             android:exported="true"
             android:theme="@style/Theme.SnhgnSchedule" />
+
+        <!-- 课程强提醒居中弹窗 (锁屏穿透与全屏强提醒) -->
+        <activity
+            android:name=".ui.CourseReminderActivity"
+            android:exported="false"
+            android:theme="@style/Theme.SnhgnSchedule.ReminderDialog"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask" />
 
         <!-- 课程闹钟广播接收器 (内部广播，不导出) -->
         <receiver

@@ -111,9 +111,11 @@ class AlarmBroadcastReceiver : BroadcastReceiver() {
             return
         }
 
-        Log.i(TAG, "课程有效，立即唤起短生命周期流体云悬浮胶囊: ${validCourse.courseName}")
-        // 起点与结果由 FloatingWindowService.startService 记录：
-        // 系统若拒绝后台启动前台服务，会写入 OUTCOME_FGS_REFUSED 并降级发通知
+        Log.i(TAG, "课程有效，立即触发强提醒弹窗与流体云: ${validCourse.courseName}")
+        // 1. 发送高优先级 FullScreenIntent 强提醒通知 (锁屏弹窗 + 顶部横幅 + 震动亮屏)
+        CourseNotificationHelper.showCourseAlarm(context, validCourse)
+
+        // 2. 尝试唤起短生命周期流体云悬浮胶囊 (若已开启悬浮窗权限)
         FloatingWindowService.startService(context, validCourse)
     }
 
@@ -125,7 +127,10 @@ class AlarmBroadcastReceiver : BroadcastReceiver() {
         val courseId = intent.getLongExtra(AlarmManagerHelper.EXTRA_COURSE_ID, 0L)
         Log.d(TAG, "【结束 Alarm 触发】下课时间到达，通知关闭流体云悬浮窗并释放前台服务: id=$courseId, name=$courseName")
 
-        // 发送关闭指令给 FloatingWindowService
+        // 1. 取消可能残留的强提醒通知
+        CourseNotificationHelper.cancelCourseAlarm(context)
+
+        // 2. 发送关闭指令给 FloatingWindowService
         FloatingWindowService.stopService(context)
     }
 }
