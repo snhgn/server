@@ -102,6 +102,10 @@ web/dist/
 web/dist-ssr/
 *.local
 *.tsbuildinfo
+# ===== 本地 Agent 技能与 IDE 元数据 =====
+.agents/
+.workbuddy/
+
 
 # ===== 部署载荷镜像 =====
 # 唯一事实来源是 web/dist（vite 构建产物，已含 web/public 静态资源）。

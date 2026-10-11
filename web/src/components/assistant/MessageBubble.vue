@@ -69,18 +69,71 @@ marked.setOptions({
   gfm: true,
 })
 
+// ---- 输出净化 ----
+// 消息正文来自 AI 生成结果、RAG 知识库片段与会话历史，均属不可信输入，
+// 且最终以 v-html 注入 DOM。marked 默认原样透传原始 HTML 与任意协议链接，
+// 因此必须在此处收口：HTML 转义 + 链接协议白名单。
+const HTML_ESCAPES: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+}
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? '').replace(/[&<>"']/g, (c) => HTML_ESCAPES[c])
+}
+
+// 允许：http(s) / mailto / 站内相对与锚点 / 内联图片 data URI
+// 拒绝：javascript:、vbscript:、data:text/html 等可执行或伪装协议
+const SAFE_URL = /^(?:https?:\/\/|mailto:|#|\/|\.{1,2}\/|data:image\/(?:png|jpe?g|gif|webp|avif);base64,)/i
+
+function safeUrl(href: unknown): string {
+  const raw = String(href ?? '').trim()
+  if (!raw) return ''
+  // 先剔除控制字符与空白，防止 "java\nscript:" 这类绕过
+  const compact = raw.replace(/[\u0000-\u001F\u007F-\u009F\s]/g, '')
+  return SAFE_URL.test(compact) ? compact : ''
+}
+
 const renderer = new marked.Renderer()
+// 原始 HTML 一律按文本呈现（<img onerror=…> 等不再被执行）
+renderer.html = function (token: any): string {
+  return escapeHtml(token?.text)
+}
+renderer.link = function (token: any): string {
+  const href = safeUrl(token?.href)
+  const text = escapeHtml(token?.text ?? token?.href ?? '')
+  if (!href) return text
+  const title = token?.title ? ` title="${escapeHtml(token.title)}"` : ''
+  return `<a href="${escapeHtml(href)}"${title} target="_blank" rel="noopener noreferrer nofollow">${text}</a>`
+}
+renderer.image = function (token: any): string {
+  const href = safeUrl(token?.href)
+  if (!href) return escapeHtml(token?.text ?? '')
+  const title = token?.title ? ` title="${escapeHtml(token.title)}"` : ''
+  return `<img src="${escapeHtml(href)}" alt="${escapeHtml(token?.text ?? '')}"${title} loading="lazy" />`
+}
 renderer.code = function ({ text, lang }: { text: string; lang?: string | undefined }): string {
-  const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext'
-  const highlighted = hljs.highlight(text, { language, ignoreIllegals: true }).value
-  const langLabel = lang && hljs.getLanguage(lang) ? lang : 'text'
+  // 本项目用的是 highlight.js/lib/core：它只带已注册语言，不含内置的 plaintext。
+  // 早期实现对「未标注语言 / 未注册语言」的围栏一律传 language='plaintext'，
+  // hljs 会抛 Unknown language → 整条消息的渲染被打回 catch，用户看到的是 markdown 源码。
+  // 未知语言直接输出转义后的纯文本，不再走 hljs。
+  const known = !!(lang && hljs.getLanguage(lang))
+  const highlighted = known
+    ? hljs.highlight(text, { language: lang as string, ignoreIllegals: true }).value
+    : escapeHtml(text)
+  // lang 由模型输出可控，必须转义后再拼进 HTML
+  const langLabel = escapeHtml(known ? (lang as string) : 'text')
+  const safeLanguage = escapeHtml(known ? (lang as string) : 'plaintext')
   return (
     `<div class="my-3 rounded-lg border border-[#E5E5E5] bg-[#F8F9FA] overflow-hidden">` +
     `<div class="flex items-center justify-between border-b border-[#E5E5E5] bg-white px-3 py-1.5 font-mono text-[11px] text-neutral-500">` +
     `<span class="text-neutral-700 font-medium">${langLabel}</span>` +
     `<button type="button" class="text-neutral-400 hover:text-neutral-900 cursor-pointer transition-colors" data-copy-code>Copy</button>` +
     `</div>` +
-    `<pre class="p-3 text-xs leading-relaxed font-mono overflow-x-auto text-neutral-900"><code class="hljs language-${language}">${highlighted}</code></pre>` +
+    `<pre class="p-3 text-xs leading-relaxed font-mono overflow-x-auto text-neutral-900"><code class="hljs language-${safeLanguage}">${highlighted}</code></pre>` +
     `</div>`
   )
 }
@@ -140,7 +193,8 @@ const html = computed(() => {
   try {
     return marked.parse(props.text, { renderer, async: false }) as string
   } catch {
-    return props.text
+    // 兜底：渲染失败时也必须转义后再交给 v-html，否则原始文本里的标签会被当 HTML 执行
+    return escapeHtml(props.text)
   }
 })
 

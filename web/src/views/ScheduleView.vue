@@ -739,8 +739,29 @@ function changeWeek(delta: number) {
   }, 100)
 }
 
+// 生命周期副作用必须在任何数据加载分支之前完成注册：
+// onMounted 内部存在多条提前 return（命中本地缓存 / URL 带学号 / 已保存凭据 …），
+// 把注册写在函数尾部会导致这些分支下心跳、Esc 关弹窗、拖拽换背景全部失效。
+function startHeartbeat() {
+  if (timeHeartbeatTimer !== null) return
+  timeHeartbeatTimer = window.setInterval(() => {
+    currentTime.value = Date.now()
+  }, 30000)
+}
+
+function registerWindowListeners() {
+  window.addEventListener('keydown', onKeydown)
+  window.addEventListener('dragenter', onWindowDragEnter)
+  window.addEventListener('dragover', onWindowDragOver)
+  window.addEventListener('dragleave', onWindowDragLeave)
+  window.addEventListener('drop', onWindowDrop)
+}
+
 onMounted(async () => {
   document.body.classList.add('schedule-page')
+
+  startHeartbeat()
+  registerWindowListeners()
 
   // 0. 优先检测是否传入了 4 位共享课表邀请码 (?code=XXXX 或 ?share=XXXX)
   const qCode = (route.query.code || route.query.share) as string | undefined
@@ -884,17 +905,6 @@ onMounted(async () => {
   if (!schedule.value) {
     showForm.value = true
   }
-
-  // 启动 30 秒响应式时间心跳
-  timeHeartbeatTimer = window.setInterval(() => {
-    currentTime.value = Date.now()
-  }, 30000)
-
-  window.addEventListener('keydown', onKeydown)
-  window.addEventListener('dragenter', onWindowDragEnter)
-  window.addEventListener('dragover', onWindowDragOver)
-  window.addEventListener('dragleave', onWindowDragLeave)
-  window.addEventListener('drop', onWindowDrop)
 })
 
 function onKeydown(e: KeyboardEvent) {

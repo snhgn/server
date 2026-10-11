@@ -23,7 +23,17 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 # ---- 登录失败限流（进程内滑动窗口，防爆破；单实例轻量方案）----
 _LOGIN_WINDOW = 300.0  # 5 分钟窗口
 _LOGIN_MAX_FAILS = 10   # 窗口内最大失败次数（含用户不存在）
+# 记录表容量上限：只按 username 计数的字典，若不清理会随「每个用户名只失败一次」
+# 的慢速枚举无界增长（网关 mem_limit 384m）。达到上限后先做一轮过期清理，
+# 仍超限则整体丢弃（宁可放过部分计数，也不能让内存被枚举撑爆）。
+_LOGIN_FAILS_MAX_KEYS = 5000
 _login_fails: dict[str, deque] = {}
+
+
+def _prune_login_fails(now: float) -> None:
+    """清理窗口内已完全过期（或空）的计数项。"""
+    for key in [k for k, q in _login_fails.items() if not q or now - q[-1] > _LOGIN_WINDOW]:
+        _login_fails.pop(key, None)
 
 
 def _login_blocked(username: str) -> bool:
@@ -33,11 +43,24 @@ def _login_blocked(username: str) -> bool:
     now = time.monotonic()
     while q and now - q[0] > _LOGIN_WINDOW:
         q.popleft()
+    if not q:
+        # 该用户名窗口内已无有效失败记录，连带删除条目，避免字典只增不减
+        _login_fails.pop(username, None)
+        return False
     return len(q) >= _LOGIN_MAX_FAILS
 
 
 def _record_login_fail(username: str) -> None:
-    _login_fails.setdefault(username, deque()).append(time.monotonic())
+    now = time.monotonic()
+    if len(_login_fails) >= _LOGIN_FAILS_MAX_KEYS:
+        _prune_login_fails(now)
+        if len(_login_fails) >= _LOGIN_FAILS_MAX_KEYS:
+            logger.warning(
+                "Login fail table exceeded %d keys after pruning, clearing it",
+                _LOGIN_FAILS_MAX_KEYS,
+            )
+            _login_fails.clear()
+    _login_fails.setdefault(username, deque()).append(now)
 
 
 class LoginRequest(BaseModel):

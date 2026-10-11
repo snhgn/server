@@ -325,6 +325,8 @@ async function send() {
             aiMsg.provider = data.provider
             lastProvider.value = data.provider
           }
+          // 用户在设置里选了某个 provider，实际却由另一个 provider 出结果 → 发生了降级
+          providerFallback.value = !!data?.fallback_from
           if (data?.sources && data.sources.length) {
             aiMsg.sources = data.sources
             lastSourcesCount.value = data.sources.length

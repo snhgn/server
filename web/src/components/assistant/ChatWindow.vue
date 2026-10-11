@@ -136,6 +136,16 @@ function onQuick(entry: { prompt: string }) {
           <span>{{ lastSourcesCount > 0 ? `RAG: ${lastSourcesCount}` : 'RAG Ready' }}</span>
         </span>
 
+        <!-- 降级提示：用户选了某个 provider，实际由另一个 provider 出结果 -->
+        <span
+          v-if="providerFallback && lastProvider"
+          class="hidden sm:inline-flex items-center gap-1.5 rounded border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] text-amber-700"
+          :title="`所选模型不可用，已自动降级到 ${lastProvider}`"
+        >
+          <span class="h-1.5 w-1.5 rounded-full bg-amber-500" />
+          <span>Fallback: {{ lastProvider }}</span>
+        </span>
+
         <router-link
           to="/"
           class="font-mono text-xs text-neutral-400 hover:text-neutral-950 transition-colors ml-1 px-1 py-0.5"

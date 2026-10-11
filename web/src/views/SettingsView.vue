@@ -8,14 +8,21 @@ const memoryEnabled = ref(true)
 const loading = ref(false)
 const saving = ref(false)
 const savedMsg = ref('')
+const errorMsg = ref('')
+
+// 用户设置由 ai-service 承载，网关侧统一前缀为 /api/ai/settings
+// （曾误用 /api/settings，网关无此路由 → 404，读取与保存都会静默失败）
+const SETTINGS_PATH = '/api/ai/settings'
 
 async function loadSettings() {
   loading.value = true
+  errorMsg.value = ''
   try {
-    const data = await api.get('/api/settings')
+    const data = await api.get(SETTINGS_PATH)
     memoryEnabled.value = !!data.memory_enabled
   } catch {
-    // default enabled
+    // 读取失败时保留默认开启，并显式告知用户，避免开关显示与实际不一致
+    errorMsg.value = '偏好读取失败，显示的可能不是服务端当前设置'
   } finally {
     loading.value = false
   }
@@ -24,10 +31,13 @@ async function loadSettings() {
 async function save() {
   saving.value = true
   savedMsg.value = ''
+  errorMsg.value = ''
   try {
-    await api.put('/api/settings', { memory_enabled: memoryEnabled.value })
+    await api.put(SETTINGS_PATH, { memory_enabled: memoryEnabled.value })
     savedMsg.value = '已保存 ✓'
     setTimeout(() => (savedMsg.value = ''), 2000)
+  } catch (e: any) {
+    errorMsg.value = e?.message || '保存失败，请稍后重试'
   } finally {
     saving.value = false
   }
@@ -113,6 +123,14 @@ onMounted(loadSettings)
             style="color: var(--md2-success);"
           >
             {{ savedMsg }}
+          </span>
+          <span
+            v-if="errorMsg"
+            class="md2-body2 font-medium"
+            role="alert"
+            style="color: var(--md2-error);"
+          >
+            {{ errorMsg }}
           </span>
         </div>
       </section>
