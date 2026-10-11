@@ -17,6 +17,7 @@
 做一次登录，不会产生共享 Session 的并发访问。
 """
 import contextlib
+import hashlib
 import threading
 import time
 from typing import Callable, Iterator, Optional, Tuple
@@ -41,14 +42,15 @@ _GUARD = threading.Lock()
 
 
 class _Slot:
-    """单个学号的池槽位：互斥锁 + 当前可复用的已登录会话。"""
+    """单个学号的池槽位：互斥锁 + 当前可复用的已登录会话 + 凭据哈希。"""
 
-    __slots__ = ("lock", "session", "ts")
+    __slots__ = ("lock", "session", "ts", "pwd_hash")
 
     def __init__(self):
         self.lock = threading.Lock()
         self.session = None  # type: Optional[object]
         self.ts = 0.0
+        self.pwd_hash = ""
 
 
 class LoginFailed(ValueError):
@@ -127,18 +129,27 @@ def session_for(student_id: str, password: str, max_retry: int = 5,
     if not key:
         raise LoginFailed("请输入学号")
 
+    pwd_hash = hashlib.sha256((password or "").encode("utf-8")).hexdigest()
+
     slot = _slot_for(key)
     slot.lock.acquire()
     try:
         pooled = slot.session
         idle = (time.monotonic() - slot.ts) if pooled is not None else None
         need_probe = probe is not None and (idle is None or idle > PROBE_AFTER_IDLE)
-        if pooled is not None and idle is not None and idle < SESSION_TTL \
-                and is_alive(pooled, probe if need_probe else None):
+        # 必须校验密码哈希一致：杜绝知道学号即冒用他人池中已登录会话（越权风险）
+        if (
+            pooled is not None
+            and slot.pwd_hash == pwd_hash
+            and idle is not None
+            and idle < SESSION_TTL
+            and is_alive(pooled, probe if need_probe else None)
+        ):
             session, reused = pooled, True
         else:
             _discard_session(pooled)
             slot.session = None
+            slot.pwd_hash = ""
             ok, session, reason = captcha.login(
                 key, password, max_retry=max_retry, verbose=verbose)
             if not ok:
@@ -156,9 +167,11 @@ def session_for(student_id: str, password: str, max_retry: int = 5,
         finally:
             if healthy:
                 slot.session = session
+                slot.pwd_hash = pwd_hash
                 slot.ts = time.monotonic()
             else:
                 _discard_session(session)
+                slot.pwd_hash = ""
     finally:
         slot.lock.release()
 
@@ -173,6 +186,7 @@ def invalidate(student_id: str) -> None:
         if slot is not None and not slot.lock.locked():
             _discard_session(slot.session)
             slot.session = None
+            slot.pwd_hash = ""
             slot.ts = 0.0
 
 

@@ -45,6 +45,12 @@ services:
       - HF_ENDPOINT=https://hf-mirror.com
     networks:
       - snhgn-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
   # ---- 定时任务服务（APScheduler）----
   scheduler:
@@ -62,6 +68,12 @@ services:
       - /opt/snhgn/scripts:/data/scripts
     networks:
       - snhgn-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health', timeout=5)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # ---- API 网关（JWT 认证 + 路由代理）----
   gateway:
@@ -78,10 +90,18 @@ services:
       - /opt/snhgn/logs/gateway:/app/logs
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
-      - ai-service
-      - scheduler
+      ai-service:
+        condition: service_healthy
+      scheduler:
+        condition: service_healthy
     networks:
       - snhgn-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=5)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # ---- Caddy 反向代理 + 静态网站 ----
   caddy:
@@ -99,6 +119,9 @@ services:
       - ./certs:/srv/certs:ro
       - caddy_data:/data
       - caddy_config:/config
+    depends_on:
+      gateway:
+        condition: service_healthy
     networks:
       - snhgn-network
 

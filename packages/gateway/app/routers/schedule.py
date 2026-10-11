@@ -15,6 +15,7 @@ import logging
 import json
 import secrets
 import sqlite3
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
@@ -75,6 +76,7 @@ def _get_or_create_guest_user(student_id: str) -> int:
     """
     conn = sqlite3.connect(settings.SQLITE_DB_PATH, timeout=10.0)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout=10000")
     try:
         row = conn.execute(
             "SELECT id FROM users WHERE username=?", (student_id,)
@@ -425,6 +427,19 @@ def view_shared_schedule(code: str, response: Response) -> dict:
 
 # ================= 成绩出分监控与邮件通知 =================
 
+_TEST_EMAIL_COOLDOWN_SECONDS = 60.0
+_test_email_cooldowns: dict[str, float] = {}
+
+
+def _check_test_email_cooldown(email: str) -> None:
+    now = time.monotonic()
+    last = _test_email_cooldowns.get(email, 0.0)
+    if now - last < _TEST_EMAIL_COOLDOWN_SECONDS:
+        remaining = int(_TEST_EMAIL_COOLDOWN_SECONDS - (now - last))
+        raise HTTPException(429, f"测试邮件发送过于频繁，请等待 {remaining} 秒后再试")
+    _test_email_cooldowns[email] = now
+
+
 class GradeMonitorSaveRequest(BaseModel):
     student_id: str
     email: str
@@ -441,8 +456,9 @@ class GradeMonitorTestRequest(BaseModel):
 async def get_grade_monitor_api(
     response: Response,
     student_id: str = Query("", description="学号"),
+    user: dict = Depends(require_user),
 ):
-    """获取指定学号的成绩监控配置。"""
+    """获取指定学号的成绩监控配置（需登录）。"""
     _set_no_cache(response)
     sid = student_id.strip()
     if not sid:
@@ -462,12 +478,17 @@ async def get_grade_monitor_api(
 async def send_grade_monitor_test_api(
     req: GradeMonitorTestRequest,
     response: Response,
+    user: dict = Depends(require_user),
 ):
-    """发送出分监控测试邮件。"""
+    """发送出分监控测试邮件（受登录态与60秒频控保护）。"""
     _set_no_cache(response)
-    email = req.email.strip()
+    email = req.email.strip().lower()
     if not email:
         raise HTTPException(400, "请输入有效的接收邮箱")
+    if not notifier.validate_email_address(email):
+        raise HTTPException(400, "邮箱地址格式无效，请检查")
+
+    _check_test_email_cooldown(email)
 
     ok, msg = await asyncio.to_thread(notifier.send_test_grade_monitor_email, email, req.student_id)
     if not ok:
@@ -479,11 +500,12 @@ async def send_grade_monitor_test_api(
 async def save_grade_monitor_api(
     req: GradeMonitorSaveRequest,
     response: Response,
+    user: dict = Depends(require_user),
 ):
-    """保存或更新成绩监控设置；若开启且填写了邮箱，默认自动发送一封测试邮件。"""
+    """保存或更新成绩监控设置；若开启且填写了邮箱，默认自动发送一封测试邮件（受登录态保护）。"""
     _set_no_cache(response)
     sid = req.student_id.strip()
-    email = req.email.strip()
+    email = req.email.strip().lower()
 
     if req.enabled and not email:
         raise HTTPException(400, "开启监控必须提供有效的接收通知邮箱")
@@ -494,13 +516,20 @@ async def save_grade_monitor_api(
     # 持久化存储
     schedule_db.save_grade_monitor(sid, email, req.enabled)
 
-    # 若开启且要求发送测试邮件
+    # 若开启且要求发送测试邮件（受频控保护，超频时静默跳过发信）
     test_sent = False
     test_msg = ""
     if req.enabled and email and req.send_test:
-        ok, test_msg = await asyncio.to_thread(notifier.send_test_grade_monitor_email, email, sid)
-        test_sent = ok
-        if not ok:
+        now = time.monotonic()
+        last = _test_email_cooldowns.get(email, 0.0)
+        if now - last < _TEST_EMAIL_COOLDOWN_SECONDS:
+            test_sent = False
+            test_msg = "发送频次过高，跳过测试邮件"
+        else:
+            _test_email_cooldowns[email] = now
+            ok, test_msg = await asyncio.to_thread(notifier.send_test_grade_monitor_email, email, sid)
+            test_sent = ok
+        if not test_sent and test_msg and "跳过" not in test_msg:
             return {
                 "success": True,
                 "email": email,

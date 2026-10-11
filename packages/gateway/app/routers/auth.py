@@ -56,15 +56,16 @@ class LoginResponse(BaseModel):
 
 @router.post("/login", response_model=LoginResponse)
 async def login(request: Request, response: Response, req: LoginRequest) -> LoginResponse:
+    if _login_blocked(req.username):
+        logger.warning("Login blocked (rate limit): '%s'", req.username)
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many failed attempts, retry later")
+
     # SQLite 查询与 bcrypt（~100ms CPU）均走线程池，避免登录阻塞其他请求
     user = await asyncio.to_thread(get_user_by_username, req.username)
     if not user:
         _record_login_fail(req.username)
         logger.warning("Login failed: user '%s' not found", req.username)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid credentials")
-    if _login_blocked(req.username):
-        logger.warning("Login blocked (rate limit): '%s'", req.username)
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many failed attempts, retry later")
     if not await asyncio.to_thread(
         verify_password, req.password, user["password_hash"]
     ):

@@ -2,7 +2,7 @@
 import logging
 
 import httpx
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 
 from ..auth import require_user
@@ -16,6 +16,11 @@ _client = httpx.AsyncClient(
     base_url=settings.AI_SERVICE_URL,
     timeout=httpx.Timeout(connect=10.0, read=None, write=30.0, pool=10.0),
 )
+
+
+async def aclose() -> None:
+    """优雅关闭 HTTP 客户端连接池"""
+    await _client.aclose()
 
 
 @router.api_route(
@@ -47,7 +52,15 @@ async def proxy_ai(path: str, request: Request, user: dict = Depends(require_use
         req = _client.build_request(
             request.method, url, params=params, content=_raw_body(), headers=fwd_headers
         )
-        resp = await _client.send(req, stream=False)
+        try:
+            resp = await _client.send(req, stream=False)
+        except (httpx.ConnectError, httpx.ConnectTimeout):
+            raise HTTPException(502, "AI 服务暂时不可用，请稍后重试")
+        except httpx.TimeoutException:
+            raise HTTPException(504, "AI 服务请求超时，请稍后重试")
+        except httpx.RequestError as exc:
+            logger.warning("AI proxy upload error %s: %s", url, exc)
+            raise HTTPException(502, f"AI 服务通信异常: {exc}")
         return Response(
             content=resp.content,
             status_code=resp.status_code,
@@ -63,11 +76,21 @@ async def proxy_ai(path: str, request: Request, user: dict = Depends(require_use
         req_headers = {**headers, "content-type": content_type} if body else headers
 
         async def sse_iter():
-            async with _client.stream(
-                "POST", url, params=params, content=body, headers=req_headers
-            ) as resp:
-                async for chunk in resp.aiter_raw():
-                    yield chunk
+            try:
+                async with _client.stream(
+                    "POST", url, params=params, content=body, headers=req_headers
+                ) as resp:
+                    async for chunk in resp.aiter_raw():
+                        yield chunk
+            except (httpx.ConnectError, httpx.ConnectTimeout):
+                logger.warning("AI proxy SSE connect failed %s", url)
+                yield b'event: error\ndata: {"message": "AI service unavailable"}\n\n'
+            except httpx.TimeoutException:
+                logger.warning("AI proxy SSE timeout %s", url)
+                yield b'event: error\ndata: {"message": "AI service request timeout"}\n\n'
+            except Exception as exc:
+                logger.warning("AI proxy SSE stream error %s: %s", url, exc)
+                yield b'event: error\ndata: {"message": "AI service stream interrupted"}\n\n'
 
         logger.info("AI proxy SSE POST %s (user=%s)", url, user["sub"])
         return StreamingResponse(
@@ -83,7 +106,15 @@ async def proxy_ai(path: str, request: Request, user: dict = Depends(require_use
     # 普通请求
     if body:
         headers["content-type"] = content_type
-    resp = await _client.request(request.method, url, params=params, content=body, headers=headers)
+    try:
+        resp = await _client.request(request.method, url, params=params, content=body, headers=headers)
+    except (httpx.ConnectError, httpx.ConnectTimeout):
+        raise HTTPException(502, "AI 服务暂时不可用，请稍后重试")
+    except httpx.TimeoutException:
+        raise HTTPException(504, "AI 服务响应超时，请稍后重试")
+    except httpx.RequestError as exc:
+        logger.warning("AI proxy request error %s %s: %s", request.method, url, exc)
+        raise HTTPException(502, f"AI 服务通信异常: {exc}")
 
     logger.info("AI proxy %s %s -> %d (user=%s)", request.method, url, resp.status_code, user["sub"])
     return Response(

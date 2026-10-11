@@ -28,18 +28,18 @@ class Settings(BaseSettings):
     SCHEDULE_COOLDOWN_SECONDS: int = 30        # 同一用户两次爬取的最小间隔
     SCHEDULE_CRAWL_TIMEOUT: int = 75           # 单次爬取总超时（秒）
     SCHEDULE_CAPTCHA_MAX_RETRY: int = 5        # 验证码识别最大重试次数
-    BJFU_USERNAME: str = "202400000"           # 默认教务服务账号（用于查空闲教室等无需个人隐私的公用接口）
-    BJFU_PASSWORD: str = "REDACTED_PASSWORD"        # 默认教务服务密码
+    BJFU_USERNAME: str = ""                    # 默认教务服务账号（用于查空闲教室等无需个人隐私的公用接口，需在 .env 配置）
+    BJFU_PASSWORD: str = ""                    # 默认教务服务密码（需在 .env 配置）
 
     # ---- 课程数据同步 / AI 数据目录 ----
     COURSE_DATA_DIR: str = "/data/course-data" # 用户专属 AI 数据目录（与 ai-service 共享）
     COURSE_SYNC_HOUR: int = 3                  # 每日定时同步时刻（24 小时制，服务器时区）
 
     # ---- SMTP 邮件服务 ----
-    SMTP_HOST: str = "smtp.163.com"
+    SMTP_HOST: str = ""                        # SMTP 邮件服务器（需在 .env 配置，如 smtp.163.com）
     SMTP_PORT: int = 465
-    SMTP_SENDER: str = "user@example.com"
-    SMTP_AUTH_CODE: str = "REDACTED_AUTH_CODE"
+    SMTP_SENDER: str = ""                      # 发件邮箱地址（需在 .env 配置）
+    SMTP_AUTH_CODE: str = ""                   # 发件邮箱授权码（需在 .env 配置）
 
     # ---- 通用 ----
     REQUEST_TIMEOUT: float = 130.0

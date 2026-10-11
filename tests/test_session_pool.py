@@ -112,6 +112,17 @@ class TestSessionPool(unittest.TestCase):
                 self.assertIsNot(sa, sb)
         self.assertEqual(_fake.logins, 2)
 
+    def test_password_mismatch_forces_relogin(self):
+        """安全测试：相同学号但传入不同密码，严禁借出此前会话（防越权劫持）。"""
+        with session_pool.session_for("victim", "correct_pwd") as (s1, reused1):
+            self.assertFalse(reused1)
+            s1_tag = s1.tag
+        # 攻击者尝试用错误密码窃取该学号会话
+        with session_pool.session_for("victim", "wrong_pwd") as (s2, reused2):
+            self.assertFalse(reused2, "密码不匹配时绝不能复用池中会话")
+            self.assertNotEqual(s2.tag, s1_tag, "必须生成全新会话而不是借出受害者会话")
+        self.assertEqual(_fake.logins, 2, "密码不同必须重新登录")
+
     def test_stale_session_triggers_relogin(self):
         with session_pool.session_for("S", "pw") as (_, reused):
             self.assertFalse(reused)

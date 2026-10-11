@@ -70,6 +70,13 @@ async def lifespan(_: FastAPI):
             await task
         except (asyncio.CancelledError, Exception):
             pass
+        # 优雅关闭网关向下游微服务的 HTTP 连接池
+        for router_mod in (ai, scheduler, scripts):
+            if hasattr(router_mod, "aclose"):
+                try:
+                    await router_mod.aclose()
+                except Exception:
+                    pass
 
 
 app = FastAPI(title="API Gateway", version="1.0.0", redirect_slashes=False, lifespan=lifespan)

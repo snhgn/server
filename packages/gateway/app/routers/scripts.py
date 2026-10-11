@@ -16,6 +16,11 @@ _client = httpx.AsyncClient(
 )
 
 
+async def aclose() -> None:
+    """优雅关闭 HTTP 客户端连接池"""
+    await _client.aclose()
+
+
 async def _proxy(request: Request, prefix: str, path: str, user: dict) -> Response:
     """转发到 scheduler；prefix 为 scheduler 侧路由前缀（如 /scripts、/admin/scripts）"""
     url = prefix + (f"/{path}" if path else "")
@@ -28,9 +33,18 @@ async def _proxy(request: Request, prefix: str, path: str, user: dict) -> Respon
     }
     if body:
         headers["content-type"] = request.headers.get("content-type", "")
-    resp = await _client.request(
-        request.method, url, params=params, content=body, headers=headers
-    )
+    try:
+        resp = await _client.request(
+            request.method, url, params=params, content=body, headers=headers
+        )
+    except (httpx.ConnectError, httpx.ConnectTimeout):
+        raise HTTPException(502, "自动化脚本服务暂时不可用，请稍后重试")
+    except httpx.TimeoutException:
+        raise HTTPException(504, "自动化脚本服务请求超时，请稍后重试")
+    except httpx.RequestError as exc:
+        logger.warning("Scripts proxy error %s %s: %s", request.method, url, exc)
+        raise HTTPException(502, f"自动化脚本服务通信异常: {exc}")
+
     logger.info("Scripts proxy %s %s -> %d (user=%s)", request.method, url,
                 resp.status_code, user["sub"])
     return Response(

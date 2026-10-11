@@ -43,8 +43,9 @@ def _parse(s: str) -> datetime:
 
 
 def _get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(settings.SQLITE_DB_PATH)
+    conn = sqlite3.connect(settings.SQLITE_DB_PATH, timeout=10.0)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout=10000")
     return conn
 
 
