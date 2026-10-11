@@ -2921,7 +2921,7 @@ function deleteCustomEvent(id: string) {
                 :class="customForm.weekType === 'all' ? 'bg-neutral-900 text-white border-neutral-900 dark:bg-white dark:text-neutral-950 dark:border-white font-medium' : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'"
                 @click="setWeekType('all')"
               >
-                全学期 (1-16周)
+                全学期 (1-{{ totalWeeks }}周)
               </button>
               <button
                 type="button"

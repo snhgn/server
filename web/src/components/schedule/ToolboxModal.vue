@@ -44,6 +44,8 @@ interface ScheduleData {
   semester: string
   updated_time: string
   courses: Course[]
+  term_start?: string
+  term_end?: string
 }
 
 const props = defineProps<{
@@ -54,6 +56,8 @@ const props = defineProps<{
   customEvents?: CustomScheduleEvent[]
   initialTool?: ActiveTool
 }>()
+
+const termStart = computed(() => props.schedule?.term_start || '2026-09-07')
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -643,11 +647,16 @@ interface FreeRoom {
 }
 
 const classroomBuilding = ref('')
-const currentSystemWeek = Math.min(
-  30,
-  Math.max(1, Math.floor((Date.now() - new Date('2026-09-07T00:00:00').getTime()) / 86400000 / 7) + 1)
-)
-const classroomWeek = ref(currentSystemWeek)
+const currentSystemWeek = computed(() => {
+  return Math.min(
+    30,
+    Math.max(1, Math.floor((Date.now() - new Date(`${termStart.value}T00:00:00`).getTime()) / 86400000 / 7) + 1)
+  )
+})
+const classroomWeek = ref(currentSystemWeek.value)
+watch(currentSystemWeek, (newWeek) => {
+  classroomWeek.value = newWeek
+})
 const currentDayOfWeek = new Date().getDay() || 7
 const classroomDay = ref(currentDayOfWeek)
 const classroomStartPeriod = ref(1)
@@ -829,6 +838,8 @@ watch(
       if (props.initialTool) {
         activeTool.value = props.initialTool
       }
+    } else {
+      activeTool.value = 'none'
     }
   }
 )
@@ -1023,8 +1034,7 @@ function parseWeeksList(weeks: string): number[] {
 }
 
 function generateICS(): string {
-  const TERM_START = '2026-09-07'
-  const [startY, startM, startD] = TERM_START.split('-').map(Number)
+  const [startY, startM, startD] = termStart.value.split('-').map(Number)
 
   const periodTimeMap: Record<number, { start: string; end: string }> = {
     1: { start: '080000', end: '093500' },
@@ -1760,18 +1770,18 @@ async function saveMonitor() {
 
     <!-- 1. 成绩查询弹窗 -->
     <div v-if="activeTool === 'grades'" class="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4" @click.self="activeTool = 'none'">
-      <div class="w-full max-w-xl rounded-xl bg-white p-6 shadow-2xl border border-[#E5E5E5] space-y-4 max-h-[85vh] flex flex-col overflow-hidden">
-        <div class="flex items-center justify-between border-b border-neutral-100 pb-3">
+      <div class="w-full max-w-xl rounded-xl bg-white dark:bg-[#1a1d21] p-6 shadow-2xl border border-[#E5E5E5] dark:border-neutral-700 space-y-4 max-h-[85vh] flex flex-col overflow-hidden text-neutral-900 dark:text-neutral-100">
+        <div class="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-800 pb-3">
           <div>
-            <h3 class="text-base font-medium text-neutral-900 font-sans">成绩查询与绩点分析</h3>
+            <h3 class="text-base font-medium text-neutral-900 dark:text-white font-sans">成绩查询与绩点分析</h3>
             <p class="text-[11px] text-neutral-400 font-mono">Academic Grades & GPA Analysis</p>
           </div>
-          <button class="text-neutral-400 hover:text-neutral-900 cursor-pointer" @click="activeTool = 'none'">✕</button>
+          <button class="text-neutral-400 hover:text-neutral-900 dark:hover:text-white cursor-pointer" @click="activeTool = 'none'">✕</button>
         </div>
 
         <!-- 密码未提供时的即时补全卡片 -->
-        <div v-if="!effectivePassword" class="rounded-lg bg-neutral-50 border border-neutral-200 p-4 text-center space-y-2.5">
-          <div class="text-xs text-neutral-600">当前未保存教务密码，请输入密码以拉取个人成绩与计算 GPA：</div>
+        <div v-if="!effectivePassword" class="rounded-lg bg-neutral-50 dark:bg-neutral-800/80 border border-neutral-200 dark:border-neutral-700 p-4 text-center space-y-2.5">
+          <div class="text-xs text-neutral-600 dark:text-neutral-300">当前未保存教务密码，请输入密码以拉取个人成绩与计算 GPA：</div>
           <div class="flex gap-2 max-w-xs mx-auto">
             <input
               v-model="tempPasswordInput"
@@ -1928,18 +1938,18 @@ async function saveMonitor() {
 
     <!-- 2. 考试安排弹窗 -->
     <div v-if="activeTool === 'exams'" class="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4" @click.self="activeTool = 'none'">
-      <div class="w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl border border-[#E5E5E5] space-y-4 max-h-[85vh] flex flex-col overflow-hidden">
-        <div class="flex items-center justify-between border-b border-neutral-100 pb-3">
+      <div class="w-full max-w-lg rounded-xl bg-white dark:bg-[#1a1d21] p-6 shadow-2xl border border-[#E5E5E5] dark:border-neutral-700 space-y-4 max-h-[85vh] flex flex-col overflow-hidden text-neutral-900 dark:text-neutral-100">
+        <div class="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-800 pb-3">
           <div>
-            <h3 class="text-base font-medium text-neutral-900 font-sans">考试日程安排</h3>
+            <h3 class="text-base font-medium text-neutral-900 dark:text-white font-sans">考试日程安排</h3>
             <p class="text-[11px] text-neutral-400 font-mono">Exam Schedule & Venue Details</p>
           </div>
-          <button class="text-neutral-400 hover:text-neutral-900 cursor-pointer" @click="activeTool = 'none'">✕</button>
+          <button class="text-neutral-400 hover:text-neutral-900 dark:hover:text-white cursor-pointer" @click="activeTool = 'none'">✕</button>
         </div>
 
         <!-- 密码未提供时的即时补全卡片 -->
-        <div v-if="!effectivePassword" class="rounded-lg bg-neutral-50 border border-neutral-200 p-4 text-center space-y-2.5">
-          <div class="text-xs text-neutral-600">当前未保存教务密码，请输入密码以同步期末考试考场与座位号：</div>
+        <div v-if="!effectivePassword" class="rounded-lg bg-neutral-50 dark:bg-neutral-800/80 border border-neutral-200 dark:border-neutral-700 p-4 text-center space-y-2.5">
+          <div class="text-xs text-neutral-600 dark:text-neutral-300">当前未保存教务密码，请输入密码以同步期末考试考场与座位号：</div>
           <div class="flex gap-2 max-w-xs mx-auto">
             <input
               v-model="tempPasswordInput"
@@ -2063,18 +2073,18 @@ async function saveMonitor() {
 
     <!-- 3. 培养方案弹窗 -->
     <div v-if="activeTool === 'training'" class="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4" @click.self="activeTool = 'none'">
-      <div class="w-full max-w-2xl sm:max-w-3xl rounded-xl bg-white p-5 sm:p-6 shadow-2xl border border-[#E5E5E5] space-y-4 max-h-[88vh] flex flex-col overflow-hidden text-xs">
-        <div class="flex items-center justify-between border-b border-neutral-100 pb-3">
+      <div class="w-full max-w-2xl sm:max-w-3xl rounded-xl bg-white dark:bg-[#1a1d21] p-5 sm:p-6 shadow-2xl border border-[#E5E5E5] dark:border-neutral-700 space-y-4 max-h-[88vh] flex flex-col overflow-hidden text-xs text-neutral-900 dark:text-neutral-100">
+        <div class="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-800 pb-3">
           <div>
-            <h3 class="text-base font-medium text-neutral-900 font-sans">培养方案与课程进度</h3>
+            <h3 class="text-base font-medium text-neutral-900 dark:text-white font-sans">培养方案与课程进度</h3>
             <p class="text-[11px] text-neutral-400 font-mono">Curriculum Plan & Graduation Credits (By Semester)</p>
           </div>
-          <button class="text-neutral-400 hover:text-neutral-900 cursor-pointer" @click="activeTool = 'none'">✕</button>
+          <button class="text-neutral-400 hover:text-neutral-900 dark:hover:text-white cursor-pointer" @click="activeTool = 'none'">✕</button>
         </div>
 
         <!-- 密码未提供时的即时补全卡片 -->
-        <div v-if="!effectivePassword" class="rounded-lg bg-neutral-50 border border-neutral-200 p-4 text-center space-y-2.5">
-          <div class="text-xs text-neutral-600">当前未保存教务密码，请输入密码以拉取培养方案各模块学分进度：</div>
+        <div v-if="!effectivePassword" class="rounded-lg bg-neutral-50 dark:bg-neutral-800/80 border border-neutral-200 dark:border-neutral-700 p-4 text-center space-y-2.5">
+          <div class="text-xs text-neutral-600 dark:text-neutral-300">当前未保存教务密码，请输入密码以拉取培养方案各模块学分进度：</div>
           <div class="flex gap-2 max-w-xs mx-auto">
             <input
               v-model="tempPasswordInput"
@@ -2248,13 +2258,13 @@ async function saveMonitor() {
 
     <!-- 4. 教室查询弹窗 -->
     <div v-if="activeTool === 'classroom'" class="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4" @click.self="activeTool = 'none'">
-      <div class="w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl border border-[#E5E5E5] space-y-4 max-h-[85vh] flex flex-col overflow-hidden text-xs">
-        <div class="flex items-center justify-between border-b border-neutral-100 pb-3">
+      <div class="w-full max-w-lg rounded-xl bg-white dark:bg-[#1a1d21] p-6 shadow-2xl border border-[#E5E5E5] dark:border-neutral-700 space-y-4 max-h-[85vh] flex flex-col overflow-hidden text-xs text-neutral-900 dark:text-neutral-100">
+        <div class="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-800 pb-3">
           <div>
-            <h3 class="text-base font-medium text-neutral-900 font-sans">空闲教室检索</h3>
+            <h3 class="text-base font-medium text-neutral-900 dark:text-white font-sans">空闲教室检索</h3>
             <p class="text-[11px] text-neutral-400 font-mono">Real-time Available Study Classrooms</p>
           </div>
-          <button class="text-neutral-400 hover:text-neutral-900 cursor-pointer" @click="activeTool = 'none'">✕</button>
+          <button class="text-neutral-400 hover:text-neutral-900 dark:hover:text-white cursor-pointer" @click="activeTool = 'none'">✕</button>
         </div>
 
         <!-- 筛选控件 -->
@@ -2473,26 +2483,26 @@ async function saveMonitor() {
 
     <!-- 5. 自动评教弹窗 -->
     <div v-if="activeTool === 'autoeval'" class="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4" @click.self="activeTool = 'none'">
-      <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl border border-[#E5E5E5] space-y-4 max-h-[85vh] overflow-y-auto text-xs">
-        <div class="flex items-center justify-between border-b border-neutral-100 pb-3">
+      <div class="w-full max-w-md rounded-xl bg-white dark:bg-[#1a1d21] p-6 shadow-2xl border border-[#E5E5E5] dark:border-neutral-700 space-y-4 max-h-[85vh] overflow-y-auto text-xs text-neutral-900 dark:text-neutral-100">
+        <div class="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-800 pb-3">
           <div>
-            <h3 class="text-base font-medium text-neutral-900 font-sans">自动评教</h3>
+            <h3 class="text-base font-medium text-neutral-900 dark:text-white font-sans">自动评教</h3>
             <p class="text-[11px] text-neutral-400 font-mono">Course Evaluation Automation</p>
           </div>
-          <button class="text-neutral-400 hover:text-neutral-900 cursor-pointer" @click="activeTool = 'none'">✕</button>
+          <button class="text-neutral-400 hover:text-neutral-900 dark:hover:text-white cursor-pointer" @click="activeTool = 'none'">✕</button>
         </div>
 
         <div class="space-y-3">
           <div>
-            <label class="block text-neutral-500 mb-1">默认评级</label>
-            <select class="w-full border border-[#E5E5E5] rounded px-2.5 py-1.5 bg-white">
+            <label class="block text-neutral-500 dark:text-neutral-400 mb-1">默认评级</label>
+            <select class="w-full border border-[#E5E5E5] dark:border-neutral-700 rounded px-2.5 py-1.5 bg-white dark:bg-neutral-800 dark:text-neutral-100">
               <option>全五星满分好评 (推荐)</option>
               <option>优秀 / 良好混合</option>
             </select>
           </div>
           <div>
-            <label class="block text-neutral-500 mb-1">评语风格</label>
-            <select class="w-full border border-[#E5E5E5] rounded px-2.5 py-1.5 bg-white">
+            <label class="block text-neutral-500 dark:text-neutral-400 mb-1">评语风格</label>
+            <select class="w-full border border-[#E5E5E5] dark:border-neutral-700 rounded px-2.5 py-1.5 bg-white dark:bg-neutral-800 dark:text-neutral-100">
               <option>严谨认真、教学清晰、受益匪浅</option>
               <option>生动形象、互动积极、非常喜欢</option>
               <option>随机多样化评语</option>
@@ -2500,7 +2510,7 @@ async function saveMonitor() {
           </div>
         </div>
 
-        <button class="w-full py-2.5 bg-neutral-900 text-white rounded cursor-pointer hover:bg-neutral-800" @click="showAlert('自动评教脚本对接中')">
+        <button class="w-full py-2.5 bg-neutral-900 dark:bg-white text-white dark:text-neutral-950 font-medium rounded cursor-pointer hover:bg-neutral-800 dark:hover:bg-neutral-100 transition-colors" @click="showAlert('自动评教脚本对接中')">
           开始自动评教
         </button>
       </div>
@@ -2508,13 +2518,13 @@ async function saveMonitor() {
 
     <!-- 6. 共享课表 / 好友列表弹窗 (4位邀请码系统) -->
     <div v-if="activeTool === 'share_friends'" class="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4" @click.self="activeTool = 'none'">
-      <div class="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl border border-[#E5E5E5] space-y-4 max-h-[85vh] overflow-y-auto text-xs">
-        <div class="flex items-center justify-between border-b border-neutral-100 pb-3">
+      <div class="w-full max-w-md rounded-xl bg-white dark:bg-[#1a1d21] p-5 shadow-2xl border border-[#E5E5E5] dark:border-neutral-700 space-y-4 max-h-[85vh] overflow-y-auto text-xs text-neutral-900 dark:text-neutral-100">
+        <div class="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-800 pb-3">
           <div>
-            <h3 class="text-base font-medium text-neutral-900 font-sans">共享课表与好友</h3>
+            <h3 class="text-base font-medium text-neutral-900 dark:text-white font-sans">共享课表与好友</h3>
             <p class="text-[11px] text-neutral-400 font-mono">4-Digit Invite Code Schedule Sharing</p>
           </div>
-          <button class="text-neutral-400 hover:text-neutral-900 cursor-pointer text-sm" @click="activeTool = 'none'">✕</button>
+          <button class="text-neutral-400 hover:text-neutral-900 dark:hover:text-white cursor-pointer text-sm" @click="activeTool = 'none'">✕</button>
         </div>
 
         <!-- 隐私保护提示 -->
@@ -3081,38 +3091,38 @@ async function saveMonitor() {
 
     <!-- 10. 导出课表 (纯前端完全可用) -->
     <div v-if="activeTool === 'export_ics'" class="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4" @click.self="activeTool = 'none'">
-      <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl border border-[#E5E5E5] space-y-4 max-h-[85vh] overflow-y-auto text-xs">
-        <div class="flex items-center justify-between border-b border-neutral-100 pb-3">
+      <div class="w-full max-w-md rounded-xl bg-white dark:bg-[#1a1d21] p-6 shadow-2xl border border-[#E5E5E5] dark:border-neutral-700 space-y-4 max-h-[85vh] overflow-y-auto text-xs text-neutral-900 dark:text-neutral-100">
+        <div class="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-800 pb-3">
           <div>
-            <h3 class="text-base font-medium text-neutral-900 font-sans">导出课表</h3>
+            <h3 class="text-base font-medium text-neutral-900 dark:text-white font-sans">导出课表</h3>
             <p class="text-[11px] text-neutral-400 font-mono">Export Calendar (.ics)</p>
           </div>
-          <button class="text-neutral-400 hover:text-neutral-900 cursor-pointer" @click="activeTool = 'none'">✕</button>
+          <button class="text-neutral-400 hover:text-neutral-900 dark:hover:text-white cursor-pointer" @click="activeTool = 'none'">✕</button>
         </div>
 
-        <p class="text-neutral-500 leading-relaxed">
+        <p class="text-neutral-500 dark:text-neutral-400 leading-relaxed">
           导出的标准 .ics 日历文件可一键导入到 iOS 日历、华为日历、小米日历、Outlook 或 Google Calendar 中，支持上课前闹钟推送提醒。
         </p>
 
         <div class="space-y-3">
-          <label class="flex items-center justify-between p-3 border border-[#E5E5E5] rounded-lg cursor-pointer">
+          <label class="flex items-center justify-between p-3 border border-[#E5E5E5] dark:border-neutral-700 rounded-lg cursor-pointer bg-[#FAFAFA] dark:bg-neutral-800/60">
             <div>
-              <div class="font-medium text-neutral-900">学期课程</div>
+              <div class="font-medium text-neutral-900 dark:text-neutral-100">学期课程</div>
               <div class="text-[11px] text-neutral-400">包含当前学期每周安排课程</div>
             </div>
             <input type="checkbox" checked disabled class="h-4 w-4 accent-neutral-900" />
           </label>
 
-          <label class="flex items-center justify-between p-3 border border-[#E5E5E5] rounded-lg cursor-pointer">
+          <label class="flex items-center justify-between p-3 border border-[#E5E5E5] dark:border-neutral-700 rounded-lg cursor-pointer bg-[#FAFAFA] dark:bg-neutral-800/60">
             <div>
-              <div class="font-medium text-neutral-900">考试日程</div>
+              <div class="font-medium text-neutral-900 dark:text-neutral-100">考试日程</div>
               <div class="text-[11px] text-neutral-400">包含已记录的期末与自定义考试</div>
             </div>
-            <input v-model="exportIncludeExams" type="checkbox" class="h-4 w-4 accent-neutral-900" />
+            <input v-model="exportIncludeExams" type="checkbox" class="h-4 w-4 accent-neutral-900 cursor-pointer" />
           </label>
         </div>
 
-        <button class="w-full py-2.5 bg-neutral-900 text-white rounded cursor-pointer hover:bg-neutral-800 flex items-center justify-center gap-1.5" @click="downloadICS">
+        <button class="w-full py-2.5 bg-neutral-900 dark:bg-white text-white dark:text-neutral-950 font-medium rounded cursor-pointer hover:bg-neutral-800 dark:hover:bg-neutral-100 transition-colors flex items-center justify-center gap-1.5" @click="downloadICS">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
           </svg>
@@ -3123,36 +3133,36 @@ async function saveMonitor() {
 
     <!-- 11. 成绩出分监控设置 -->
     <div v-if="activeTool === 'grade_monitor'" class="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4" @click.self="activeTool = 'none'">
-      <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl border border-[#E5E5E5] space-y-4 max-h-[85vh] overflow-y-auto text-xs">
-        <div class="flex items-center justify-between border-b border-neutral-100 pb-3">
+      <div class="w-full max-w-md rounded-xl bg-white dark:bg-[#1a1d21] p-6 shadow-2xl border border-[#E5E5E5] dark:border-neutral-700 space-y-4 max-h-[85vh] overflow-y-auto text-xs text-neutral-900 dark:text-neutral-100">
+        <div class="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-800 pb-3">
           <div>
-            <h3 class="text-base font-medium text-neutral-900 font-sans">成绩出分监控</h3>
+            <h3 class="text-base font-medium text-neutral-900 dark:text-white font-sans">成绩出分监控</h3>
             <p class="text-[11px] text-neutral-400 font-mono">Grade Release Alert & Notification</p>
           </div>
-          <button class="text-neutral-400 hover:text-neutral-900 cursor-pointer" @click="activeTool = 'none'">✕</button>
+          <button class="text-neutral-400 hover:text-neutral-900 dark:hover:text-white cursor-pointer" @click="activeTool = 'none'">✕</button>
         </div>
 
-        <p class="text-neutral-500 leading-relaxed">
+        <p class="text-neutral-500 dark:text-neutral-400 leading-relaxed">
           开启后，系统将在后台自动定期检测教务新出分数，并在第一时间向指定邮箱发送提醒通知。
         </p>
 
         <!-- 邮件测试与链路状态说明提示 -->
-        <div class="p-3 bg-neutral-50 border border-neutral-200 rounded-lg space-y-1">
-          <div class="flex items-center gap-1.5 font-medium text-neutral-800">
+        <div class="p-3 bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700 rounded-lg space-y-1">
+          <div class="flex items-center gap-1.5 font-medium text-neutral-800 dark:text-neutral-200">
             <svg class="w-3.5 h-3.5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <span>自动发送测试邮件保障</span>
           </div>
-          <p class="text-[11px] text-neutral-500 leading-normal">
+          <p class="text-[11px] text-neutral-500 dark:text-neutral-400 leading-normal">
             保存监控设置时，系统将自动向填写的邮箱发送一封测试邮件，确保您的通知链路畅通。
           </p>
         </div>
 
         <div class="space-y-3">
-          <label class="flex items-center justify-between p-3 border border-[#E5E5E5] rounded-lg cursor-pointer bg-[#FAFAFA] hover:bg-neutral-100/70 transition-colors">
+          <label class="flex items-center justify-between p-3 border border-[#E5E5E5] dark:border-neutral-700 rounded-lg cursor-pointer bg-[#FAFAFA] dark:bg-neutral-800/60 hover:bg-neutral-100/70 dark:hover:bg-neutral-800 transition-colors">
             <div>
-              <span class="text-neutral-800 font-medium block">开启成绩出分监控</span>
+              <span class="text-neutral-800 dark:text-neutral-200 font-medium block">开启成绩出分监控</span>
               <span class="text-[10px] text-neutral-400">教务发布新课程或学期成绩时邮件提醒</span>
             </div>
             <input v-model="monitorEnabled" type="checkbox" class="h-4 w-4 accent-neutral-900 cursor-pointer" />
@@ -3160,7 +3170,7 @@ async function saveMonitor() {
 
           <div>
             <div class="flex items-center justify-between mb-1">
-              <label class="text-neutral-600 font-medium">接收通知邮箱</label>
+              <label class="text-neutral-600 dark:text-neutral-300 font-medium">接收通知邮箱</label>
               <button
                 type="button"
                 :disabled="monitorTestLoading || !monitorEmail.trim()"
