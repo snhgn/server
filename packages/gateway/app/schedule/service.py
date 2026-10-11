@@ -264,8 +264,9 @@ async def fetch_schedule(user_id: int, student_id: str, password: str,
             db.upsert_cache(g_uid, semester, json.dumps(payload, ensure_ascii=False), updated, student_id=student_id)
             _mem_cache[g_uid] = (time.monotonic(), payload)
 
-        # 3. 针对默认示范学生或管理员，保证 1 号用户也同步到最新学期
-        if student_id == "202400000" or user_id == 1:
+        # 3. 针对配置的公共账号或管理员，保证 1 号用户也同步到最新学期
+        demo_id = settings.BJFU_USERNAME
+        if (demo_id and student_id == demo_id) or user_id == 1:
             if user_id != 1:
                 db.upsert_cache(1, semester, json.dumps(payload, ensure_ascii=False), updated, student_id=student_id)
                 _mem_cache[1] = (time.monotonic(), payload)
@@ -301,19 +302,20 @@ def get_current(user_id: int) -> dict | None:
     if row:
         parsed = json.loads(row["schedule_json"])
         # 若是 1 号管理员但持有一年前旧课表 (2025-2026-2)，尝试借用最新学期
-        if user_id == 1 and parsed.get("semester") == "2025-2026-2":
-            fallback = get_by_student("202400000")
+        demo_id = settings.BJFU_USERNAME
+        if user_id == 1 and parsed.get("semester") == "2025-2026-2" and demo_id:
+            fallback = get_by_student(demo_id)
             if fallback and fallback.get("semester") != "2025-2026-2":
                 db.upsert_cache(1, fallback["semester"], json.dumps(fallback, ensure_ascii=False),
-                                fallback.get("updated_time", _now_iso()), student_id="202400000")
+                                fallback.get("updated_time", _now_iso()), student_id=demo_id)
                 _mem_cache[1] = (time.monotonic(), fallback)
                 return fallback
         _mem_cache[user_id] = (time.monotonic(), parsed)
         return parsed
 
-    # 若 user_id 1 暂无缓存，尝试用 202400000 垫底
-    if user_id == 1:
-        return get_by_student("202400000")
+    # 若 user_id 1 暂无缓存，尝试用配置的公共账号垫底
+    if user_id == 1 and settings.BJFU_USERNAME:
+        return get_by_student(settings.BJFU_USERNAME)
 
     return None
 
