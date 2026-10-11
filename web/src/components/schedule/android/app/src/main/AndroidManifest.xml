@@ -68,7 +68,7 @@
         <!-- 课程强提醒居中弹窗 (锁屏穿透与全屏强提醒) -->
         <activity
             android:name=".ui.CourseReminderActivity"
-            android:exported="false"
+            android:exported="true"
             android:theme="@style/Theme.SnhgnSchedule.ReminderDialog"
             android:showWhenLocked="true"
             android:turnScreenOn="true"
