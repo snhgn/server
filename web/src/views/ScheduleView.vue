@@ -6,8 +6,23 @@ import BrandWordmark from '@/components/BrandWordmark.vue'
 import ScheduleLoading, { type Phase as LoadPhase } from '@/components/schedule/ScheduleLoading.vue'
 import { processImageFile } from '@/utils/image'
 
-// 异步按需加载大型工具箱组件（3000+ 行），大幅缩减首屏 JS 体积并提升首屏加载速度
-const ToolboxModal = defineAsyncComponent(() => import('@/components/schedule/ToolboxModal.vue'))
+// 异步按需加载大型工具箱组件（3000+ 行），具备超时检测与加载失败容灾兜底
+const ToolboxModal = defineAsyncComponent({
+  loader: () => import('@/components/schedule/ToolboxModal.vue'),
+  timeout: 15000,
+  onError(error, retry, fail, attempts) {
+    console.warn('Toolbox modal chunk load failed:', error)
+    if (attempts <= 2) {
+      retry()
+    } else {
+      showToolbox.value = false
+      if (typeof window !== 'undefined') {
+        window.alert('工具箱组件加载超时或网络异常，请检查网络连接后重试')
+      }
+      fail()
+    }
+  },
+})
 
 const route = useRoute()
 const router = useRouter()
@@ -1349,12 +1364,18 @@ let agendaTouchStartY = 0
 
 function onAgendaTouchStart(e: TouchEvent) {
   if (e.touches.length !== 1) return
+  // 过滤 iOS / Android 系统级左边缘侧滑返回手势死区 (24px 以内优先由系统侧滑返回响应)
+  if (e.touches[0].clientX < 24) {
+    agendaTouchStartX = 0
+    agendaTouchStartY = 0
+    return
+  }
   agendaTouchStartX = e.touches[0].clientX
   agendaTouchStartY = e.touches[0].clientY
 }
 
 function onAgendaTouchEnd(e: TouchEvent) {
-  if (e.changedTouches.length !== 1) return
+  if (e.changedTouches.length !== 1 || agendaTouchStartX === 0) return
   const dx = e.changedTouches[0].clientX - agendaTouchStartX
   const dy = e.changedTouches[0].clientY - agendaTouchStartY
   if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 40) {
@@ -2102,58 +2123,58 @@ function deleteCustomEvent(id: string) {
     </div>
 
     <!-- First Visit / Sync Form -->
-    <section v-if="showForm" class="max-w-md mx-auto rounded-lg border border-[#E5E5E5] bg-white p-6 sm:p-8 shadow-[0_1px_3px_rgba(0,0,0,0.02)] my-4 sm:my-8">
+    <section v-if="showForm" class="max-w-md mx-auto rounded-lg border border-[#E5E5E5] dark:border-neutral-700 bg-white dark:bg-[#1a1d21] p-6 sm:p-8 shadow-[0_1px_3px_rgba(0,0,0,0.02)] my-4 sm:my-8">
       <div class="flex items-center justify-between mb-1">
-        <h2 class="text-base font-medium text-neutral-900 font-sans">同步教务课表</h2>
+        <h2 class="text-base font-medium text-neutral-900 dark:text-white font-sans">同步教务课表</h2>
         <button
           v-if="schedule"
           type="button"
-          class="text-xs font-mono text-neutral-400 hover:text-neutral-900 transition-colors cursor-pointer"
+          class="text-xs font-mono text-neutral-400 hover:text-neutral-900 dark:hover:text-white transition-colors cursor-pointer"
           @click="showForm = false"
         >
           ✕ 返回课表
         </button>
       </div>
-      <p class="text-xs text-neutral-500 font-sans leading-relaxed mb-6">
-        输入教务学号与密码同步个人课表。勾选保存账号密码将在本设备明文存储，并在每次打开页面时自动重新拉取最新课表覆盖原版本。
+      <p class="text-xs text-neutral-500 dark:text-neutral-400 font-sans leading-relaxed mb-6">
+        输入教务学号与密码同步个人课表。密码仅在本次会话中暂存，离线缓存仅保留学号与课程数据，保障凭据安全。
       </p>
       <form class="space-y-4 font-mono text-xs" @submit.prevent="fetchSchedule(true)">
         <div>
-          <label class="block uppercase tracking-widest text-neutral-400 text-[10px] mb-1">教务学号</label>
+          <label class="block uppercase tracking-widest text-neutral-400 dark:text-neutral-500 text-[10px] mb-1">教务学号</label>
           <input
             v-model="studentId"
             type="text"
             placeholder="请输入学号"
-            class="w-full rounded border border-[#E5E5E5] bg-[#FAFAFA] px-3 py-2 text-neutral-900 focus:border-neutral-900 focus:bg-white focus:outline-none"
+            class="w-full rounded border border-[#E5E5E5] dark:border-neutral-700 bg-[#FAFAFA] dark:bg-neutral-850 px-3 py-2 text-neutral-900 dark:text-white focus:border-neutral-900 dark:focus:border-white focus:bg-white dark:focus:bg-neutral-800 focus:outline-none"
           />
         </div>
         <div>
-          <label class="block uppercase tracking-widest text-neutral-400 text-[10px] mb-1">教务系统密码</label>
+          <label class="block uppercase tracking-widest text-neutral-400 dark:text-neutral-500 text-[10px] mb-1">教务系统密码</label>
           <input
             v-model="password"
             type="password"
             placeholder="请输入教务密码"
-            class="w-full rounded border border-[#E5E5E5] bg-[#FAFAFA] px-3 py-2 text-neutral-900 focus:border-neutral-900 focus:bg-white focus:outline-none"
+            class="w-full rounded border border-[#E5E5E5] dark:border-neutral-700 bg-[#FAFAFA] dark:bg-neutral-850 px-3 py-2 text-neutral-900 dark:text-white focus:border-neutral-900 dark:focus:border-white focus:bg-white dark:focus:bg-neutral-800 focus:outline-none"
           />
         </div>
 
         <!-- 保存账号密码选项 -->
-        <div class="flex items-center justify-between text-[11px] text-neutral-600 select-none py-0.5">
+        <div class="flex items-center justify-between text-[11px] text-neutral-600 dark:text-neutral-400 select-none py-0.5">
           <label class="flex items-center gap-2 cursor-pointer">
             <input
               v-model="rememberCredentials"
               type="checkbox"
-              class="h-3.5 w-3.5 rounded border-[#E5E5E5] text-neutral-900 accent-neutral-900 focus:ring-0 cursor-pointer"
+              class="h-3.5 w-3.5 rounded border-[#E5E5E5] dark:border-neutral-700 text-neutral-900 accent-neutral-900 focus:ring-0 cursor-pointer"
             />
-            <span class="font-sans">保存账号密码（每次打开网页自动拉取最新课表）</span>
+            <span class="font-sans">记住学号与课表缓存 (安全免重复登录)</span>
           </label>
         </div>
 
-        <p v-if="error" class="text-red-600 text-xs">{{ error }}</p>
+        <p v-if="error" class="text-red-600 dark:text-red-400 text-xs">{{ error }}</p>
         <button
           type="submit"
           :disabled="loading"
-          class="w-full rounded bg-neutral-900 py-2.5 text-white hover:bg-neutral-800 disabled:opacity-50 transition-colors cursor-pointer"
+          class="w-full rounded bg-neutral-900 dark:bg-white py-2.5 text-white dark:text-neutral-950 hover:bg-neutral-800 dark:hover:bg-neutral-100 disabled:opacity-50 transition-colors cursor-pointer font-medium"
         >
           {{ loading ? '正在同步...' : '同步课表' }}
         </button>
@@ -2222,8 +2243,11 @@ function deleteCustomEvent(id: string) {
 
       <!-- 移动端今日日程流组件 (极简卡片流 + Hero 聚焦卡片) -->
       <div v-if="mobileViewMode === 'agenda'" class="sm:hidden mb-4 space-y-3">
-        <!-- 7 天水平滑动日期选择条 (高度仅约 44px) -->
-        <div class="grid grid-cols-7 gap-1 bg-white dark:bg-[#131418] border border-[#E5E5E5] dark:border-neutral-800 rounded-xl p-1 shadow-xs select-none">
+        <!-- 水平滑动日期选择条 (自适应 5 天或 7 天均匀填满) -->
+        <div
+          class="grid gap-1 bg-white dark:bg-[#131418] border border-[#E5E5E5] dark:border-neutral-800 rounded-xl p-1 shadow-xs select-none"
+          :class="showWeekend ? 'grid-cols-7' : 'grid-cols-5'"
+        >
           <button
             v-for="(day, idx) in displayedWeekdays"
             :key="day"
@@ -2661,14 +2685,14 @@ function deleteCustomEvent(id: string) {
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4"
       @click.self="showWeekPicker = false"
     >
-      <div class="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl border border-[#E5E5E5] animate-in fade-in zoom-in-95 duration-150">
-        <div class="flex items-center justify-between pb-3 border-b border-neutral-100 mb-4">
+      <div class="w-full max-w-md rounded-xl bg-white dark:bg-[#1a1d21] p-5 shadow-2xl border border-[#E5E5E5] dark:border-neutral-700 animate-in fade-in zoom-in-95 duration-150">
+        <div class="flex items-center justify-between pb-3 border-b border-neutral-100 dark:border-neutral-800 mb-4">
           <div class="flex items-center gap-2">
-            <h3 id="week-picker-title" class="text-sm font-medium text-neutral-900 font-sans">快速跳转周次</h3>
+            <h3 id="week-picker-title" class="text-sm font-medium text-neutral-900 dark:text-white font-sans">快速跳转周次</h3>
             <span class="text-[11px] font-mono text-neutral-400">(共 {{ totalWeeks }} 周)</span>
           </div>
           <button
-            class="text-neutral-400 hover:text-neutral-900 cursor-pointer p-1 rounded hover:bg-neutral-100 transition-colors"
+            class="text-neutral-400 hover:text-neutral-900 dark:hover:text-white cursor-pointer p-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
             title="关闭"
             @click="showWeekPicker = false"
           >
@@ -2686,7 +2710,7 @@ function deleteCustomEvent(id: string) {
             :class="[
               w === currentWeek
                 ? 'bg-neutral-900 border-neutral-900 text-white shadow-sm dark:bg-white dark:text-neutral-950 dark:border-white font-medium'
-                : 'bg-neutral-50/70 border-neutral-200/80 text-neutral-800 hover:bg-neutral-100 hover:border-neutral-300 dark:text-neutral-200',
+                : 'bg-neutral-50/70 border-neutral-200/80 text-neutral-800 dark:bg-neutral-800/60 dark:border-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 hover:border-neutral-300',
               w === systemWeek() && w !== currentWeek ? 'border-amber-400 bg-amber-50/40 text-amber-950 dark:text-amber-300 dark:border-amber-500 font-medium' : ''
             ]"
             @click="selectWeek(w)"
@@ -2694,7 +2718,7 @@ function deleteCustomEvent(id: string) {
             <span class="font-medium text-xs leading-tight">第 {{ w }} 周</span>
             <span
               class="text-[9px] mt-0.5 leading-tight scale-95"
-              :class="w === currentWeek ? 'text-neutral-300 dark:text-neutral-700' : 'text-neutral-400'"
+              :class="w === currentWeek ? 'text-neutral-300 dark:text-neutral-700' : 'text-neutral-400 dark:text-neutral-500'"
             >
               {{ getDateLabel(w, 0) }}
             </span>
@@ -2709,17 +2733,17 @@ function deleteCustomEvent(id: string) {
         </div>
 
         <!-- Quick actions at footer -->
-        <div class="mt-4 pt-3 border-t border-neutral-100 flex items-center justify-between font-mono text-xs">
+        <div class="mt-4 pt-3 border-t border-neutral-100 dark:border-neutral-800 flex items-center justify-between font-mono text-xs">
           <button
             type="button"
-            class="text-neutral-600 hover:text-neutral-950 cursor-pointer text-[11px] underline underline-offset-2 flex items-center gap-1"
+            class="text-neutral-600 dark:text-neutral-400 hover:text-neutral-950 dark:hover:text-white cursor-pointer text-[11px] underline underline-offset-2 flex items-center gap-1"
             @click="selectWeek(systemWeek())"
           >
             <span>跳转到本周 (第 {{ systemWeek() }} 周)</span>
           </button>
           <button
             type="button"
-            class="px-3 py-1 rounded bg-neutral-100 hover:bg-neutral-200 text-neutral-700 cursor-pointer text-[11px]"
+            class="px-3 py-1 rounded bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 cursor-pointer text-[11px]"
             @click="showWeekPicker = false"
           >
             关闭
@@ -2737,28 +2761,28 @@ function deleteCustomEvent(id: string) {
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4"
       @click.self="closeImgViewer"
     >
-      <div class="w-full max-w-3xl rounded-lg bg-white p-5 shadow-2xl border border-[#E5E5E5]">
+      <div class="w-full max-w-3xl rounded-lg bg-white dark:bg-[#1a1d21] p-5 shadow-2xl border border-[#E5E5E5] dark:border-neutral-700">
         <div class="flex items-center justify-between mb-4">
           <div class="flex gap-2 font-mono text-xs">
             <button
               class="px-3 py-1 rounded transition-colors cursor-pointer"
-              :class="viewer === 'calendar' ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 font-medium' : 'border border-[#E5E5E5] text-neutral-600 hover:text-neutral-900'"
+              :class="viewer === 'calendar' ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 font-medium' : 'border border-[#E5E5E5] dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'"
               @click="viewer = 'calendar'"
             >
               校历大图
             </button>
             <button
               class="px-3 py-1 rounded transition-colors cursor-pointer"
-              :class="viewer === 'time' ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 font-medium' : 'border border-[#E5E5E5] text-neutral-600 hover:text-neutral-900'"
+              :class="viewer === 'time' ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 font-medium' : 'border border-[#E5E5E5] dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'"
               @click="viewer = 'time'"
             >
               作息时间表
             </button>
           </div>
-          <button class="text-neutral-400 hover:text-neutral-900 cursor-pointer p-1" title="关闭" @click="closeImgViewer">✕</button>
+          <button class="text-neutral-400 hover:text-neutral-900 dark:hover:text-white cursor-pointer p-1" title="关闭" @click="closeImgViewer">✕</button>
         </div>
 
-        <div class="overflow-auto max-h-[75vh] rounded border border-neutral-100 flex items-center justify-center bg-[#FAFAFA] p-2">
+        <div class="overflow-auto max-h-[75vh] rounded border border-neutral-100 dark:border-neutral-800 flex items-center justify-center bg-[#FAFAFA] dark:bg-neutral-900/80 p-2">
           <img
             v-if="viewer === 'calendar'"
             src="/images/calendar.jpg"

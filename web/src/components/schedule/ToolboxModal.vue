@@ -1363,10 +1363,10 @@ async function saveMonitor() {
 
 <template>
   <div v-if="show" role="dialog" aria-modal="true" aria-labelledby="toolbox-modal-title" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4" @click.self="emit('close')">
-    <div class="w-full max-w-lg rounded-xl bg-white shadow-2xl border border-[#E5E5E5] flex flex-col max-h-[88vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+    <div class="w-full max-w-lg rounded-xl bg-white dark:bg-[#1a1d21] shadow-2xl border border-[#E5E5E5] dark:border-neutral-700 flex flex-col max-h-[88vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
       
       <!-- Toolbox Header -->
-      <div class="flex items-center justify-between px-5 py-4 border-b border-neutral-100">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-neutral-100 dark:border-neutral-800">
         <div class="flex items-center gap-2">
           <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-neutral-900 dark:bg-white dark:text-neutral-950 text-white">
             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1374,11 +1374,11 @@ async function saveMonitor() {
             </svg>
           </div>
           <div>
-            <h2 id="toolbox-modal-title" class="text-sm font-medium text-neutral-900 font-sans">工具箱 · 更多功能</h2>
+            <h2 id="toolbox-modal-title" class="text-sm font-medium text-neutral-900 dark:text-white font-sans">工具箱 · 更多功能</h2>
             <p class="text-[11px] text-neutral-400 font-mono">BJFU Toolbox & Services</p>
           </div>
         </div>
-        <button class="text-neutral-400 hover:text-neutral-900 transition-colors p-1 cursor-pointer" @click="emit('close')">
+        <button class="text-neutral-400 hover:text-neutral-900 dark:hover:text-white transition-colors p-1 cursor-pointer" @click="emit('close')">
           ✕
         </button>
       </div>
