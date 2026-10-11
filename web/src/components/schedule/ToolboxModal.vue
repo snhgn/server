@@ -193,7 +193,7 @@ const effectivePassword = computed(() => {
   return (
     props.password?.trim() ||
     inputPassword.value.trim() ||
-    localStorage.getItem('bjfu-student-pwd') ||
+    sessionStorage.getItem('bjfu-session-pwd') ||
     ''
   )
 })
@@ -204,7 +204,8 @@ function submitTempPassword() {
     return
   }
   inputPassword.value = tempPasswordInput.value.trim()
-  localStorage.setItem('bjfu-student-pwd', inputPassword.value)
+  sessionStorage.setItem('bjfu-session-pwd', inputPassword.value)
+  localStorage.removeItem('bjfu-student-pwd')
   localStorage.setItem('bjfu-remember-credentials', 'true')
   if (props.studentId) {
     localStorage.setItem('bjfu-student-id', props.studentId.trim())
@@ -1361,7 +1362,7 @@ async function saveMonitor() {
 </script>
 
 <template>
-  <div v-if="show" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4" @click.self="emit('close')">
+  <div v-if="show" role="dialog" aria-modal="true" aria-labelledby="toolbox-modal-title" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4" @click.self="emit('close')">
     <div class="w-full max-w-lg rounded-xl bg-white shadow-2xl border border-[#E5E5E5] flex flex-col max-h-[88vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
       
       <!-- Toolbox Header -->
@@ -1373,7 +1374,7 @@ async function saveMonitor() {
             </svg>
           </div>
           <div>
-            <h2 class="text-sm font-medium text-neutral-900 font-sans">工具箱 · 更多功能</h2>
+            <h2 id="toolbox-modal-title" class="text-sm font-medium text-neutral-900 font-sans">工具箱 · 更多功能</h2>
             <p class="text-[11px] text-neutral-400 font-mono">BJFU Toolbox & Services</p>
           </div>
         </div>

@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api'
 import BrandWordmark from '@/components/BrandWordmark.vue'
 import ScheduleLoading, { type Phase as LoadPhase } from '@/components/schedule/ScheduleLoading.vue'
-import ToolboxModal from '@/components/schedule/ToolboxModal.vue'
 import { processImageFile } from '@/utils/image'
+
+// 异步按需加载大型工具箱组件（3000+ 行），大幅缩减首屏 JS 体积并提升首屏加载速度
+const ToolboxModal = defineAsyncComponent(() => import('@/components/schedule/ToolboxModal.vue'))
 
 const route = useRoute()
 const router = useRouter()
@@ -32,6 +34,8 @@ interface ScheduleData {
   semester: string
   updated_time: string
   courses: Course[]
+  term_start?: string
+  term_end?: string
 }
 
 const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
@@ -47,10 +51,6 @@ function formatSlotMinute(min: number): string {
   return `${h}:${m}`
 }
 
-const TERM_START = '2026-09-07'
-const TERM_END = '2027-01-15'
-const TERM_LABEL = '2026年秋季学期'
-
 const periodSlots = [
   { start: 1, end: 2, label: '1-2', from: 480, to: 575 },
   { start: 3, end: 4, label: '3-4', from: 590, to: 685 },
@@ -60,13 +60,6 @@ const periodSlots = [
   { start: 10, end: 11, label: '10-11', from: 1110, to: 1205 },
   { start: 12, end: 12, label: '12', from: 1210, to: 1255 },
 ]
-
-const TOTAL_WEEKS =
-  Math.floor(
-    (new Date(`${TERM_END}T00:00:00`).getTime() - new Date(`${TERM_START}T00:00:00`).getTime()) /
-      86400000 /
-      7
-  ) + 1
 
 function blockOf(period: number): number {
   for (let i = 0; i < periodSlots.length; i++) {
@@ -184,27 +177,6 @@ function weekCount(weeks: string): string {
   return weeks
 }
 
-type TermStatus = 'before' | 'during' | 'after'
-interface TermState {
-  status: TermStatus
-  days: number
-}
-
-function termState(): TermState {
-  const now = new Date()
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-  const start = new Date(`${TERM_START}T00:00:00`).getTime()
-  const end = new Date(`${TERM_END}T00:00:00`).getTime()
-  if (today < start) return { status: 'before', days: Math.round((start - today) / 86400000) }
-  if (today > end) return { status: 'after', days: Math.round((today - end) / 86400000) }
-  return { status: 'during', days: 0 }
-}
-
-function systemWeek(): number {
-  const w = Math.floor((Date.now() - new Date(`${TERM_START}T00:00:00`).getTime()) / 86400000 / 7) + 1
-  return Math.min(TOTAL_WEEKS, Math.max(1, w))
-}
-
 function semesterLabel(semester: string): string {
   const m = semester.match(/(\d{4})-(\d{4})-(\d)/)
   if (m) {
@@ -216,18 +188,23 @@ function semesterLabel(semester: string): string {
   return semester
 }
 
-function getDateLabel(week: number, dayIdx: number): string {
-  const [y, m, d] = TERM_START.split('-').map(Number)
-  const date = new Date(y, m - 1, d + (week - 1) * 7 + dayIdx)
-  return `${date.getMonth() + 1}/${date.getDate()}`
+// 凭据安全：绝不向持久化 localStorage 写入明文密码
+const savedSid = typeof localStorage !== 'undefined' ? localStorage.getItem('bjfu-student-id') || '' : ''
+// 优先从当前浏览器会话获取密码；若发现旧版本遗留在 localStorage 的明文密码，立即静默迁移至 sessionStorage 并清除 localStorage
+const sessionPwd = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('bjfu-session-pwd') || '' : ''
+const legacyPwd = typeof localStorage !== 'undefined' ? localStorage.getItem('bjfu-student-pwd') || '' : ''
+if (legacyPwd) {
+  if (!sessionPwd && typeof sessionStorage !== 'undefined') {
+    sessionStorage.setItem('bjfu-session-pwd', legacyPwd)
+  }
+  if (typeof localStorage !== 'undefined') {
+    localStorage.removeItem('bjfu-student-pwd')
+  }
 }
-
-const savedSid = localStorage.getItem('bjfu-student-id') || ''
-const savedPwd = localStorage.getItem('bjfu-student-pwd') || ''
-const storedRemember = localStorage.getItem('bjfu-remember-credentials')
-// 默认记住凭据（除非用户明确取消），确保 App 移动端免重复输入
+const effectiveInitialPwd = sessionPwd || legacyPwd
+const storedRemember = typeof localStorage !== 'undefined' ? localStorage.getItem('bjfu-remember-credentials') : null
 const remember = storedRemember !== null ? storedRemember === 'true' : true
-const hasSavedCredentials = remember && !!savedSid.trim() && !!savedPwd
+const hasSavedCredentials = !!savedSid.trim()
 
 // 尝试从本地持久化缓存立即读取已有课表（实现 0ms 秒开呈现）
 function loadCachedSchedule(): ScheduleData | null {
@@ -245,21 +222,107 @@ function loadCachedSchedule(): ScheduleData | null {
   return null
 }
 
+const initialSchedule = loadCachedSchedule()
+const schedule = ref<ScheduleData | null>(initialSchedule)
+
+// 学期周期与开学日期自适应（优先使用服务端课表下发的 term_start/term_end，缺省回退默认秋季学期）
+const DEFAULT_TERM_START = '2026-09-07'
+const DEFAULT_TERM_END = '2027-01-15'
+const DEFAULT_TERM_LABEL = '2026年秋季学期'
+
+const termStart = computed(() => schedule.value?.term_start || DEFAULT_TERM_START)
+const termEnd = computed(() => schedule.value?.term_end || DEFAULT_TERM_END)
+const termLabel = computed(() => {
+  if (schedule.value?.semester) {
+    return semesterLabel(schedule.value.semester)
+  }
+  return DEFAULT_TERM_LABEL
+})
+const totalWeeks = computed(() => {
+  return (
+    Math.floor(
+      (new Date(`${termEnd.value}T00:00:00`).getTime() - new Date(`${termStart.value}T00:00:00`).getTime()) /
+        86400000 /
+        7
+    ) + 1
+  )
+})
+
+// 响应式时间心跳（30秒节拍器，驱动“当前进行中”、“下一节”、“上课中”与倒计时自动流转更新）
+const currentTime = ref(Date.now())
+let timeHeartbeatTimer: number | null = null
+
+const nowDay = computed(() => {
+  const d = new Date(currentTime.value).getDay()
+  return d === 0 ? 7 : d
+})
+
+const currentMinutes = computed(() => {
+  const d = new Date(currentTime.value)
+  return d.getHours() * 60 + d.getMinutes()
+})
+
+type TermStatus = 'before' | 'during' | 'after'
+interface TermState {
+  status: TermStatus
+  days: number
+}
+
+function termState(): TermState {
+  const now = new Date(currentTime.value)
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const start = new Date(`${termStart.value}T00:00:00`).getTime()
+  const end = new Date(`${termEnd.value}T00:00:00`).getTime()
+  if (today < start) return { status: 'before', days: Math.round((start - today) / 86400000) }
+  if (today > end) return { status: 'after', days: Math.round((today - end) / 86400000) }
+  return { status: 'during', days: 0 }
+}
+
+function systemWeek(): number {
+  const w = Math.floor((currentTime.value - new Date(`${termStart.value}T00:00:00`).getTime()) / 86400000 / 7) + 1
+  return Math.min(totalWeeks.value, Math.max(1, w))
+}
+
+function getDateLabel(week: number, dayIdx: number): string {
+  const [y, m, d] = termStart.value.split('-').map(Number)
+  const date = new Date(y, m - 1, d + (week - 1) * 7 + dayIdx)
+  return `${date.getMonth() + 1}/${date.getDate()}`
+}
+
 const studentId = ref(savedSid)
-const password = ref(savedPwd)
+const password = ref(effectiveInitialPwd)
 const rememberCredentials = ref(remember)
 const syncingLatest = ref(false)
 const loading = ref(false)
 const error = ref('')
-/**
- * 缓冲界面用：同步当前处在哪个阶段。
- * 阶段由 ScheduleView 在发请求前后显式设置，而不是让前端自己"猜"进度。
- */
 const loadPhase = ref<LoadPhase>('idle')
 const switching = ref(false)
 const detail = ref<Course | null>(null)
 const viewer = ref<'calendar' | 'time' | null>(null)
 const showToolbox = ref(false)
+const showWeekPicker = ref(false)
+const showCustomEventModal = ref(false)
+
+// 模态弹窗状态集合与页面滚动穿透锁定
+const isAnyModalOpen = computed(() => {
+  return !!(
+    detail.value ||
+    showWeekPicker.value ||
+    viewer.value ||
+    showCustomEventModal.value ||
+    showToolbox.value
+  )
+})
+
+watch(
+  isAnyModalOpen,
+  (open) => {
+    if (typeof document !== 'undefined') {
+      document.body.classList.toggle('overflow-hidden', open)
+    }
+  },
+  { immediate: true }
+)
 
 // 个性化背景设置
 const bgConfig = ref({
@@ -346,6 +409,9 @@ function onUpdateAppearance(pref: {
 function handleScheduleLogout() {
   localStorage.removeItem('bjfu-remember-credentials')
   localStorage.removeItem('bjfu-student-pwd')
+  if (typeof sessionStorage !== 'undefined') {
+    sessionStorage.removeItem('bjfu-session-pwd')
+  }
   if (studentId.value) {
     localStorage.removeItem(`bjfu-schedule-cache-${studentId.value.trim()}`)
   }
@@ -409,10 +475,6 @@ function syncUrlWithUser(sid: string) {
   }
 }
 
-// 课表初始数据：优先从本地持久化缓存立即读取，避免白屏与闪烁
-const initialSchedule = loadCachedSchedule()
-const schedule = ref<ScheduleData | null>(initialSchedule)
-
 // 核心流转控制：若本地已有缓存数据（或保存了凭据），首屏直接呈现课表，绝不闪现登录页
 const showForm = ref(!initialSchedule && !hasSavedCredentials)
 
@@ -456,7 +518,6 @@ const isApp = computed(() => {
   return route.query.app === '1' || navigator.userAgent.includes('SnhgnScheduleAndroid')
 })
 
-const showWeekPicker = ref(false)
 const edgePullDirection = ref<'prev' | 'next' | null>(null)
 const edgePullDistance = ref(0)
 const PULL_THRESHOLD = 40
@@ -545,7 +606,7 @@ function onTouchEnd() {
   if (dist >= PULL_THRESHOLD) {
     if (dir === 'prev' && currentWeek.value > 1) {
       switchToAdjacentWeek(currentWeek.value - 1, 'end')
-    } else if (dir === 'next' && currentWeek.value < TOTAL_WEEKS) {
+    } else if (dir === 'next' && currentWeek.value < totalWeeks.value) {
       switchToAdjacentWeek(currentWeek.value + 1, 'start')
     }
   }
@@ -594,7 +655,7 @@ function onGridWheel(e: WheelEvent) {
     wheelAccumX += Math.abs(e.deltaX)
     if (wheelAccumX > 100) {
       wheelAccumX = 0
-      if (currentWeek.value < TOTAL_WEEKS) {
+      if (currentWeek.value < totalWeeks.value) {
         switchToAdjacentWeek(currentWeek.value + 1, 'start')
       }
     }
@@ -609,7 +670,7 @@ function onGridWheel(e: WheelEvent) {
 }
 
 function switchToAdjacentWeek(targetWeek: number, position: 'start' | 'end') {
-  if (targetWeek < 1 || targetWeek > TOTAL_WEEKS || targetWeek === currentWeek.value) return
+  if (targetWeek < 1 || targetWeek > totalWeeks.value || targetWeek === currentWeek.value) return
   switching.value = true
   currentWeek.value = targetWeek
   setTimeout(() => {
@@ -627,7 +688,7 @@ function switchToAdjacentWeek(targetWeek: number, position: 'start' | 'end') {
 }
 
 function selectWeek(w: number) {
-  if (w < 1 || w > TOTAL_WEEKS) return
+  if (w < 1 || w > totalWeeks.value) return
   showWeekPicker.value = false
   if (w === currentWeek.value) return
   switching.value = true
@@ -645,7 +706,7 @@ function selectWeek(w: number) {
 }
 
 function changeWeek(delta: number) {
-  const next = Math.min(TOTAL_WEEKS, Math.max(1, currentWeek.value + delta))
+  const next = Math.min(totalWeeks.value, Math.max(1, currentWeek.value + delta))
   if (next === currentWeek.value) return
   switching.value = true
   currentWeek.value = next
@@ -737,7 +798,7 @@ onMounted(async () => {
     }
   }
 
-  // 2. 勾选了保存账号密码的用户：直接后台静默拉取最新课表，并在 URL 同步 ?user=学号
+  // 2. 勾选了保存身份的用户：后台静默拉取/校验最新课表，并在 URL 同步 ?user=学号
   if (hasSavedCredentials) {
     if (schedule.value) {
       showForm.value = false
@@ -745,37 +806,61 @@ onMounted(async () => {
       syncUrlWithUser(savedSid.trim())
     }
 
-    // 后台静默校验与更新课表（优先使用服务端新鲜缓存，绝不每次打开都重爬教务）
-    syncingLatest.value = !schedule.value
-    // 前端唯一真正"等得到"的一段就是这次 HTTP 请求（读 localStorage 是同步的，
-    // 发生在首帧之前，没有可展示的中间态）。阶段从 remote 起，不编造进度。
-    loadPhase.value = 'remote'
-    try {
-      const fresh = await api.post<ScheduleData>('/api/schedule/get', {
-        student_id: savedSid.trim(),
-        password: savedPwd,
-        force: false,
-      })
-      if (fresh && fresh.courses) {
-        schedule.value = fresh
-        try {
-          localStorage.setItem(`bjfu-schedule-cache-${savedSid.trim()}`, JSON.stringify(fresh))
-          localStorage.setItem('bjfu-schedule-cache', JSON.stringify(fresh))
-        } catch {}
-        showForm.value = false
-        scrollToToday()
-        syncUrlWithUser(savedSid.trim())
+    // 若当前会话持有教务密码，后台静默拉取更新（优先使用服务端新鲜缓存，绝不每次打开都重爬教务）
+    if (password.value) {
+      syncingLatest.value = !schedule.value
+      loadPhase.value = 'remote'
+      try {
+        const fresh = await api.post<ScheduleData>('/api/schedule/get', {
+          student_id: savedSid.trim(),
+          password: password.value,
+          force: false,
+        })
+        if (fresh && fresh.courses) {
+          schedule.value = fresh
+          try {
+            localStorage.setItem(`bjfu-schedule-cache-${savedSid.trim()}`, JSON.stringify(fresh))
+            localStorage.setItem('bjfu-schedule-cache', JSON.stringify(fresh))
+          } catch {}
+          showForm.value = false
+          scrollToToday()
+          syncUrlWithUser(savedSid.trim())
+        }
+      } catch (err: any) {
+        console.warn('Auto fetch latest schedule failed:', err)
+        loadPhase.value = 'error'
+        if (!schedule.value) {
+          error.value = err.message || '自动拉取最新课表失败，请检查账号密码'
+          showForm.value = true
+        }
+      } finally {
+        syncingLatest.value = false
       }
-    } catch (err: any) {
-      console.warn('Auto fetch latest schedule failed:', err)
-      loadPhase.value = 'error'
-      // 若拉取失败但已有缓存课表，保持展示当前课表，绝不弹回登录页面
-      if (!schedule.value) {
-        error.value = err.message || '自动拉取最新课表失败，请检查账号密码'
+      return
+    } else if (!schedule.value) {
+      // 当前会话无密码且本地暂无课表缓存：尝试直接从服务端公开缓存免密查询
+      syncingLatest.value = true
+      loadPhase.value = 'remote'
+      try {
+        const fresh = await api.get<ScheduleData>(
+          `/api/schedule/query?student_id=${encodeURIComponent(savedSid.trim())}`
+        )
+        if (fresh && fresh.courses) {
+          schedule.value = fresh
+          try {
+            localStorage.setItem(`bjfu-schedule-cache-${savedSid.trim()}`, JSON.stringify(fresh))
+            localStorage.setItem('bjfu-schedule-cache', JSON.stringify(fresh))
+          } catch {}
+          showForm.value = false
+          scrollToToday()
+          syncUrlWithUser(savedSid.trim())
+        }
+      } catch {
         showForm.value = true
+      } finally {
+        syncingLatest.value = false
       }
-    } finally {
-      syncingLatest.value = false
+      return
     }
     return
   }
@@ -784,6 +869,11 @@ onMounted(async () => {
   if (!schedule.value) {
     showForm.value = true
   }
+
+  // 启动 30 秒响应式时间心跳
+  timeHeartbeatTimer = window.setInterval(() => {
+    currentTime.value = Date.now()
+  }, 30000)
 
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('dragenter', onWindowDragEnter)
@@ -794,7 +884,8 @@ onMounted(async () => {
 
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
-    if (showCustomEventModal.value) showCustomEventModal.value = false
+    if (showToolbox.value) showToolbox.value = false
+    else if (showCustomEventModal.value) showCustomEventModal.value = false
     else if (showWeekPicker.value) showWeekPicker.value = false
     else if (viewer.value) viewer.value = null
     else if (detail.value) detail.value = null
@@ -802,7 +893,14 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 onUnmounted(() => {
+  if (timeHeartbeatTimer) {
+    clearInterval(timeHeartbeatTimer)
+    timeHeartbeatTimer = null
+  }
   document.body.classList.remove('schedule-page')
+  if (typeof document !== 'undefined') {
+    document.body.classList.remove('overflow-hidden')
+  }
   window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('dragenter', onWindowDragEnter)
   window.removeEventListener('dragover', onWindowDragOver)
@@ -825,11 +923,15 @@ async function fetchSchedule(force = true) {
       force,
     })
     loadPhase.value = 'done'
-    // 根据是否勾选“保存账号密码”进行持久化存储或清理
+    // 根据是否勾选“记住学号与课表”进行持久化存储或清理
     if (rememberCredentials.value) {
       localStorage.setItem('bjfu-remember-credentials', 'true')
       localStorage.setItem('bjfu-student-id', studentId.value.trim())
-      localStorage.setItem('bjfu-student-pwd', password.value)
+      // 安全加固：仅存入当前标签页/会话 sessionStorage，绝不向 localStorage 保存明文密码
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem('bjfu-session-pwd', password.value)
+      }
+      localStorage.removeItem('bjfu-student-pwd')
       try {
         localStorage.setItem(`bjfu-schedule-cache-${studentId.value.trim()}`, JSON.stringify(schedule.value))
         localStorage.setItem('bjfu-schedule-cache', JSON.stringify(schedule.value))
@@ -837,8 +939,11 @@ async function fetchSchedule(force = true) {
     } else {
       localStorage.removeItem('bjfu-remember-credentials')
       localStorage.removeItem('bjfu-student-pwd')
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem('bjfu-session-pwd')
+      }
       localStorage.setItem('bjfu-student-id', studentId.value.trim())
-      // 未勾选保存密码时清除本地课表缓存，下次打开必须重新输入密码登录
+      // 未勾选保存时清除本地课表缓存，下次打开必须重新输入学号密码
       localStorage.removeItem(`bjfu-schedule-cache-${studentId.value.trim()}`)
       localStorage.removeItem('bjfu-schedule-cache')
     }
@@ -854,8 +959,13 @@ async function fetchSchedule(force = true) {
 }
 
 async function refresh() {
-  if (!studentId.value.trim() || !password.value) {
+  if (!studentId.value.trim()) {
     showForm.value = true
+    return
+  }
+  if (!password.value) {
+    showForm.value = true
+    error.value = '更新课表需要验证教务密码'
     return
   }
   switching.value = true
@@ -875,20 +985,14 @@ const showRefreshToast = computed(() => switching.value && !!schedule.value?.cou
 // ================= 自定义时间安排系统 (空闲时段添加日程) =================
 function getCustomEventsStorageKey(): string {
   const sid = studentId.value?.trim()
-  return sid ? `bjfu-custom-events-${sid}` : 'bjfu-custom-events'
+  return sid ? `bjfu-custom-events-${sid}` : 'bjfu-custom-events-guest'
 }
 
 function loadCustomEvents(): CustomScheduleEvent[] {
   if (typeof localStorage === 'undefined') return []
   const key = getCustomEventsStorageKey()
   try {
-    let raw = localStorage.getItem(key)
-    if (!raw && key !== 'bjfu-custom-events') {
-      raw = localStorage.getItem('bjfu-custom-events')
-      if (raw) {
-        localStorage.setItem(key, raw)
-      }
-    }
+    const raw = localStorage.getItem(key)
     if (raw) {
       const parsed = JSON.parse(raw)
       if (Array.isArray(parsed)) return parsed
@@ -906,7 +1010,6 @@ function saveCustomEventsToStorage() {
   const key = getCustomEventsStorageKey()
   try {
     localStorage.setItem(key, JSON.stringify(customEvents.value))
-    localStorage.setItem('bjfu-custom-events', JSON.stringify(customEvents.value))
   } catch (e) {
     console.error('Failed to save custom events:', e)
   }
@@ -948,7 +1051,7 @@ function exportConcreteCoursesForAndroid(courses: Course[]): Array<{
     endTime: string
   }> = []
 
-  const termStartDate = new Date(`${TERM_START}T00:00:00`)
+  const termStartDate = new Date(`${termStart.value}T00:00:00`)
 
   for (const c of merged) {
     if (!c.name || !c.day || !c.start || !c.end) continue
@@ -1086,11 +1189,6 @@ interface TodayState {
   label: string
 }
 
-const nowDay = computed(() => {
-  const d = new Date().getDay()
-  return d === 0 ? 7 : d
-})
-
 function isToday(idx: number): boolean {
   return currentWeek.value === systemWeek() && idx + 1 === nowDay.value
 }
@@ -1099,15 +1197,14 @@ const termStatus = computed<TermState>(() => termState())
 
 const termTip = computed(() => {
   const t = termStatus.value
-  if (t.status === 'before') return `假期中 · 距 ${TERM_LABEL} 开学还有 ${t.days} 天`
-  if (t.status === 'after') return `${TERM_LABEL} 课程已结束`
+  if (t.status === 'before') return `假期中 · 距 ${termLabel.value} 开学还有 ${t.days} 天`
+  if (t.status === 'after') return `${termLabel.value} 课程已结束`
   return ''
 })
 
 const todayState = computed<TodayState>(() => {
-  const now = new Date()
-  const today = now.getDay() === 0 ? 7 : now.getDay()
-  const mins = now.getHours() * 60 + now.getMinutes()
+  const mins = currentMinutes.value
+  const today = nowDay.value
 
   // 严格以实际当前真实周数判断，不受页面选中的浏览周数影响
   const realWeek = systemWeek()
@@ -1193,11 +1290,12 @@ function dayHasCourses(d: number): boolean {
 }
 
 function getCourseLiveState(c: Course): { isLive: boolean; label: string } {
+  // 建立对响应式时间心跳的依赖，保证30秒心跳自动驱动状态刷新
+  void currentTime.value
   if (currentWeek.value !== systemWeek() || selectedDay.value !== nowDay.value) {
     return { isLive: false, label: '' }
   }
-  const now = new Date()
-  const mins = now.getHours() * 60 + now.getMinutes()
+  const mins = currentMinutes.value
   const startB = periodSlots[blockOf(c.start) - 1]
   const endB = periodSlots[blockOf(c.end) - 1]
   if (!startB || !endB) return { isLive: false, label: '' }
@@ -1215,11 +1313,12 @@ function getCourseTimelineStatus(c: Course): {
   badgeText: string
   isHero: boolean
 } {
+  // 建立对响应式时间心跳的依赖，保证30秒心跳自动驱动状态刷新
+  void currentTime.value
   if (currentWeek.value !== systemWeek() || selectedDay.value !== nowDay.value) {
     return { status: 'upcoming', badgeText: '', isHero: false }
   }
-  const now = new Date()
-  const mins = now.getHours() * 60 + now.getMinutes()
+  const mins = currentMinutes.value
   const startB = periodSlots[blockOf(c.start) - 1]
   const endB = periodSlots[blockOf(c.end) - 1]
   if (!startB || !endB) return { status: 'upcoming', badgeText: '', isHero: false }
@@ -1263,7 +1362,7 @@ function onAgendaTouchEnd(e: TouchEvent) {
     if (dx < 0) {
       if (selectedDay.value < maxDay) {
         selectedDay.value++
-      } else if (currentWeek.value < TOTAL_WEEKS) {
+      } else if (currentWeek.value < totalWeeks.value) {
         changeWeek(1)
         selectedDay.value = 1
       }
@@ -1281,28 +1380,46 @@ function onAgendaTouchEnd(e: TouchEvent) {
 interface PlacedCourse extends Course {
   key: string
   stackIndex: number
+  totalConflicts: number
   startBlock: number
   endBlock: number
   rowSpan: number
 }
 const placedCourses = computed<PlacedCourse[]>(() => {
-  const groups = new Map<string, number>()
-  return weekCourses.value.map((c, i) => {
+  const list: PlacedCourse[] = weekCourses.value.map((c, i) => {
     const sB = blockOf(c.start)
     const eB = blockOf(c.end)
     const span = Math.max(1, eB - sB + 1)
-    const key = `${c.day}-${sB}`
-    const idx = groups.get(key) ?? 0
-    groups.set(key, idx + 1)
     return {
       ...c,
       startBlock: sB,
       endBlock: eB,
       rowSpan: span,
       key: c.id ? `custom-${c.id}` : `${c.day}-${c.start}-${c.end}-${c.name}-${i}`,
-      stackIndex: idx,
+      stackIndex: 0,
+      totalConflicts: 1,
     }
   })
+
+  // 按星期分组检测重叠课程并计算堆叠偏移
+  const byDay = new Map<number, PlacedCourse[]>()
+  for (const item of list) {
+    if (!byDay.has(item.day)) byDay.set(item.day, [])
+    byDay.get(item.day)!.push(item)
+  }
+
+  for (const [, dayList] of byDay.entries()) {
+    dayList.sort((a, b) => a.startBlock - b.startBlock || b.rowSpan - a.rowSpan)
+    for (const a of dayList) {
+      const overlaps = dayList.filter(
+        (b) => Math.max(a.startBlock, b.startBlock) <= Math.min(a.endBlock, b.endBlock)
+      )
+      a.totalConflicts = overlaps.length
+      a.stackIndex = Math.max(0, overlaps.indexOf(a))
+    }
+  }
+
+  return list
 })
 
 function isCellFree(day: number, slotBlock: number): boolean {
@@ -1378,7 +1495,6 @@ const QUICK_ACTIVITIES = [
   '志愿服务',
 ]
 
-const showCustomEventModal = ref(false)
 const editingEventId = ref<string | null>(null)
 
 interface CustomEventForm {
@@ -1417,7 +1533,7 @@ function openAddCustomEventModal(preDay?: number, preSlotBlock?: number) {
     day: defaultDay,
     slotIndex: Math.max(0, Math.min(periodSlots.length - 1, defaultSlotIdx)),
     weekType: 'all',
-    customWeeksInput: `1-${Math.max(16, TOTAL_WEEKS)}`,
+    customWeeksInput: `1-${Math.max(16, totalWeeks.value)}`,
     color: 'Emerald',
     note: '',
   }
@@ -1428,7 +1544,7 @@ function openEditCustomEventModal(ev: CustomScheduleEvent) {
   editingEventId.value = ev.id
   const sIdx = blockOf(ev.start) - 1
   let wType: 'current' | 'all' | 'odd' | 'even' | 'custom' = 'custom'
-  if (ev.weeks === '1-16' || ev.weeks === '1-20' || ev.weeks === `1-${TOTAL_WEEKS}`) {
+  if (ev.weeks === '1-16' || ev.weeks === '1-20' || ev.weeks === `1-${totalWeeks.value}`) {
     wType = 'all'
   } else if (ev.weeks === String(currentWeek.value)) {
     wType = 'current'
@@ -1453,14 +1569,14 @@ function setWeekType(type: 'current' | 'all' | 'odd' | 'even' | 'custom') {
   if (type === 'current') {
     customForm.value.customWeeksInput = `${currentWeek.value}`
   } else if (type === 'all') {
-    customForm.value.customWeeksInput = `1-${Math.max(16, TOTAL_WEEKS)}`
+    customForm.value.customWeeksInput = `1-${Math.max(16, totalWeeks.value)}`
   } else if (type === 'odd') {
     const odds: number[] = []
-    for (let w = 1; w <= Math.max(16, TOTAL_WEEKS); w += 2) odds.push(w)
+    for (let w = 1; w <= Math.max(16, totalWeeks.value); w += 2) odds.push(w)
     customForm.value.customWeeksInput = odds.join(',')
   } else if (type === 'even') {
     const evens: number[] = []
-    for (let w = 2; w <= Math.max(16, TOTAL_WEEKS); w += 2) evens.push(w)
+    for (let w = 2; w <= Math.max(16, totalWeeks.value); w += 2) evens.push(w)
     customForm.value.customWeeksInput = evens.join(',')
   }
 }
@@ -1473,9 +1589,9 @@ function saveCustomEvent() {
   if (customForm.value.weekType === 'current') {
     weeksVal = `${currentWeek.value}`
   } else if (customForm.value.weekType === 'all') {
-    weeksVal = `1-${Math.max(16, TOTAL_WEEKS)}`
+    weeksVal = `1-${Math.max(16, totalWeeks.value)}`
   }
-  if (!weeksVal) weeksVal = `1-${Math.max(16, TOTAL_WEEKS)}`
+  if (!weeksVal) weeksVal = `1-${Math.max(16, totalWeeks.value)}`
 
   if (editingEventId.value) {
     const idx = customEvents.value.findIndex((e) => e.id === editingEventId.value)
@@ -1646,7 +1762,7 @@ function deleteCustomEvent(id: string) {
               </template>
             </template>
             <template v-else-if="edgePullDirection === 'next'">
-              <span v-if="currentWeek >= TOTAL_WEEKS">已是最后一周</span>
+              <span v-if="currentWeek >= totalWeeks">已是最后一周</span>
               <template v-else>
                 <span>{{ edgePullDistance >= PULL_THRESHOLD ? `松开至第 ${currentWeek + 1} 周` : `滑至第 ${currentWeek + 1} 周` }}</span>
                 <span>→</span>
@@ -1658,15 +1774,15 @@ function deleteCustomEvent(id: string) {
         <!-- Weekday Header Row (~26px) -->
         <div
           class="shrink-0 h-[26px] grid gap-0.5 border-b border-neutral-100 dark:border-neutral-800/80 bg-[#FAFAFA] dark:bg-[#17191e] px-0.5 select-none"
-          :class="showWeekend ? 'grid-cols-[24px_repeat(7,1fr)]' : 'grid-cols-[28px_repeat(5,1fr)]'"
+          :class="showWeekend ? 'grid-cols-[28px_repeat(7,1fr)]' : 'grid-cols-[32px_repeat(5,1fr)]'"
         >
-          <div class="flex items-center justify-center font-mono text-[8px] text-neutral-400">
+          <div class="flex items-center justify-center font-mono text-[9px] text-neutral-400">
             节
           </div>
           <div
             v-for="(day, idx) in displayedWeekdays"
             :key="day"
-            class="flex items-center justify-center gap-1 font-mono leading-none rounded-sm transition-colors"
+            class="flex items-center justify-center gap-0.5 font-mono leading-none rounded-sm transition-colors"
             :class="isToday(idx) ? 'bg-neutral-900 text-white dark:bg-emerald-400 dark:text-neutral-950 font-bold' : 'text-neutral-600 dark:text-neutral-400'"
           >
             <span class="text-[9.5px]">{{ day.replace('周', '') }}</span>
@@ -1677,17 +1793,17 @@ function deleteCustomEvent(id: string) {
         <!-- 7 Period Rows (Single flat CSS grid so courses span rows seamlessly without scrolling) -->
         <div
           class="flex-1 min-h-0 grid grid-rows-7 gap-0.5 p-0.5"
-          :class="showWeekend ? 'grid-cols-[24px_repeat(7,1fr)]' : 'grid-cols-[28px_repeat(5,1fr)]'"
+          :class="showWeekend ? 'grid-cols-[28px_repeat(7,1fr)]' : 'grid-cols-[32px_repeat(5,1fr)]'"
         >
           <!-- Period Slot Labels (Col 1, Rows 1..7) -->
           <div
             v-for="(slot, sIdx) in periodSlots"
             :key="`app-label-${slot.label}`"
-            class="flex flex-col items-center justify-center rounded-sm bg-[#FAFAFA] dark:bg-neutral-900/60 font-mono text-neutral-400 border border-neutral-100 dark:border-neutral-800/50 leading-tight select-none"
+            class="flex flex-col items-center justify-center rounded-sm bg-[#FAFAFA] dark:bg-neutral-900/60 font-mono text-neutral-400 border border-neutral-100 dark:border-neutral-800/50 leading-tight select-none py-0.5"
             :style="{ gridColumn: 1, gridRow: sIdx + 1 }"
           >
-            <span class="text-[8.5px] font-bold text-neutral-700 dark:text-neutral-300">{{ slot.label }}</span>
-            <span class="text-[7px] text-neutral-400 scale-90">{{ formatSlotMinute(slot.from) }}</span>
+            <span class="text-[9.5px] font-bold text-neutral-700 dark:text-neutral-300">{{ slot.label }}</span>
+            <span class="text-[8px] text-neutral-500 dark:text-neutral-400 font-mono">{{ formatSlotMinute(slot.from) }}</span>
           </div>
 
           <!-- Free Day Cells (only rendered when slot is free) -->
@@ -1716,17 +1832,31 @@ function deleteCustomEvent(id: string) {
               ...getCourseCardStyle(c),
               gridColumn: c.day + 1,
               gridRow: `${c.startBlock} / span ${c.rowSpan}`,
+              ...(c.totalConflicts > 1 ? {
+                width: `${(100 / c.totalConflicts).toFixed(1)}%`,
+                marginLeft: `${((c.stackIndex * 100) / c.totalConflicts).toFixed(1)}%`,
+                zIndex: 10 + c.stackIndex,
+              } : {})
             }"
             @click.stop="openDetail(c)"
           >
             <div class="min-w-0">
-              <div
-                class="font-medium leading-tight font-sans break-all"
-                :class="c.rowSpan > 1 ? 'text-[10px] line-clamp-4' : 'text-[9px] line-clamp-2'"
-              >
-                {{ c.name }}
+              <div class="flex items-start justify-between gap-0.5">
+                <div
+                  class="font-medium leading-tight font-sans break-all"
+                  :class="c.rowSpan > 1 ? 'text-[10px] line-clamp-4' : 'text-[9px] line-clamp-2'"
+                >
+                  {{ c.name }}
+                </div>
+                <span
+                  v-if="c.totalConflicts > 1"
+                  class="px-0.5 py-0.2 rounded text-[7px] bg-rose-500 text-white font-mono leading-none shrink-0"
+                  :title="'本时间段有 ' + c.totalConflicts + ' 门课程冲突'"
+                >
+                  冲突
+                </span>
               </div>
-              <div v-if="c.rowSpan > 1 && showCourseTime" class="text-[7px] opacity-75 font-mono mt-0.5 leading-none">
+              <div v-if="c.rowSpan > 1 && showCourseTime" class="text-[7.5px] opacity-75 font-mono mt-0.5 leading-none">
                 {{ courseTimeRange(c) }}
               </div>
             </div>
@@ -1746,7 +1876,7 @@ function deleteCustomEvent(id: string) {
           <input v-model="password" type="password" placeholder="教务密码" class="w-full rounded border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-neutral-900 dark:text-white" />
           <label class="flex items-center gap-2 cursor-pointer select-none text-neutral-600 dark:text-neutral-400 py-0.5">
             <input v-model="rememberCredentials" type="checkbox" class="rounded border-neutral-300 dark:border-neutral-700 text-neutral-900 focus:ring-0" />
-            <span>记住账号与密码 (免重复输入)</span>
+            <span>记住学号与课表缓存 (安全免重复登录)</span>
           </label>
           <p v-if="error" class="text-red-500 text-xs">{{ error }}</p>
           <button type="submit" :disabled="loading" class="w-full rounded bg-neutral-900 dark:bg-white text-white dark:text-neutral-950 py-2.5 font-bold cursor-pointer disabled:opacity-60">
@@ -1788,7 +1918,7 @@ function deleteCustomEvent(id: string) {
             <button
               type="button"
               class="w-5 h-5 flex items-center justify-center rounded-full text-neutral-500 hover:text-neutral-900 dark:hover:text-white disabled:opacity-30 cursor-pointer"
-              :disabled="currentWeek >= TOTAL_WEEKS"
+              :disabled="currentWeek >= totalWeeks"
               title="下一周"
               @click="changeWeek(1)"
             >
@@ -1890,7 +2020,7 @@ function deleteCustomEvent(id: string) {
           </button>
           <button
             class="px-2 sm:px-2.5 py-0.5 sm:py-1 text-neutral-600 dark:text-neutral-400 hover:text-neutral-950 dark:hover:text-white disabled:opacity-30 cursor-pointer"
-            :disabled="currentWeek >= TOTAL_WEEKS"
+            :disabled="currentWeek >= totalWeeks"
             title="下一周"
             @click="changeWeek(1)"
           >
@@ -2283,7 +2413,7 @@ function deleteCustomEvent(id: string) {
               </template>
             </template>
             <template v-else-if="edgePullDirection === 'next'">
-              <span v-if="currentWeek >= TOTAL_WEEKS">已是最后一周</span>
+              <span v-if="currentWeek >= totalWeeks">已是最后一周</span>
               <template v-else>
                 <span>{{ edgePullDistance >= PULL_THRESHOLD ? `松开切换至第 ${currentWeek + 1} 周` : `继续向左滑切换至第 ${currentWeek + 1} 周` }}</span>
                 <span>→</span>
@@ -2344,9 +2474,9 @@ function deleteCustomEvent(id: string) {
               <span class="font-semibold text-neutral-700 dark:text-neutral-300 text-[9px] sm:text-[11px]">{{ slot.label }}</span>
               <template v-if="slotTimeFormat === 'range'">
                 <!-- Mobile compact stacked time -->
-                <div class="sm:hidden flex flex-col items-center text-[7px] text-neutral-400 mt-0.5 leading-tight tracking-tight">
+                <div class="sm:hidden flex flex-col items-center text-[8px] text-neutral-500 dark:text-neutral-400 mt-0.5 leading-tight tracking-tight">
                   <span>{{ formatSlotMinute(slot.from) }}</span>
-                  <span class="text-[6px] text-neutral-300 leading-none my-[0.5px]">-</span>
+                  <span class="text-[7px] text-neutral-400 leading-none my-[0.5px]">-</span>
                   <span>{{ formatSlotMinute(slot.to) }}</span>
                 </div>
                 <!-- Desktop inline time -->
@@ -2355,7 +2485,7 @@ function deleteCustomEvent(id: string) {
                 </span>
               </template>
               <template v-else>
-                <span class="text-[7.5px] sm:text-[9px] text-neutral-400 mt-0.5 whitespace-nowrap scale-90 sm:scale-100 origin-center">
+                <span class="text-[8px] sm:text-[9px] text-neutral-400 mt-0.5 whitespace-nowrap scale-90 sm:scale-100 origin-center">
                   {{ formatSlotMinute(slot.from) }}
                 </span>
               </template>
@@ -2399,6 +2529,11 @@ function deleteCustomEvent(id: string) {
                 ...getCourseCardStyle(c),
                 gridColumn: c.day + 1,
                 gridRow: `${c.startBlock + 1} / span ${c.rowSpan}`,
+                ...(c.totalConflicts > 1 ? {
+                  width: `${(100 / c.totalConflicts).toFixed(1)}%`,
+                  marginLeft: `${((c.stackIndex * 100) / c.totalConflicts).toFixed(1)}%`,
+                  zIndex: 10 + c.stackIndex,
+                } : {})
               }"
               @click.stop="openDetail(c)"
             >
@@ -2410,6 +2545,13 @@ function deleteCustomEvent(id: string) {
                   >
                     {{ c.name }}
                   </div>
+                  <span
+                    v-if="c.totalConflicts > 1"
+                    class="px-1 py-0.2 rounded text-[7.5px] sm:text-[8px] bg-rose-500 text-white font-sans font-medium shrink-0 leading-tight"
+                    :title="'本时间段有 ' + c.totalConflicts + ' 门课程冲突'"
+                  >
+                    冲突
+                  </span>
                   <span
                     v-if="c.isCustom"
                     class="px-1 py-0.2 rounded text-[7.5px] sm:text-[8px] bg-emerald-600/10 text-emerald-700 dark:bg-emerald-400/20 dark:text-emerald-300 font-sans font-medium shrink-0 leading-tight"
@@ -2449,6 +2591,9 @@ function deleteCustomEvent(id: string) {
     <!-- Course Detail Modal -->
     <div
       v-if="detail"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="course-detail-title"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-xs p-4"
       @click.self="detail = null"
     >
@@ -2456,7 +2601,7 @@ function deleteCustomEvent(id: string) {
         <div class="flex items-center justify-between mb-4 border-b border-neutral-100 dark:border-neutral-800 pb-3">
           <div class="flex items-center gap-2">
             <span v-if="detail.isCustom" class="px-1.5 py-0.5 rounded text-[10px] font-sans font-medium bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">自建日程</span>
-            <h3 class="text-sm font-medium text-neutral-900 dark:text-white font-sans">{{ detail.isCustom ? '日程安排详情' : '课程详情' }}</h3>
+            <h3 id="course-detail-title" class="text-sm font-medium text-neutral-900 dark:text-white font-sans">{{ detail.isCustom ? '日程安排详情' : '课程详情' }}</h3>
           </div>
           <button class="text-neutral-400 hover:text-neutral-900 dark:hover:text-white cursor-pointer p-1" title="关闭" @click="detail = null">✕</button>
         </div>
@@ -2510,14 +2655,17 @@ function deleteCustomEvent(id: string) {
     <!-- Quick Week Picker Modal (周数快速切换弹窗) -->
     <div
       v-if="showWeekPicker"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="week-picker-title"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4"
       @click.self="showWeekPicker = false"
     >
       <div class="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl border border-[#E5E5E5] animate-in fade-in zoom-in-95 duration-150">
         <div class="flex items-center justify-between pb-3 border-b border-neutral-100 mb-4">
           <div class="flex items-center gap-2">
-            <h3 class="text-sm font-medium text-neutral-900 font-sans">快速跳转周次</h3>
-            <span class="text-[11px] font-mono text-neutral-400">(共 {{ TOTAL_WEEKS }} 周)</span>
+            <h3 id="week-picker-title" class="text-sm font-medium text-neutral-900 font-sans">快速跳转周次</h3>
+            <span class="text-[11px] font-mono text-neutral-400">(共 {{ totalWeeks }} 周)</span>
           </div>
           <button
             class="text-neutral-400 hover:text-neutral-900 cursor-pointer p-1 rounded hover:bg-neutral-100 transition-colors"
@@ -2531,7 +2679,7 @@ function deleteCustomEvent(id: string) {
         <!-- Weeks Grid -->
         <div class="grid grid-cols-4 sm:grid-cols-5 gap-2 font-mono text-xs max-h-[60vh] overflow-y-auto p-0.5">
           <button
-            v-for="w in TOTAL_WEEKS"
+            v-for="w in totalWeeks"
             :key="w"
             type="button"
             class="flex flex-col items-center justify-center p-2 rounded-lg border transition-all cursor-pointer relative text-center"
@@ -2583,6 +2731,9 @@ function deleteCustomEvent(id: string) {
     <!-- Calendar / Time Viewer Modal -->
     <div
       v-if="viewer"
+      role="dialog"
+      aria-modal="true"
+      aria-label="校历与作息时间表查看"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4"
       @click.self="closeImgViewer"
     >
@@ -2627,6 +2778,9 @@ function deleteCustomEvent(id: string) {
     <!-- Add / Edit Custom Event Modal (添加/修改日程安排弹窗) -->
     <div
       v-if="showCustomEventModal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="custom-event-modal-title"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4"
       @click.self="showCustomEventModal = false"
     >
@@ -2634,7 +2788,7 @@ function deleteCustomEvent(id: string) {
         <div class="flex items-center justify-between pb-3 border-b border-neutral-100 dark:border-neutral-800 mb-4">
           <div class="flex items-center gap-2">
             <span class="h-2 w-2 rounded-full bg-emerald-500" />
-            <h3 class="text-sm font-medium text-neutral-900 dark:text-white font-sans">
+            <h3 id="custom-event-modal-title" class="text-sm font-medium text-neutral-900 dark:text-white font-sans">
               {{ editingEventId ? '编辑时间安排' : '新建时间安排' }}
             </h3>
             <span class="text-[11px] font-mono text-neutral-400">Custom Schedule</span>
@@ -2725,7 +2879,7 @@ function deleteCustomEvent(id: string) {
               <label class="text-neutral-500 dark:text-neutral-400 font-mono text-[10px] uppercase">
                 适用周次
               </label>
-              <span class="text-[10px] font-mono text-neutral-400">当前学期共 {{ TOTAL_WEEKS }} 周</span>
+              <span class="text-[10px] font-mono text-neutral-400">当前学期共 {{ totalWeeks }} 周</span>
             </div>
             
             <div class="grid grid-cols-4 gap-1.5 mb-2 font-mono text-[11px]">
