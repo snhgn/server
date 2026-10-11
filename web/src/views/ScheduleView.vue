@@ -1562,6 +1562,7 @@ function openAddCustomEventModal(preDay?: number, preSlotBlock?: number) {
 }
 
 function openEditCustomEventModal(ev: CustomScheduleEvent) {
+  detail.value = null
   editingEventId.value = ev.id
   const sIdx = blockOf(ev.start) - 1
   let wType: 'current' | 'all' | 'odd' | 'even' | 'custom' = 'custom'

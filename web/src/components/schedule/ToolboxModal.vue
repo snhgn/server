@@ -1035,21 +1035,7 @@ function parseWeeksList(weeks: string): number[] {
 
 function generateICS(): string {
   const [startY, startM, startD] = termStart.value.split('-').map(Number)
-
-  const periodTimeMap: Record<number, { start: string; end: string }> = {
-    1: { start: '080000', end: '093500' },
-    2: { start: '080000', end: '093500' },
-    3: { start: '095000', end: '112500' },
-    4: { start: '095000', end: '112500' },
-    5: { start: '113000', end: '121500' },
-    6: { start: '133000', end: '150500' },
-    7: { start: '133000', end: '150500' },
-    8: { start: '152000', end: '165500' },
-    9: { start: '152000', end: '165500' },
-    10: { start: '183000', end: '200500' },
-    11: { start: '183000', end: '200500' },
-    12: { start: '201000', end: '205500' },
-  }
+  const nowStamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'
 
   let ics = [
     'BEGIN:VCALENDAR',
@@ -1065,7 +1051,8 @@ function generateICS(): string {
     props.schedule.courses.forEach((c, idx) => {
       const weeks = parseWeeksList(c.weeks)
       const dayOffset = c.day - 1
-      const times = periodTimeMap[c.start] || { start: '080000', end: '093500' }
+      const startT = (PERIOD_TIMES[c.start]?.start || '08:00').replace(':', '') + '00'
+      const endT = (PERIOD_TIMES[c.end || c.start]?.end || '09:35').replace(':', '') + '00'
 
       weeks.forEach((w) => {
         const d = new Date(startY, startM - 1, startD + (w - 1) * 7 + dayOffset)
@@ -1074,9 +1061,9 @@ function generateICS(): string {
         ics.push(
           'BEGIN:VEVENT',
           `UID:course-${idx}-w${w}-${dateStr}@snhgn.me`,
-          `DTSTAMP:${dateStr}T${times.start}Z`,
-          `DTSTART;TZID=Asia/Shanghai:${dateStr}T${times.start}`,
-          `DTEND;TZID=Asia/Shanghai:${dateStr}T${times.end}`,
+          `DTSTAMP:${nowStamp}`,
+          `DTSTART;TZID=Asia/Shanghai:${dateStr}T${startT}`,
+          `DTEND;TZID=Asia/Shanghai:${dateStr}T${endT}`,
           `SUMMARY:${c.isCustom ? `[日程] ${c.name}` : c.name}`,
           `LOCATION:${c.room || (c.isCustom ? '无地点' : '待定')}`,
           `DESCRIPTION:${c.isCustom ? `事项: ${c.name}\\n节次: ${c.period}\\n第${w}周${c.note ? `\\n备注: ${c.note}` : ''}` : `教师: ${c.teacher || '—'}\\n节次: ${c.period}\\n第${w}周`}`,
@@ -1098,7 +1085,7 @@ function generateICS(): string {
         ics.push(
           'BEGIN:VEVENT',
           `UID:official-exam-${idx}-${cleanDate}@snhgn.me`,
-          `DTSTAMP:${cleanDate}T${startT}Z`,
+          `DTSTAMP:${nowStamp}`,
           `DTSTART;TZID=Asia/Shanghai:${cleanDate}T${startT}`,
           `DTEND;TZID=Asia/Shanghai:${cleanDate}T${endT}`,
           `SUMMARY:[考试] ${e.name}`,
@@ -1112,12 +1099,15 @@ function generateICS(): string {
 
     customExams.value.forEach((e) => {
       const cleanDate = e.date.replace(/-/g, '')
+      const timeMatch = e.time ? e.time.match(/(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})/) : null
+      const startT = timeMatch ? timeMatch[1].padStart(5, '0').replace(':', '') + '00' : '090000'
+      const endT = timeMatch ? timeMatch[2].padStart(5, '0').replace(':', '') + '00' : '110000'
       ics.push(
         'BEGIN:VEVENT',
         `UID:exam-${e.id}@snhgn.me`,
-        `DTSTAMP:${cleanDate}T090000Z`,
-        `DTSTART;TZID=Asia/Shanghai:${cleanDate}T090000`,
-        `DTEND;TZID=Asia/Shanghai:${cleanDate}T110000`,
+        `DTSTAMP:${nowStamp}`,
+        `DTSTART;TZID=Asia/Shanghai:${cleanDate}T${startT}`,
+        `DTEND;TZID=Asia/Shanghai:${cleanDate}T${endT}`,
         `SUMMARY:[考试] ${e.name}`,
         `LOCATION:${e.room}`,
         `DESCRIPTION:时间: ${e.time}\\n座位号: ${e.seat}`,
@@ -1787,11 +1777,11 @@ async function saveMonitor() {
               v-model="tempPasswordInput"
               type="password"
               placeholder="教务系统登录密码"
-              class="flex-1 px-3 py-1.5 border border-neutral-300 rounded text-xs bg-white focus:outline-none focus:border-neutral-900"
+              class="flex-1 px-3 py-1.5 border border-neutral-300 dark:border-neutral-700 rounded text-xs bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white focus:outline-none focus:border-neutral-900 dark:focus:border-white"
               @keyup.enter="submitTempPassword"
             />
             <button
-              class="px-3.5 py-1.5 bg-neutral-900 text-white rounded text-xs hover:bg-neutral-800 cursor-pointer"
+              class="px-3.5 py-1.5 bg-neutral-900 dark:bg-white text-white dark:text-neutral-950 font-medium rounded text-xs hover:bg-neutral-800 dark:hover:bg-neutral-100 cursor-pointer"
               @click="submitTempPassword"
             >
               确定
@@ -1804,14 +1794,14 @@ async function saveMonitor() {
           <div class="flex items-center gap-1.5">
             <button
               class="px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition-colors"
-              :class="activeGradeTab === 'grades' ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 font-medium' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'"
+              :class="activeGradeTab === 'grades' ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 font-medium' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700'"
               @click="activeGradeTab = 'grades'"
             >
               课程成绩
             </button>
             <button
               class="px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition-colors"
-              :class="activeGradeTab === 'level' ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 font-medium' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'"
+              :class="activeGradeTab === 'level' ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 font-medium' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700'"
               @click="activeGradeTab = 'level'; if (!levelExams.length) fetchLevelExams()"
             >
               等级考试 (四六级)
@@ -1847,21 +1837,21 @@ async function saveMonitor() {
         <div v-if="activeGradeTab === 'grades'" class="flex-1 overflow-y-auto space-y-3">
           <!-- 统计概览指标 -->
           <div v-if="gradesData" class="grid grid-cols-4 gap-2 font-mono text-center">
-            <div class="rounded-lg border border-neutral-100 bg-[#FAFAFA] p-2.5">
-              <div class="text-[11px] text-neutral-400 font-sans">平均绩点 (GPA)</div>
-              <div class="text-lg font-bold text-neutral-900 mt-0.5">{{ gradesData.avg_gpa }}</div>
+            <div class="rounded-lg border border-neutral-100 dark:border-neutral-800 bg-[#FAFAFA] dark:bg-neutral-800/60 p-2.5">
+              <div class="text-[11px] text-neutral-400 dark:text-neutral-400 font-sans">平均绩点 (GPA)</div>
+              <div class="text-lg font-bold text-neutral-900 dark:text-white mt-0.5">{{ gradesData.avg_gpa }}</div>
             </div>
-            <div class="rounded-lg border border-neutral-100 bg-[#FAFAFA] p-2.5">
-              <div class="text-[11px] text-neutral-400 font-sans">加权平均分</div>
-              <div class="text-lg font-bold text-neutral-900 mt-0.5">{{ gradesData.avg_score }}</div>
+            <div class="rounded-lg border border-neutral-100 dark:border-neutral-800 bg-[#FAFAFA] dark:bg-neutral-800/60 p-2.5">
+              <div class="text-[11px] text-neutral-400 dark:text-neutral-400 font-sans">加权平均分</div>
+              <div class="text-lg font-bold text-neutral-900 dark:text-white mt-0.5">{{ gradesData.avg_score }}</div>
             </div>
-            <div class="rounded-lg border border-neutral-100 bg-[#FAFAFA] p-2.5">
-              <div class="text-[11px] text-neutral-400 font-sans">已修学分</div>
-              <div class="text-lg font-bold text-neutral-900 mt-0.5">{{ gradesData.total_credits }}</div>
+            <div class="rounded-lg border border-neutral-100 dark:border-neutral-800 bg-[#FAFAFA] dark:bg-neutral-800/60 p-2.5">
+              <div class="text-[11px] text-neutral-400 dark:text-neutral-400 font-sans">已修学分</div>
+              <div class="text-lg font-bold text-neutral-900 dark:text-white mt-0.5">{{ gradesData.total_credits }}</div>
             </div>
-            <div class="rounded-lg border border-neutral-100 bg-[#FAFAFA] p-2.5">
-              <div class="text-[11px] text-neutral-400 font-sans">课程门数</div>
-              <div class="text-lg font-bold text-neutral-900 mt-0.5">{{ gradesData.total_courses }}</div>
+            <div class="rounded-lg border border-neutral-100 dark:border-neutral-800 bg-[#FAFAFA] dark:bg-neutral-800/60 p-2.5">
+              <div class="text-[11px] text-neutral-400 dark:text-neutral-400 font-sans">课程门数</div>
+              <div class="text-lg font-bold text-neutral-900 dark:text-white mt-0.5">{{ gradesData.total_courses }}</div>
             </div>
           </div>
 
@@ -1955,11 +1945,11 @@ async function saveMonitor() {
               v-model="tempPasswordInput"
               type="password"
               placeholder="教务系统登录密码"
-              class="flex-1 px-3 py-1.5 border border-neutral-300 rounded text-xs bg-white focus:outline-none focus:border-neutral-900"
+              class="flex-1 px-3 py-1.5 border border-neutral-300 dark:border-neutral-700 rounded text-xs bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white focus:outline-none focus:border-neutral-900 dark:focus:border-white"
               @keyup.enter="submitTempPassword"
             />
             <button
-              class="px-3.5 py-1.5 bg-neutral-900 text-white rounded text-xs hover:bg-neutral-800 cursor-pointer"
+              class="px-3.5 py-1.5 bg-neutral-900 dark:bg-white text-white dark:text-neutral-950 font-medium rounded text-xs hover:bg-neutral-800 dark:hover:bg-neutral-100 cursor-pointer"
               @click="submitTempPassword"
             >
               确定
@@ -1968,10 +1958,10 @@ async function saveMonitor() {
         </div>
 
         <div class="flex items-center justify-between text-xs">
-          <span class="text-neutral-500 font-medium">当前考试日程列表</span>
+          <span class="text-neutral-500 dark:text-neutral-400 font-medium">当前考试日程列表</span>
           <div class="flex items-center gap-2">
             <button
-              class="px-2.5 py-1 text-xs border border-[#E5E5E5] rounded hover:border-neutral-400 bg-white cursor-pointer flex items-center gap-1 disabled:opacity-50"
+              class="px-2.5 py-1 text-xs border border-[#E5E5E5] dark:border-neutral-700 rounded hover:border-neutral-400 dark:hover:border-neutral-500 bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-200 cursor-pointer flex items-center gap-1 disabled:opacity-50 transition-colors"
               :disabled="examsLoading"
               @click="fetchOfficialExams(true)"
             >
@@ -1979,7 +1969,7 @@ async function saveMonitor() {
               <span>{{ examsLoading ? '同步中' : '同步教务' }}</span>
             </button>
             <button
-              class="px-2.5 py-1 text-xs border border-[#E5E5E5] rounded hover:border-neutral-400 bg-white cursor-pointer"
+              class="px-2.5 py-1 text-xs border border-[#E5E5E5] dark:border-neutral-700 rounded hover:border-neutral-400 dark:hover:border-neutral-500 bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-200 cursor-pointer transition-colors"
               @click="showAddExamForm = !showAddExamForm"
             >
               {{ showAddExamForm ? '收起表单' : '+ 自定义考试' }}
@@ -1993,32 +1983,32 @@ async function saveMonitor() {
         </div>
 
         <!-- 添加考试表单 -->
-        <div v-if="showAddExamForm" class="p-4 border border-[#E5E5E5] rounded-lg bg-[#FAFAFA] space-y-3 text-xs shrink-0">
+        <div v-if="showAddExamForm" class="p-4 border border-[#E5E5E5] dark:border-neutral-700 rounded-lg bg-[#FAFAFA] dark:bg-neutral-800/60 space-y-3 text-xs shrink-0">
           <div>
-            <label class="block text-neutral-500 mb-1">考试科目</label>
-            <input v-model="newExamName" placeholder="例如：线性代数期末考" class="w-full border border-[#E5E5E5] rounded px-2.5 py-1.5 bg-white" />
+            <label class="block text-neutral-500 dark:text-neutral-400 mb-1">考试科目</label>
+            <input v-model="newExamName" placeholder="例如：线性代数期末考" class="w-full border border-[#E5E5E5] dark:border-neutral-700 rounded px-2.5 py-1.5 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:border-neutral-900 dark:focus:border-white" />
           </div>
           <div class="grid grid-cols-2 gap-2">
             <div>
-              <label class="block text-neutral-500 mb-1">日期</label>
-              <input v-model="newExamDate" type="date" class="w-full border border-[#E5E5E5] rounded px-2.5 py-1.5 bg-white" />
+              <label class="block text-neutral-500 dark:text-neutral-400 mb-1">日期</label>
+              <input v-model="newExamDate" type="date" class="w-full border border-[#E5E5E5] dark:border-neutral-700 rounded px-2.5 py-1.5 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:border-neutral-900 dark:focus:border-white" />
             </div>
             <div>
-              <label class="block text-neutral-500 mb-1">时间</label>
-              <input v-model="newExamTime" placeholder="09:00 - 11:00" class="w-full border border-[#E5E5E5] rounded px-2.5 py-1.5 bg-white" />
+              <label class="block text-neutral-500 dark:text-neutral-400 mb-1">时间</label>
+              <input v-model="newExamTime" placeholder="09:00 - 11:00" class="w-full border border-[#E5E5E5] dark:border-neutral-700 rounded px-2.5 py-1.5 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:border-neutral-900 dark:focus:border-white" />
             </div>
           </div>
           <div class="grid grid-cols-2 gap-2">
             <div>
-              <label class="block text-neutral-500 mb-1">地点 / 考场</label>
-              <input v-model="newExamRoom" placeholder="二教 201" class="w-full border border-[#E5E5E5] rounded px-2.5 py-1.5 bg-white" />
+              <label class="block text-neutral-500 dark:text-neutral-400 mb-1">地点 / 考场</label>
+              <input v-model="newExamRoom" placeholder="二教 201" class="w-full border border-[#E5E5E5] dark:border-neutral-700 rounded px-2.5 py-1.5 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:border-neutral-900 dark:focus:border-white" />
             </div>
             <div>
-              <label class="block text-neutral-500 mb-1">座位号</label>
-              <input v-model="newExamSeat" placeholder="28 号" class="w-full border border-[#E5E5E5] rounded px-2.5 py-1.5 bg-white" />
+              <label class="block text-neutral-500 dark:text-neutral-400 mb-1">座位号</label>
+              <input v-model="newExamSeat" placeholder="28 号" class="w-full border border-[#E5E5E5] dark:border-neutral-700 rounded px-2.5 py-1.5 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:border-neutral-900 dark:focus:border-white" />
             </div>
           </div>
-          <button class="w-full py-2 bg-neutral-900 text-white rounded cursor-pointer hover:bg-neutral-800" @click="addCustomExam">
+          <button class="w-full py-2 bg-neutral-900 dark:bg-white text-white dark:text-neutral-950 font-medium rounded cursor-pointer hover:bg-neutral-800 dark:hover:bg-neutral-100 transition-colors" @click="addCustomExam">
             保存考试
           </button>
         </div>
@@ -2032,29 +2022,29 @@ async function saveMonitor() {
           </div>
 
           <!-- 官方教务考试列表 -->
-          <div v-for="e in officialExams" :key="e.code + e.time" class="p-3.5 border border-[#E5E5E5] rounded-lg bg-[#FAFAFA] flex items-start justify-between">
+          <div v-for="e in officialExams" :key="e.code + e.time" class="p-3.5 border border-[#E5E5E5] dark:border-neutral-800 rounded-lg bg-[#FAFAFA] dark:bg-neutral-800/40 flex items-start justify-between">
             <div class="space-y-1">
               <div class="flex items-center gap-1.5">
-                <span class="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded text-[10px] font-medium">{{ e.batch || '教务考试' }}</span>
-                <span class="font-medium text-neutral-900 text-sm font-sans">{{ e.name }}</span>
+                <span class="px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 rounded text-[10px] font-medium">{{ e.batch || '教务考试' }}</span>
+                <span class="font-medium text-neutral-900 dark:text-white text-sm font-sans">{{ e.name }}</span>
               </div>
-              <div class="text-xs text-neutral-600 font-mono">
+              <div class="text-xs text-neutral-600 dark:text-neutral-300 font-mono">
                 📅 {{ e.time }} · 📍 {{ e.room || '待定' }}
               </div>
               <div class="text-[11px] text-neutral-400 font-mono">
-                座位号: <span class="font-semibold text-neutral-800">{{ e.seat || '—' }}</span> · 准考证号: {{ e.ticket || '—' }}
+                座位号: <span class="font-semibold text-neutral-800 dark:text-neutral-200">{{ e.seat || '—' }}</span> · 准考证号: {{ e.ticket || '—' }}
               </div>
             </div>
           </div>
 
           <!-- 自定义考试列表 -->
-          <div v-for="e in customExams" :key="e.id" class="flex items-center justify-between p-3.5 border border-[#E5E5E5] rounded-lg bg-white">
+          <div v-for="e in customExams" :key="e.id" class="flex items-center justify-between p-3.5 border border-[#E5E5E5] dark:border-neutral-800 rounded-lg bg-white dark:bg-neutral-800/50">
             <div>
               <div class="flex items-center gap-1.5">
-                <span class="px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded text-[10px]">自定义</span>
-                <span class="font-medium text-neutral-900 text-sm font-sans">{{ e.name }}</span>
+                <span class="px-1.5 py-0.5 bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 rounded text-[10px]">自定义</span>
+                <span class="font-medium text-neutral-900 dark:text-white text-sm font-sans">{{ e.name }}</span>
               </div>
-              <div class="text-xs text-neutral-500 mt-1 font-mono">
+              <div class="text-xs text-neutral-500 dark:text-neutral-400 mt-1 font-mono">
                 📅 {{ e.date }} {{ e.time }} · 📍 {{ e.room }} · 座位: {{ e.seat }}
               </div>
             </div>
@@ -2090,11 +2080,11 @@ async function saveMonitor() {
               v-model="tempPasswordInput"
               type="password"
               placeholder="教务系统登录密码"
-              class="flex-1 px-3 py-1.5 border border-neutral-300 rounded text-xs bg-white focus:outline-none focus:border-neutral-900"
+              class="flex-1 px-3 py-1.5 border border-neutral-300 dark:border-neutral-700 rounded text-xs bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white focus:outline-none focus:border-neutral-900 dark:focus:border-white"
               @keyup.enter="submitTempPassword"
             />
             <button
-              class="px-3.5 py-1.5 bg-neutral-900 text-white rounded text-xs hover:bg-neutral-800 cursor-pointer"
+              class="px-3.5 py-1.5 bg-neutral-900 dark:bg-white text-white dark:text-neutral-950 font-medium rounded text-xs hover:bg-neutral-800 dark:hover:bg-neutral-100 cursor-pointer"
               @click="submitTempPassword"
             >
               确定
@@ -2103,14 +2093,14 @@ async function saveMonitor() {
         </div>
 
         <!-- 控制栏与概览 -->
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-neutral-50/80 p-3 rounded-xl border border-neutral-100">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-neutral-50/80 dark:bg-neutral-800/60 p-3 rounded-xl border border-neutral-100 dark:border-neutral-700/80">
           <div class="space-y-0.5">
             <div class="flex items-center gap-2 flex-wrap">
-              <span class="text-neutral-500 font-mono text-[11px]">方案要求:</span>
-              <span class="font-bold text-neutral-900 font-mono text-xs">{{ planTotalCredits }} 学分</span>
+              <span class="text-neutral-500 dark:text-neutral-400 font-mono text-[11px]">方案要求:</span>
+              <span class="font-bold text-neutral-900 dark:text-white font-mono text-xs">{{ planTotalCredits }} 学分</span>
               <span class="text-neutral-400 font-mono text-[11px]">({{ trainingPlan.length }} 门课程 / {{ planSemesterGroups.length }} 个学期)</span>
             </div>
-            <div v-if="filteredPlanCourses.length !== trainingPlan.length" class="text-[10px] text-blue-600 font-mono">
+            <div v-if="filteredPlanCourses.length !== trainingPlan.length" class="text-[10px] text-blue-600 dark:text-blue-400 font-mono">
               当前筛选显示: {{ filteredPlanCourses.length }} 门课程
             </div>
           </div>
@@ -2122,11 +2112,11 @@ async function saveMonitor() {
                 v-model="planSearchQuery"
                 type="text"
                 placeholder="搜索课程/代码/学院..."
-                class="w-32 sm:w-38 px-2.5 py-1 text-xs border border-[#E5E5E5] rounded-lg bg-white focus:outline-none focus:border-neutral-900"
+                class="w-32 sm:w-38 px-2.5 py-1 text-xs border border-[#E5E5E5] dark:border-neutral-700 rounded-lg bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:border-neutral-900 dark:focus:border-white"
               />
               <button
                 v-if="planSearchQuery"
-                class="absolute right-1.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700 text-[10px] cursor-pointer"
+                class="absolute right-1.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 text-[10px] cursor-pointer"
                 @click="planSearchQuery = ''"
               >
                 ✕
@@ -2134,7 +2124,7 @@ async function saveMonitor() {
             </div>
 
             <!-- 分类下拉 -->
-            <select v-model="selectedPlanCategory" class="border border-[#E5E5E5] rounded-lg px-2 py-1 bg-white text-xs text-neutral-700 cursor-pointer">
+            <select v-model="selectedPlanCategory" class="border border-[#E5E5E5] dark:border-neutral-700 rounded-lg px-2 py-1 bg-white dark:bg-neutral-800 text-xs text-neutral-700 dark:text-neutral-200 cursor-pointer">
               <option value="all">全部分类</option>
               <option v-for="c in planCategories" :key="c" :value="c">{{ c }}</option>
             </select>
@@ -2142,7 +2132,7 @@ async function saveMonitor() {
             <!-- 全部折叠/展开 -->
             <button
               v-if="planSemesterGroups.length"
-              class="px-2.5 py-1 border border-[#E5E5E5] rounded-lg hover:border-neutral-400 bg-white text-neutral-700 cursor-pointer text-xs flex items-center gap-1 transition-colors"
+              class="px-2.5 py-1 border border-[#E5E5E5] dark:border-neutral-700 rounded-lg hover:border-neutral-400 dark:hover:border-neutral-500 bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-200 cursor-pointer text-xs flex items-center gap-1 transition-colors"
               @click="toggleAllTermsCollapse"
             >
               <span>{{ areAllTermsCollapsed ? '全部展开' : '全部折叠' }}</span>
@@ -2150,7 +2140,7 @@ async function saveMonitor() {
 
             <!-- 刷新方案 -->
             <button
-              class="px-2.5 py-1 border border-[#E5E5E5] rounded-lg hover:border-neutral-400 bg-white text-neutral-700 cursor-pointer flex items-center gap-1 disabled:opacity-50 text-xs transition-colors"
+              class="px-2.5 py-1 border border-[#E5E5E5] dark:border-neutral-700 rounded-lg hover:border-neutral-400 dark:hover:border-neutral-500 bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-200 cursor-pointer flex items-center gap-1 disabled:opacity-50 text-xs transition-colors"
               :disabled="planLoading"
               @click="fetchTrainingPlan(true)"
             >
@@ -2176,7 +2166,7 @@ async function saveMonitor() {
             <div
               v-for="group in planSemesterGroups"
               :key="group.termKey"
-              class="border border-[#E5E5E5] rounded-xl overflow-hidden bg-white shadow-xs transition-all"
+              class="border border-[#E5E5E5] dark:border-neutral-700 rounded-xl overflow-hidden bg-white dark:bg-neutral-800/50 shadow-xs transition-all"
             >
               <!-- 学期可折叠头部 -->
               <div
@@ -2280,14 +2270,14 @@ async function saveMonitor() {
               </select>
             </div>
             <div>
-              <label class="block text-neutral-500 mb-1 text-xs">周次</label>
-              <select v-model.number="classroomWeek" class="w-full border border-[#E5E5E5] rounded-lg px-2 py-1.5 bg-white text-xs">
+              <label class="block text-neutral-500 dark:text-neutral-400 mb-1 text-xs">周次</label>
+              <select v-model.number="classroomWeek" class="w-full border border-[#E5E5E5] dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 rounded-lg px-2 py-1.5 bg-white text-xs">
                 <option v-for="w in 30" :key="w" :value="w">第 {{ w }} 周 {{ w === currentSystemWeek ? '(本周)' : '' }}</option>
               </select>
             </div>
             <div>
-              <label class="block text-neutral-500 mb-1 text-xs">星期</label>
-              <select v-model.number="classroomDay" class="w-full border border-[#E5E5E5] rounded-lg px-2 py-1.5 bg-white text-xs">
+              <label class="block text-neutral-500 dark:text-neutral-400 mb-1 text-xs">星期</label>
+              <select v-model.number="classroomDay" class="w-full border border-[#E5E5E5] dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 rounded-lg px-2 py-1.5 bg-white text-xs">
                 <option :value="1">周一</option>
                 <option :value="2">周二</option>
                 <option :value="3">周三</option>
@@ -2568,11 +2558,11 @@ async function saveMonitor() {
               <input
                 v-model="myOwnerName"
                 placeholder="我的展示昵称 (例如: 小张)"
-                class="flex-1 border border-[#E5E5E5] rounded-lg px-2.5 py-1.5 bg-white text-xs"
+                class="flex-1 border border-[#E5E5E5] dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 rounded-lg px-2.5 py-1.5 bg-white text-xs focus:outline-none focus:border-neutral-900 dark:focus:border-white"
               />
               <button
                 type="button"
-                class="px-3 py-1.5 border border-[#E5E5E5] hover:border-neutral-400 rounded-lg text-neutral-600 text-xs cursor-pointer transition-colors whitespace-nowrap"
+                class="px-3 py-1.5 border border-[#E5E5E5] dark:border-neutral-700 dark:bg-neutral-800 hover:border-neutral-400 dark:hover:border-neutral-500 rounded-lg text-neutral-600 dark:text-neutral-300 text-xs cursor-pointer transition-colors whitespace-nowrap"
                 :disabled="isGeneratingCode"
                 @click="createOrRegenerateCode(false)"
               >
@@ -2580,7 +2570,7 @@ async function saveMonitor() {
               </button>
               <button
                 type="button"
-                class="px-2.5 py-1.5 border border-red-200 text-red-600 hover:bg-red-50 rounded-lg text-xs cursor-pointer transition-colors whitespace-nowrap"
+                class="px-2.5 py-1.5 border border-red-200 dark:border-red-900/60 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg text-xs cursor-pointer transition-colors whitespace-nowrap"
                 :disabled="isGeneratingCode"
                 @click="createOrRegenerateCode(true)"
               >
@@ -2590,12 +2580,12 @@ async function saveMonitor() {
           </div>
 
           <div v-else class="text-center py-2 space-y-2">
-            <p class="text-neutral-500 text-[11px]">
+            <p class="text-neutral-500 dark:text-neutral-400 text-[11px]">
               生成专属 4 位邀请码后，朋友只需输入这 4 位码或打开链接即可查看您的课表。
             </p>
             <button
               type="button"
-              class="w-full py-2 bg-neutral-900 text-white rounded-lg hover:bg-neutral-800 cursor-pointer font-medium transition-colors"
+              class="w-full py-2 bg-neutral-900 dark:bg-white text-white dark:text-neutral-950 rounded-lg hover:bg-neutral-800 dark:hover:bg-neutral-100 cursor-pointer font-medium transition-colors"
               :disabled="isGeneratingCode"
               @click="createOrRegenerateCode(false)"
             >
@@ -2603,32 +2593,32 @@ async function saveMonitor() {
             </button>
           </div>
 
-          <div v-if="shareError" class="text-red-500 text-[11px]">{{ shareError }}</div>
+          <div v-if="shareError" class="text-red-500 dark:text-red-400 text-[11px]">{{ shareError }}</div>
         </div>
 
         <!-- 模块二：输入好友邀请码绑定 -->
-        <div class="p-3.5 border border-[#E5E5E5] rounded-xl bg-white space-y-2.5">
-          <span class="font-medium text-neutral-800">绑定好友的共享课表</span>
+        <div class="p-3.5 border border-[#E5E5E5] dark:border-neutral-700 rounded-xl bg-white dark:bg-neutral-800/50 space-y-2.5">
+          <span class="font-medium text-neutral-800 dark:text-neutral-200">绑定好友的共享课表</span>
           <div class="grid grid-cols-2 gap-2">
             <input
               v-model="inputFriendCode"
               placeholder="4位邀请码 (如 8K2M)"
               maxlength="4"
-              class="border border-[#E5E5E5] rounded-lg px-2.5 py-1.5 bg-white uppercase font-mono text-center font-bold tracking-widest text-xs"
+              class="border border-[#E5E5E5] dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 rounded-lg px-2.5 py-1.5 bg-white uppercase font-mono text-center font-bold tracking-widest text-xs focus:outline-none focus:border-neutral-900 dark:focus:border-white"
               @input="inputFriendCode = inputFriendCode.toUpperCase()"
             />
             <input
               v-model="inputFriendName"
               placeholder="好友备注 (选填)"
-              class="border border-[#E5E5E5] rounded-lg px-2.5 py-1.5 bg-white text-xs"
+              class="border border-[#E5E5E5] dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 rounded-lg px-2.5 py-1.5 bg-white text-xs focus:outline-none focus:border-neutral-900 dark:focus:border-white"
             />
           </div>
 
-          <div v-if="addFriendError" class="text-red-500 text-[11px]">{{ addFriendError }}</div>
+          <div v-if="addFriendError" class="text-red-500 dark:text-red-400 text-[11px]">{{ addFriendError }}</div>
 
           <button
             type="button"
-            class="w-full py-2 bg-neutral-900 text-white rounded-lg cursor-pointer hover:bg-neutral-800 font-medium transition-colors disabled:opacity-50"
+            class="w-full py-2 bg-neutral-900 dark:bg-white text-white dark:text-neutral-950 rounded-lg cursor-pointer hover:bg-neutral-800 dark:hover:bg-neutral-100 font-medium transition-colors disabled:opacity-50"
             :disabled="isAddingFriend"
             @click="addFriendByCode"
           >
@@ -2638,19 +2628,19 @@ async function saveMonitor() {
 
         <!-- 模块三：已绑定的好友列表 -->
         <div class="space-y-2">
-          <div class="flex items-center justify-between text-neutral-500 text-[11px]">
+          <div class="flex items-center justify-between text-neutral-500 dark:text-neutral-400 text-[11px]">
             <span>已保存的好友课表：</span>
             <span>共 {{ sharedFriends.length }} 位</span>
           </div>
 
-          <div class="divide-y divide-neutral-100 border border-[#E5E5E5] rounded-xl overflow-hidden bg-white">
+          <div class="divide-y divide-neutral-100 dark:divide-neutral-800 border border-[#E5E5E5] dark:border-neutral-700 rounded-xl overflow-hidden bg-white dark:bg-neutral-800/40">
             <div v-if="!sharedFriends.length" class="text-center py-6 text-neutral-400">
               暂无已绑定的好友，输入好友的 4 位邀请码即可一键添加
             </div>
             <div
               v-for="(f, idx) in sharedFriends"
               :key="f.code"
-              class="flex items-center justify-between p-3 bg-white hover:bg-neutral-50/60 transition-colors"
+              class="flex items-center justify-between p-3 bg-white dark:bg-neutral-800/50 hover:bg-neutral-50/60 dark:hover:bg-neutral-700/40 transition-colors"
             >
               <div>
                 <div class="font-medium text-neutral-900 dark:text-neutral-100 flex items-center gap-1.5">
