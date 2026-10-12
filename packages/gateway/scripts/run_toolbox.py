@@ -48,7 +48,7 @@ def load_credentials_from_env():
                     return user, pwd
             except Exception:
                 pass
-    return "202400000", "REDACTED_PASSWORD"
+    return "", ""
 
 
 def main():
@@ -74,6 +74,10 @@ def main():
         default_user, default_pwd = load_credentials_from_env()
         user = user or default_user
         pwd = pwd or default_pwd
+
+    if not user or not pwd:
+        print("[-] 错误: 未提供教务学号或密码。请通过参数 -u/-p 传入，或在环境变量/.env 中配置 BJFU_USERNAME 与 BJFU_PASSWORD。")
+        sys.exit(1)
 
     if not any([args.grades, args.exams, args.classrooms, args.plan, args.level_exams, args.all]):
         args.all = True

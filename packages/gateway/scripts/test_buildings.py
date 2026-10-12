@@ -8,8 +8,12 @@ if parent_dir not in sys.path:
 
 from app.schedule import captcha, toolbox
 
-user = "202400000"
-pwd = "REDACTED_PASSWORD"
+user = os.getenv("BJFU_USERNAME", "")
+pwd = os.getenv("BJFU_PASSWORD", "")
+
+if not user or not pwd:
+    print("[-] 请先设置环境变量 BJFU_USERNAME 与 BJFU_PASSWORD 后运行测试")
+    sys.exit(0)
 
 ok, sess, reason = captcha.login(user, pwd)
 if not ok:

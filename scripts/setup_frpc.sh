@@ -7,11 +7,14 @@ cp /tmp/frp_*_linux_amd64/frpc /usr/local/bin/frpc
 chmod +x /usr/local/bin/frpc
 mkdir -p /etc/frp
 
-cat << "EOF" > /etc/frp/frpc.toml
-serverAddr = "47.114.63.37"
+FRP_SERVER="${FRP_SERVER:-47.114.63.37}"
+FRP_TOKEN="${FRP_TOKEN:-YOUR_FRP_TOKEN_HERE}"
+
+cat << EOF > /etc/frp/frpc.toml
+serverAddr = "${FRP_SERVER}"
 serverPort = 7000
 auth.method = "token"
-auth.token = "REDACTED_FRP_TOKEN"
+auth.token = "${FRP_TOKEN}"
 
 [[proxies]]
 name = "web_https"
