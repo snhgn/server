@@ -2,7 +2,10 @@
 #  snhgn.me 网站部署脚本 (Windows 侧)
 #
 #  Flow: 本地构建校验 -> pscp 上传 -> 服务器侧原子替换 -> 验证(失败自动回滚)
-#  Usage: powershell -ExecutionPolicy Bypass -File deploy-website.ps1
+#  Usage:
+#    $env:SNHGN_DEPLOY_PASSWORD = "<部署密码>"
+#    powershell -ExecutionPolicy Bypass -File deploy-website.ps1 [-SkipBuild]
+#  也可用 -Password 显式传密码；两者皆无则脚本在第 0 步直接失败。
 #  Dependencies: pscp / plink (PuTTY)
 #
 #  默认以 web\dist 为载荷来源（唯一事实来源：vite 构建产物，
@@ -14,7 +17,9 @@
 param(
     [string]$Server     = "192.168.50.2",
     [string]$User       = "snhgn",
-    [string]$Password   = "1",
+    # 脱敏：密码不再硬编码进仓库。默认从环境变量 SNHGN_DEPLOY_PASSWORD 读取，
+    # 需要时也可用 -Password 显式传入（显式传参优先）。
+    [string]$Password   = $(if ($env:SNHGN_DEPLOY_PASSWORD) { $env:SNHGN_DEPLOY_PASSWORD } else { "" }),
     [string]$HostKey    = "SHA256:roEbdNCO4i18oR7yR1r9HY6kUcE9/hJJsELFJ2CI46I",
     # 留空则自动定位仓库根下的 web\dist
     [string]$SourceDir  = "",
@@ -28,25 +33,61 @@ $PSCP  = "C:\Program Files\PuTTY\pscp.exe"
 # 仓库根 = 本脚本所在目录的上一级
 $RepoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 
+# 执行一条远端命令，返回 [pscustomobject]@{ ExitCode; Output }
+#
+# 关键细节（2026-10-12 在 Windows PowerShell 5.1 上实测三条结论）：
+#  1) $ErrorActionPreference="Stop" 时，原生命令一旦写 stderr 就会被升级成
+#     终止性错误，且 2>file 重定向拦不住（实测：文件为空、直接 throw）；
+#  2) sudo -S 即使成功读到密码，也会把 "[sudo] password for snhgn:" 写到 stderr
+#     —— 这正是部署脚本在"其实已经成功了"的那一刻假失败的根因
+#     （2026-10-03 的 f528069 用 2>&1 尝试修，无效：合并产生的是 ErrorRecord，
+#      在 Stop 下照样 throw）；
+#  3) 把 EAP 临时降为 Continue 后，用 2>&1 把 stderr 合并进输出流，再按对象类型
+#     分流：String 是 stdout 原样透传，ErrorRecord 是 stderr、降级为信息打印。
+#     退出码照常捕获，调用结束立即恢复 EAP。
+function Invoke-Plink {
+    param([string]$remoteCmd)
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        # -batch: 绝不让 plink 在本地抢着提示（主机密钥/口令），一旦远端失败要
+        #         立刻拿退出码，而不是挂在那里等一个永远不会来的输入。
+        $merged = "`n" | & $PLINK -ssh -T -batch -hostkey $HostKey -pw $Password "${User}@${Server}" $remoteCmd 2>&1
+        $code = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $prevEap
+    }
+    $stdout = @($merged | Where-Object { $_ -is [string] })
+    $stderr = @($merged | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })
+    if ($stdout) { $stdout | Write-Host }
+    foreach ($e in $stderr) {
+        if ("$e".Trim()) { Write-Host "  [remote stderr] $e" -ForegroundColor DarkGray }
+    }
+    return [pscustomobject]@{
+        ExitCode = $code
+        Output   = (($stdout | Where-Object { $_ -match '\S' }) -join "`n")
+    }
+}
+
 function Invoke-Remote([string]$cmd) {
-    # plink 无 TTY 时需要前置换行来跳过 banner
-    #
-    # -batch: 绝不让 plink 在本地抢着提示（主机密钥/口令），一旦远端失败要
-    #         立刻拿退出码，而不是挂在那里等一个永远不会来的输入。
-    # 2>&1:   远端任何 stderr（如 `sudo -S` 即使成功也会打印的
-    #         `[sudo] password for snhgn:` 提示）不再被 PowerShell 升级成
-    #         终止性错误。配合上面的 $ErrorActionPreference="Stop"，缺少这个
-    #         重定向时部署会在"其实已经成功了"的提示行上自杀。
-    "`n" | & $PLINK -ssh -T -batch -hostkey $HostKey -pw $Password "${User}@${Server}" $cmd 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "Remote command failed: $cmd" }
+    $r = Invoke-Plink $cmd
+    if ($r.ExitCode -ne 0) { throw "Remote command failed (exit $($r.ExitCode)): $cmd" }
+    return $r.Output
 }
 
 function Step([string]$msg) { Write-Host $msg -ForegroundColor Cyan }
 
 # ------------------------------------------------------------
-# 0. 工具检查
+# 0. 凭据与工具检查（缺密码立刻失败，不浪费一次远程部署）
 # ------------------------------------------------------------
 Step "[0/5] 检查工具"
+if ([string]::IsNullOrWhiteSpace($Password)) {
+    throw "未提供部署密码。请设置环境变量 SNHGN_DEPLOY_PASSWORD（推荐），或通过 -Password 参数显式传入。"
+}
+if ($Password.Contains("'")) {
+    # 密码会作为第 4 参数拼进远端 bash 命令串（单引号包裹），含单引号会破坏命令
+    throw "部署密码不能包含单引号（会被拼进远端命令串导致语法错误）。"
+}
 foreach ($tool in @($PLINK, $PSCP)) {
     if (-not (Test-Path $tool)) { throw "Not found: $tool (install PuTTY first)" }
 }
@@ -107,21 +148,22 @@ Invoke-Remote "rm -rf $Stage; mkdir -p $Stage"
 if ($LASTEXITCODE -ne 0) { throw "pscp upload failed" }
 & $PSCP -batch -pw $Password -hostkey $HostKey "$PSScriptRoot\deploy-web.sh" "${User}@${Server}:/tmp/deploy-web.sh"
 if ($LASTEXITCODE -ne 0) { throw "pscp upload deploy-web.sh failed" }
-Invoke-Remote "find $Stage -type f | wc -l" | ForEach-Object { Write-Host "  服务器端计数: $_" }
+$stageCount = Invoke-Remote "find $Stage -type f | wc -l"
+Write-Host "  服务器端计数: $stageCount"
 
 # ------------------------------------------------------------
 # 4. 服务器侧替换 + 验证（脚本自带断言、备份、自动回滚）
 # ------------------------------------------------------------
 Step "[4/5] 服务器侧替换并验证"
-# 同 Invoke-Remote：-batch 防本地提示，2>&1 让 sudo 的 stderr 提示不变成终止性错误。
+# 走 Invoke-Plink：远端 stderr（sudo 的密码提示）落盘后作为信息打印，
+# 不会再被升级成终止性错误；退出码照常捕获，失败仍会走下面的回滚提示。
 # 密码作为第 4 个参数传给 deploy-web.sh，由它用 `echo "$PW" | sudo -S` 消费，
 # 不走 plink 的 stdin —— 那个管道只用来跳过 banner。
-"`n" | & $PLINK -ssh -T -batch -hostkey $HostKey -pw $Password "${User}@${Server}" `
-    "bash /tmp/deploy-web.sh '$Stage' '/opt/website' '/opt/snhgn/backups' '$Password'" 2>&1
-$rc = $LASTEXITCODE
+$r = Invoke-Plink "bash /tmp/deploy-web.sh '$Stage' '/opt/website' '/opt/snhgn/backups' '$Password'"
+$rc = $r.ExitCode
 
 # 清理暂存（部署脚本自身从不删它，这里收尾）
-Invoke-Remote "rm -rf $Stage /tmp/deploy-web.sh" 2>$null
+Invoke-Remote "rm -rf $Stage /tmp/deploy-web.sh"
 
 # ------------------------------------------------------------
 # 5. 结果

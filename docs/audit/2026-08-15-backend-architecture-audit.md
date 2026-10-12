@@ -228,7 +228,7 @@ chat/stream → _build_providers_to_try(请求参数 > 用户设置 > 默认序)
 | S2 | **高** | ai-service 8000 端口发布 0.0.0.0 + 盲信 X-User 头 → 内网任意伪造身份读/写任意用户记忆、对话、文件 | docker-compose.yml L27-28 |
 | S3 | 中 | 上传先全量读内存后验大小(DoS/OOM 向量;应先看 Content-Length + 流式) | main.py L1184-1189 |
 | S4 | 中 | 登录无限流/失败锁定;bcrypt 虽慢但可被并行打爆 CPU | gateway auth |
-| S5 | 中 | `admin123` 弱密码 + 明文记录于仓库内 server-info.md | server-info.md L191 |
+| S5 | 中 | 初始默认弱口令 + 明文记录于仓库内 server-info.md | server-info.md L191 |
 | S6 | 低 | gateway `/api/status` psutil 间隔采样阻塞 1s(管理端, 影响小) | status.py L53 |
 | S7 | 低 | scheduler 执行任意 shell(设计如此, 但 owner_id 未参与鉴权, 所有 admin 脚本互通——单管理员场景可接受) | scripts 路由 |
 | S8 | 低 | CORS 未显式配置(默认同源, 当前拓扑下安全) | — |

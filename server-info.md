@@ -166,7 +166,7 @@ d:\project\snhgn.me\             # Vue3 + Vite + TS + Tailwind
 - **问题**：数据库中 admin 哈希与 `.env` 的 `ADMIN_PASSWORD_HASH` 一致，但明文未知，无法登录
 - **处理**：通过 `init_admin.py` 脚本重置
   ```bash
-  docker exec gateway python /app/scripts/init_admin.py --username admin --password admin123
+  docker exec gateway python /app/scripts/init_admin.py --username admin --password <新强密码>
   ```
 - **验证**：登录成功 → 拿到 JWT → 调用 `/api/ai/chat` 返回正常
 
@@ -188,7 +188,7 @@ d:\project\snhgn.me\             # Vue3 + Vite + TS + Tailwind
 |------|-----|
 | URL | https://snhgn.me/login |
 | 用户名 | admin |
-| 密码 | 见本机安全存储 `%TEMP%\opencode\adminpw.txt`（2026-08-24 已由弱密码 admin123 更换为 20 位随机强密码，公网登录验证通过、旧密码 401） |
+| 密码 | 见本机安全存储 `%TEMP%\opencode\adminpw.txt`（2026-08-24 已由初始弱密码更换为 20 位随机强密码，公网登录验证通过、旧密码 401） |
 
 > 密码明文不写入本文档（文档可能被截图/同步外泄）。临时文件如需保留请移至密码管理器，否则可删除；遗忘时用下方命令重置。
 
@@ -340,7 +340,7 @@ docker exec gateway python /app/scripts/init_admin.py --username admin --passwor
    - 现有架构无需改动 Gateway/Caddy
 
 2. **密码安全**
-   - 将 admin 密码从 `admin123` 改为强密码
+   - 将 admin 密码从初始默认弱口令改为强密码
    - 考虑加登录失败限流
 
 3. **登录后页面打不开问题排查**
@@ -478,7 +478,7 @@ bash /tmp/tmp_check_routes.sh
 ### 安全（P0）
 
 - **移除敏感基础设施信息**：公网卡片不再展示内网 IP（192.168.50.2）、CPU/内存明细、各服务真实端口拓扑，改为抽象描述（Docker Compose / Cloudflare Tunnel / Caddy 等）
-- **admin 弱密码**：`admin123` 仍未修改——本次尝试 SSH 执行改密被本机 clash TUN（fake-ip 198.18.x）劫持连接而失败。需在服务器内网机器上手动执行 `init_admin.py` 修改后回填本文档第四节
+- **admin 弱密码**：初始默认口令仍未修改——本次尝试 SSH 执行改密被本机 clash TUN（fake-ip 198.18.x）劫持连接而失败。需在服务器内网机器上手动执行 `init_admin.py` 修改后回填本文档第四节
 
 ### 功能修复
 

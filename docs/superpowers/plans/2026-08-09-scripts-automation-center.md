@@ -1875,7 +1875,7 @@ mkdir -p /opt/snhgn/scripts
 docker compose up -d scheduler gateway
 # 管理员登录
 curl -s -X POST http://127.0.0.1:8001/api/auth/login -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"admin123"}'
+  -d '{"username":"admin","password":"<your-password>"}'
 ```
 
 用返回 token 验证：
