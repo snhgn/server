@@ -106,6 +106,28 @@
 | 前端 API 路径 ↔ 网关路由契约 | 全部匹配 |
 | 课表时间列层级（横滑 5 个位置 × 7天/5天视图） | 遮挡 0/8（修复前 ≥3/8） |
 
+## 四之二、部署记录（2026-10-12 12:06）
+
+复检全部通过后，按仓库规范流程部署上线：
+
+- **命令**：`powershell -ExecutionPolicy Bypass -File packages\website-deploy\deploy-website.ps1 -Server 172.28.204.40 -SkipBuild`
+  （服务器当前内网 IP 经 DoH 解析 `lan.snhgn.me` → `172.28.204.40` 获得；系统 DNS 被 Mihomo TUN 劫持为 Fake-IP `198.18.0.159`，须 `--noproxy` 走 DoH）
+- **载荷**：`web/dist`（89 文件；`ScheduleView-DuO7jiYB.js` 89048 字节 = 线上字节数，逐字节一致）
+- **服务器执行日志**：
+  ```text
+  [12:06:03] 1/6 前置断言: 载荷文件数 89，断言通过
+  [12:06:03] 2/6 备份现状 -> /opt/snhgn/backups/website-20261012-120603 (89 个文件)
+  [12:06:03] 3/6 原地 rsync（保留目录 inode: 19923895）
+  [12:06:04] 4/6 bind mount 体检: inode 一致 (19923895)
+  [12:06:04] 5/6 重载 Caddy
+  [12:06:04] 6/6 验证: 线上主 chunk assets/index-Dbk5HKFr.js 可取，全部通过
+  ```
+- **公网端到端验证**：
+  - `https://snhgn.me/` → 200；`https://snhgn.me/schedule` → 200；`/api/auth/me` → 401（网关正常）
+  - 线上 `assets/ScheduleView-DuO7jiYB.js` 含 `z-30`（F6 修复生效）；线上 `SettingsView` chunk 含 `/api/ai/settings`（F1 修复生效）
+- **备注**：PowerShell 客户端最后会把 `sudo` 的 stderr 密码提示升级为异常打印（脚本注释中已知问题），导致退出码为 1 并刷屏一段红色错误——服务器侧 6/6 已全部通过、部署实际成功。若在意可仅作 cosmetics 修复（把最后一次 plink 的 stderr 也并流处理）。
+- **回滚点**：`/opt/snhgn/backups/website-20261012-120603`
+
 ## 五、新增的常驻检查
 
 - `tests/test_route_contract.py`：扫描前端源码里的 `/api/*` 字面量，逐一在网关路由表匹配（已兼容 starlette 1.x 的 `_IncludedRouter` 嵌套）
