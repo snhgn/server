@@ -1,6 +1,6 @@
 # snhgn.me 服务器与项目总览
 
-最近更新：2026-09-08
+最近更新：2026-10-12
 
 ---
 
@@ -21,10 +21,11 @@
 
 | 网卡 | IP | 说明 |
 |------|-----|------|
-| enp2s0f2（有线） | 192.168.50.2/24 | SSH 管理连接 |
-| wlp3s0（无线） | 172.28.204.98/22 | 默认路由，网关 172.28.204.1 |
+| enp2s0f2（有线） | 192.168.50.2/24 | 有线直连/家庭管理连接（在校园网环境不可达） |
+| wlp3s0（无线） | 动态 DHCP（例 172.28.204.40 / 172.25.252.63） | 默认路由出口，自动同步至内网 DDNS `lan.snhgn.me` |
 
-- 家庭 NAT 环境，无公网 IP → 采用 Cloudflare Tunnel 方案
+- 家庭 NAT 环境，无公网 IP → 采用 Cloudflare Tunnel 方案（出站连接至边缘节点）
+- 校园网无线环境：通过 DDNS 保持 `lan.snhgn.me` 指向当前最新无线 IP；本机开发机若运行 Clash/Mihomo TUN 导致 Fake-IP 劫持私网连接，可通过 DoH（`curl --doh-url https://223.5.5.5/dns-query https://lan.snhgn.me`）提取真实私网 IP 直连
 - 默认路由：`via 172.28.204.1 dev wlp3s0`
 - WiFi 省电已关闭（`wifi.powersave = 2`），合盖不挂起（`HandleLidSwitch=ignore`）
 
@@ -395,18 +396,23 @@ docker compose logs -f [服务名]
 cd /opt/snhgn && docker compose restart [服务名]
 ```
 
-### 前端部署
+### 前端部署（生产级自动化方案）
 
-```bash
-# 本地构建
-cd d:\project\snhgn.me
-npm run build
+> ⚠️ **历史教训**：过去使用 `rm -rf /opt/website/web/* && cp -r` 手动覆盖，曾多次因目标丢失引发全站 404，且会导致宿主机与 Caddy 容器 bind mount Inode 漂移。目前统一使用仓库自动化脚本 `packages/website-deploy/deploy-website.ps1`。
 
-# 上传到服务器（通过 pscp）
-& "C:\Program Files\PuTTY\pscp.exe" -hostkey SHA256:roEbdNCO4i18oR7yR1r9HY6kUcE9/hJJsELFJ2CI46I -pw 1 -r "dist\*" snhgn@192.168.50.2:/tmp/snhgn-dist/
+```powershell
+# 1. 确定目标服务器 IP
+#    - 若在家庭/直连网线环境：使用默认 $Server = "192.168.50.2"
+#    - 若在校园网环境且本机开启 TUN 代理：通过 DoH 获取当前动态内网 IP
+$ServerIP = (curl.exe -s --doh-url https://223.5.5.5/dns-query "https://lan.snhgn.me" -v 2>&1 | Select-String "Trying (\d+\.\d+\.\d+\.\d+)").Matches.Groups[1].Value
+# 例如获取到 172.28.204.40
 
-# 服务器替换
-ssh snhgn@192.168.50.2 "sudo rm -rf /opt/website/web/* && sudo cp -r /tmp/snhgn-dist/* /opt/website/web/"
+# 2. 执行自动化闭环部署
+#    流程：本地构建自检 -> pscp 暂存上传 -> 服务器 deploy-web.sh 原子备份与 rsync 替换(保持 Inode) -> Caddy 热重载 -> 全端点健康检查与自动回滚
+powershell -ExecutionPolicy Bypass -File packages\website-deploy\deploy-website.ps1 -Server $ServerIP
+
+# 若此前已构建完毕只需重新推送，可添加 -SkipBuild
+powershell -ExecutionPolicy Bypass -File packages\website-deploy\deploy-website.ps1 -Server $ServerIP -SkipBuild
 ```
 
 ### 后端部署（真实流程，2026-08-15 更新）
@@ -1784,4 +1790,94 @@ DNS  223.5.5.5 1.1.1.1 8.8.8.8 202.204.112.87 202.204.122.66
 
 > 这个数字会随每次提交变化，别把它当固定值看 —— 以
 > `git rev-list --count origin/main..main` 的实时输出为准。
+
+---
+
+## 二十四、生产网站自动化部署体系与校园网动态寻址规范（2026-10-12 落地）
+
+### 24.1 演进背景与历史踩坑
+
+在过去的前端部署过程中，曾多次遭遇由于手工操作或粗糙脚本引发的严重生产事故：
+1. **目录 Inode 漂移事故**：
+   - Caddy 容器采用 Docker bind mount 挂载宿主机 `/opt/website/web` 到容器内 `/srv/web`。
+   - 过去使用 `mv` 替换目录或 `rm -rf /opt/website/web/*`，导致宿主机目录的 Inode 发生改变。Docker 守护进程依然绑定在已被解挂的旧 Inode 句柄上，容器内读取到的目录为空，导致网站瞬间全站 404。
+   - `docker compose up -d` 会误认为容器配置未变动而拒绝重新挂载，必须强制 `--force-recreate` 才能恢复。
+2. **源不存在时的清空惨案**：
+   - 曾有脚本设计为“先清空线上目录，再执行复制”，一旦中间网络传输中断或源目录不存在，线上已被清空，造成不可逆的离线故障。
+3. **网络寻址割裂与 TUN 劫持**：
+   - 部署脚本固定写入 `192.168.50.2`（仅家庭或有线网卡存在），当开发机接入校园网无线（`172.25.x.x`）时直接连接超时；
+   - 客户端开发机常年运行 Clash/Mihomo TUN 虚拟网卡，Windows 路由表默认 `0.0.0.0/0` 路由指向 TUN 适配器（`198.18.0.1`）。校内私网地址（如 `172.28.x.x`）由于被判定为公网流量或受 Fake-IP 干扰，TCP 握手时直接被 TUN 截断重置（`Remote side unexpectedly closed network connection`）。
+
+---
+
+### 24.2 架构设计：两阶段防御性原子替换机制
+
+为实现端到端、零人工干预的健壮交付，设计了客户端协调脚本与服务端原子脚本双层架构：
+
+- **Windows 客户端控制端**：[`packages/website-deploy/deploy-website.ps1`](file:///d:/project/server/packages/website-deploy/deploy-website.ps1)
+- **服务器侧执行端**：[`packages/website-deploy/deploy-web.sh`](file:///d:/project/server/packages/website-deploy/deploy-web.sh)
+
+```
+[Windows 开发机]
+  │ 1. vue-tsc --noEmit && vite build
+  │ 2. 载荷自检（文件数 ≥ 50、index.html/sw.js/schedule-app.apk/assets 完整性）
+  │ 3. pscp 批处理传输至远端暂存目录 /tmp/webdeploy-<timestamp>
+  ▼
+[Ubuntu 生产宿主机 (deploy-web.sh)]
+  ├─ 1/6 前置断言：只读校验暂存目录载荷完整性，绝不提前碰线上目录
+  ├─ 2/6 自动备份：原子复制 /opt/website/web 至 /opt/snhgn/backups/website-<timestamp>
+  ├─ 3/6 原地替换：rsync -a --delete --delete-after --delay-updates（目录 Inode 不变！）
+  ├─ 4/6 Inode 体检：比对宿主目录 Inode 与 Caddy 容器内 Inode，若漂移则自动 --force-recreate
+  ├─ 5/6 服务重载：docker exec caddy caddy reload --config /etc/caddy/Caddyfile
+  └─ 6/6 静默回测：并发探测 5 大核心端点，校验 HTML 实际引用的主 Chunk 是否可读
+        ├─ 验证全部通过 ──► 部署成功，清理 /tmp 暂存
+        └─ 任意端点失败 ──► 触发自动回滚 (从备份恢复并重载 Caddy)，阻断故障扩散
+```
+
+---
+
+### 24.3 网络拓扑与动态 IP 解析寻址规范
+
+针对开发机与服务器在不同网络环境下的通信痛点，制定规范如下：
+
+| 网络环境 | 访问特征 | 寻址与连接方式 |
+| :--- | :--- | :--- |
+| **家庭 / 有线网卡直连** | 拥有固定管理 IP | 直接通过 `192.168.50.2`（默认参数）连接 SSH |
+| **校园网无线 (在校)** | 服务器与开发机均通过 DHCP 获取 `172.28.x.x` 或 `172.25.x.x` 动态私网 IP | 1. 服务器自动更新内网 DDNS `lan.snhgn.me`<br>2. 开发机使用 DoH 解析获取最新 IP：<br>`curl.exe -s --doh-url https://223.5.5.5/dns-query "https://lan.snhgn.me" -v`<br>3. PuTTY `plink`/`pscp` 直连目标 IP（绕过 TUN 干扰） |
+| **校外公网 / 移动蜂窝** | 宿主机无公网 IP | 静态内容与 API 由 Cloudflare Tunnel (`cloudflared`) 承载对外；远程运维需依赖已配置的主机中继 |
+
+#### 针对 Windows 本机 Clash / Mihomo TUN 拦截的排查指引
+当在校园网环境运行部署脚本报错 `FATAL ERROR: Remote side unexpectedly closed network connection` 时：
+1. **原因**：Mihomo TUN 的 `0.0.0.0/0` 路由优先级高于实体网卡，将私网 SSH（22 端口）请求转发至远程代理节点，代理节点拒绝私网连接导致 RST；
+2. **解决方法**：
+   - 方式 A：临时在 Clash/Mihomo 中将校园网网段（`172.16.0.0/12`）或 `lan.snhgn.me` 设为 `DIRECT`；
+   - 方式 B：通过 DoH 获取当前动态 IP，利用 `plink.exe -hostkey ...` 直连该内网 IP。
+
+---
+
+### 24.4 2026-10-12 部署落地实测记录
+
+- **执行命令**：
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File packages\website-deploy\deploy-website.ps1 -Server 172.28.204.40 -SkipBuild
+  ```
+- **构建哈希与关键资产**：
+  - 入口 HTML：引用 `/assets/index-1gJOvKtn.js`
+  - 核心课表组件：`/assets/ScheduleView-mTg4ztc5.js`（89.02 KB）
+  - 安卓离线包：`/schedule-app.apk`（10,357,524 字节，校验通过）
+- **服务器执行日志**：
+  ```text
+  [00:50:02] 1/6 前置断言: 载荷文件数 89，断言通过
+  [00:50:02] 2/6 备份现状 -> /opt/snhgn/backups/website-20261012-005002 (88 个文件)
+  [00:50:03] 3/6 原地 rsync（保留目录 inode: 19923895）
+  [00:50:04] 4/6 bind mount 体检: inode 一致 (19923895)
+  [00:50:04] 5/6 重载 Caddy
+  [00:50:04] 6/6 验证: 线上主 chunk assets/index-1gJOvKtn.js 可取，全部通过
+  ```
+- **公网端到端验证状态**：
+  - `https://snhgn.me` -> HTTP 200 (落地页)
+  - `https://snhgn.me/schedule` -> HTTP 200 (SPA 视图)
+  - `https://snhgn.me/assets/index-1gJOvKtn.js` -> HTTP 200 (Cloudflare Edge Cache-Control 1 年)
+  - `https://snhgn.me/api/auth/me` -> HTTP 401 (FastAPI 网关正常)
+
 
