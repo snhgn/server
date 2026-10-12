@@ -1867,7 +1867,8 @@ function deleteCustomEvent(id: string) {
               ...(c.totalConflicts > 1 ? {
                 width: `${(100 / c.totalConflicts).toFixed(1)}%`,
                 marginLeft: `${((c.stackIndex * 100) / c.totalConflicts).toFixed(1)}%`,
-                zIndex: 10 + c.stackIndex,
+                // 上限 29：必须始终低于吸顶“节次时间”列的 z-30，保证横滑时时间永不被卡片盖住
+                zIndex: 10 + Math.min(c.stackIndex, 19),
               } : {})
             }"
             @click.stop="openDetail(c)"
@@ -2478,7 +2479,7 @@ function deleteCustomEvent(id: string) {
             
             <!-- Column Headers: Weekdays & Dates -->
             <div
-              class="sticky left-0 z-20 bg-white dark:bg-[#131418] p-1 sm:p-2 flex flex-col items-center justify-center font-mono text-[9px] sm:text-[11px] text-neutral-400 border-r border-[#E5E5E5]/50 dark:border-neutral-800"
+              class="sticky left-0 z-30 bg-white dark:bg-[#131418] p-1 sm:p-2 flex flex-col items-center justify-center font-mono text-[9px] sm:text-[11px] text-neutral-400 border-r border-[#E5E5E5]/50 dark:border-neutral-800"
               :style="{ gridColumn: 1, gridRow: 1 }"
             >
               <span class="leading-tight">节次</span>
@@ -2503,7 +2504,7 @@ function deleteCustomEvent(id: string) {
             <div
               v-for="(slot, sIdx) in periodSlots"
               :key="`dt-label-${slot.label}`"
-              class="sticky left-0 z-10 flex flex-col items-center justify-center p-0.5 sm:p-2 rounded-l bg-[#FAFAFA] dark:bg-neutral-900/60 font-mono text-neutral-500 dark:text-neutral-400 border border-neutral-100 dark:border-neutral-800 border-r-[#E5E5E5]/50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.03)]"
+              class="sticky left-0 z-30 flex flex-col items-center justify-center p-0.5 sm:p-2 rounded-l bg-[#FAFAFA] dark:bg-neutral-900/60 font-mono text-neutral-500 dark:text-neutral-400 border border-neutral-100 dark:border-neutral-800 border-r-[#E5E5E5]/50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.03)]"
               :style="{ gridColumn: 1, gridRow: sIdx + 2 }"
             >
               <span class="font-semibold text-neutral-700 dark:text-neutral-300 text-[9px] sm:text-[11px]">{{ slot.label }}</span>
@@ -2567,7 +2568,8 @@ function deleteCustomEvent(id: string) {
                 ...(c.totalConflicts > 1 ? {
                   width: `${(100 / c.totalConflicts).toFixed(1)}%`,
                   marginLeft: `${((c.stackIndex * 100) / c.totalConflicts).toFixed(1)}%`,
-                  zIndex: 10 + c.stackIndex,
+                  // 上限 29：必须始终低于吸顶“节次时间”列的 z-30，保证横滑时时间永不被卡片盖住
+                  zIndex: 10 + Math.min(c.stackIndex, 19),
                 } : {})
               }"
               @click.stop="openDetail(c)"

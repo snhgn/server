@@ -69,6 +69,22 @@
 - 修复：写入前检查容量（上限 5000），超限先清理过期项、仍超限则整体清空；查询时若窗口内已无有效记录则连带删除条目
 - 复验：`tests/test_login_rate_limit.py`（4 个用例，含 20000 次枚举下的有界性断言）
 
+### F6（P1）课表横滑时课程卡片盖住吸顶“节次时间”列 —— 已修复（用户反馈，二轮审查）
+
+- 位置：`web/src/views/ScheduleView.vue` 桌面/整周课表格（吸顶时间列 + 课程卡片层级）
+- 复现证据（本地 dev server + 无头 Chromium 实测，390×844 视口）：
+  1. 课表容器 `overflow-x-auto`（`min-w-[580px] sm:min-w-[800px]`），7 天视图在手机宽度下必然可横滑；且 `scrollToToday()` 在进入整周视图时会**自动横滑到当天列**（今天非周一时 scrollLeft > 0），用户不手动滑也会触发；
+  2. 时间列单元格为 `sticky left-0 z-10`，课程卡片为 `relative z-10`（冲突堆叠时 `zIndex: 10 + stackIndex`）——两者 z-index 相同，卡片在 DOM 中更靠后 → **画在时间列上面**；
+  3. 实测 `scrollLeft=200` 时“数据结构 / 物理实验”卡片与“1-2 / 3-4 / 5”时间标签重叠 40px（整列宽），`elementFromPoint` 命中测试点中的是卡片而非时间标签 → 时间被完全遮住
+- 影响：移动端整周视图（以及窄窗口桌面端）一看课表，节次和时间被课程卡片盖住，无法辨认当前是第几节课
+- 修复：
+  1. 吸顶“节次”表头单元格与 7 个时间标签单元格统一提升到 `z-30`；
+  2. 课程卡片冲突堆叠 z-index 加上限 `10 + Math.min(stackIndex, 19)`（最高 29），从机制上保证任何数据量下卡片都不可能盖过吸顶时间列
+- 复验：
+  - 浏览器实测 7 天 / 5 天视图、scrollLeft ∈ {0, 100, 120, 200, 300, 400}：时间列被卡片遮挡数均为 **0/8**（修复前为 3/8 起）
+  - App 专属模式课表格（无横滑）：0 重叠，冲突卡片堆叠正常（z=10/11）
+  - `web/scripts/check-schedule-sticky-zindex.cjs`（静态不变量检查，已用回归副本验证能抓到此问题）
+
 ## 三、已检查但未改（保留设计意图 / 需产品确认）
 
 | 项 | 判断 |
@@ -88,6 +104,7 @@
 | onMounted 早退扫描（12 个 view） | 0 命中 |
 | markdown 净化验证（7 条恶意输入） | 全部净化 |
 | 前端 API 路径 ↔ 网关路由契约 | 全部匹配 |
+| 课表时间列层级（横滑 5 个位置 × 7天/5天视图） | 遮挡 0/8（修复前 ≥3/8） |
 
 ## 五、新增的常驻检查
 
@@ -95,3 +112,4 @@
 - `tests/test_login_rate_limit.py`：限流表内存边界
 - `web/scripts/check-onmounted-early-return.cjs`：`onMounted` 提前 return 跳过副作用注册的控制流扫描
 - `web/scripts/check-markdown-sanitize.cjs`：取组件真实源码片段运行，验证 markdown 输出净化
+- `web/scripts/check-schedule-sticky-zindex.cjs`：校验吸顶“节次时间”列 z-index 恒高于课程卡片堆叠上限（F6 不变量）
