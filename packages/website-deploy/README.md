@@ -26,9 +26,10 @@ website-deploy/
 
 ```powershell
 # 部署当前项目 web/dist 静态资源至 192.168.50.2 服务器
+$env:SNHGN_DEPLOY_PASSWORD = "<部署密码>"
 powershell -ExecutionPolicy Bypass -File deploy-website.ps1
 
-# 自定义参数
+# 自定义参数（-Server 指定服务器，校园网环境下用 DoH 解析 lan.snhgn.me 取当前 IP）
 powershell -File deploy-website.ps1 -Server 192.168.50.2
 ```
 
@@ -50,8 +51,8 @@ powershell -File deploy-website.ps1 -Server 192.168.50.2
 | 失败回滚 | 验证不通过即还原，并区分"还原失败"与"还原成功但仍不健康" |
 | bind mount 体检 | inode 漂移（历史 `mv` 事故遗留）时自动 `--force-recreate` Caddy |
 
-> 提示：脚本含服务器登录凭据默认值，仅限个人本机使用。若服务器密码已修改，
-> 请用 `-Password` 参数传入或在脚本顶部修改。
+> 提示：脚本**不再内置任何密码**。部署前请设置环境变量 `SNHGN_DEPLOY_PASSWORD`（推荐），
+> 或用 `-Password` 参数显式传入；两者皆无时脚本在第 0 步直接失败，不会误连。
 
 ## 手动部署（不依赖脚本）
 
@@ -63,9 +64,9 @@ cd web && npm run build
 ssh snhgn@192.168.50.2 "rm -rf /tmp/web-manual && mkdir -p /tmp/web-manual"
 pscp -r web\dist\* snhgn@192.168.50.2:/tmp/web-manual/
 
-# 服务器替换：优先直接复用带断言/备份/回滚的远端脚本
+# 服务器替换：优先直接复用带断言/备份/回滚的远端脚本（末参为 sudo 密码，勿写进仓库）
 pscp deploy-web.sh snhgn@192.168.50.2:/tmp/deploy-web.sh
-ssh snhgn@192.168.50.2 "bash /tmp/deploy-web.sh /tmp/web-manual /opt/website /opt/snhgn/backups 1"
+ssh snhgn@192.168.50.2 "bash /tmp/deploy-web.sh /tmp/web-manual /opt/website /opt/snhgn/backups <sudo密码>"
 ```
 
 > ⚠️ **不要**用 `sudo rm -rf /opt/website/web/* && sudo cp -r ...`。

@@ -54,6 +54,7 @@ async def _probe(user: dict = Depends(require_user)):
 client = TestClient(_app)
 
 USERNAME = "alice"
+# 本地测试夹具：账号建在临时 sqlite 里，非真实凭据（脱敏扫描白名单）
 PASSWORD = "pw-123456"
 
 

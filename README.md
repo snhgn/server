@@ -20,6 +20,8 @@ snhgn.me 全栈项目仓库（前端 Vue 3 SPA + 后端服务 gateway / ai-servi
    ```
 2. **生产部署**：
    ```powershell
+   # 密码经环境变量传入（脚本不再内置任何凭据）
+   $env:SNHGN_DEPLOY_PASSWORD = "<部署密码>"
    # 将 web/dist 静态资源同步至生产服务器并重载 Caddy
    powershell -File packages/website-deploy/deploy-website.ps1
    ```
