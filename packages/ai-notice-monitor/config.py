@@ -20,7 +20,21 @@ try:
 
     load_dotenv(BASE_DIR / ".env")
 except ImportError:  # pragma: no cover - 仅在依赖缺失时触发
-    logging.getLogger(__name__).warning("python-dotenv 未安装，跳过 .env 加载")
+    env_file = BASE_DIR / ".env"
+    if env_file.exists():
+        try:
+            with open(env_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    k, v = line.split("=", 1)
+                    k = k.strip()
+                    v = v.strip().strip('"').strip("'")
+                    if k not in os.environ:
+                        os.environ[k] = v
+        except Exception:
+            pass
 
 
 def _get_env(key: str, default: str = "") -> str:
